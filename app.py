@@ -20,7 +20,7 @@ logging.basicConfig(
 )
 
 # ── Device constants ────────────────────────────────────────────────────
-BLE_DEVICE_NAME = "KS-BLC2"  # Change this to match your device's Bluetooth name
+BLE_DEVICE_NAME = "WalkingPad"  # Change this to match your device's Bluetooth name
 
 # ── Conversion constants ─────────────────────────────────────────────────
 KM_TO_MI = 0.621371
