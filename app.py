@@ -19,6 +19,9 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s',
 )
 
+# ── Device constants ────────────────────────────────────────────────────
+BLE_DEVICE_NAME = "WalkingPad"  # Change this to match your device's Bluetooth name
+
 # ── Conversion constants ─────────────────────────────────────────────────
 KM_TO_MI = 0.621371
 KMH_TO_MPH = 0.621371
@@ -72,28 +75,58 @@ def inject_flags():
 
 
 # ── BLE helpers ─────────────────────────────────────────────────────────
+async def _scan_for_device(timeout: int = 10):
+    try:
+        async with BleakScanner() as scanner:
+            await asyncio.sleep(timeout)
+            devices = scanner.discovered_devices
+
+            # First try to find by known address
+            if _pad_address:
+                for dev in devices:
+                    if dev.address == _pad_address:
+                        logging.info(f"Found device by known address: {_pad_address}")
+                        return dev
+
+            # Then try to find by name
+            for dev in devices:
+                if dev.name and BLE_DEVICE_NAME in dev.name:
+                    logging.info(f"Found {BLE_DEVICE_NAME} device: {dev.name} ({dev.address})")
+                    return dev
+
+            logging.debug(f"Discovered {len(devices)} devices, none matched {BLE_DEVICE_NAME}")
+            return None
+    except Exception as exc:
+        logging.warning(f"Scanner error: {exc}")
+        return None
+
+
 async def _connect_to_pad() -> bool:
     global controller, _pad_address
     dev = None
+    max_retries = 3
+    retry_count = 0
 
-    if _pad_address:
-        logging.info(f"Attempting to connect to known address: {_pad_address}")
-        try:
-            dev = await BleakScanner.find_device_by_address(_pad_address, timeout=5)
-        except Exception as exc:
-            logging.warning(f"Failed to find device by address: {exc}")
-            dev = None
+    while retry_count < max_retries and not dev:
+        if retry_count > 0:
+            wait_time = min(2 ** retry_count, 10)
+            logging.info(f"Retry {retry_count}/{max_retries} in {wait_time}s...")
+            await asyncio.sleep(wait_time)
+
+        if _pad_address:
+            logging.info(f"Scanning for known device: {_pad_address}")
+        else:
+            logging.info(f"Scanning for device by name '{BLE_DEVICE_NAME}'...")
+
+        dev = await _scan_for_device(timeout=10)
+
+        if not dev:
+            retry_count += 1
+            if retry_count < max_retries:
+                logging.warning(f"Device not found, retrying... ({retry_count}/{max_retries})")
 
     if not dev:
-        logging.info("Scanning for device by name 'WalkingPad'...")
-        try:
-            dev = await BleakScanner.find_device_by_name("WalkingPad", timeout=10)
-        except Exception as exc:
-            logging.warning(f"Failed to find device by name: {exc}")
-            dev = None
-
-    if not dev:
-        logging.error("Could not find WalkingPad. Ensure it is on and in range.")
+        logging.error(f"Could not find {BLE_DEVICE_NAME} after retries. Ensure it is on and in range.")
         _pad_address = None
         return False
 
@@ -103,8 +136,22 @@ async def _connect_to_pad() -> bool:
     controller = Controller()
     await controller.run(dev.address)
 
+    # Try to set disconnect callback (API varies by Bleak version)
     if hasattr(controller, "client") and controller.client:
-        controller.client.set_disconnected_callback(_handle_disconnect)
+        if hasattr(controller.client, "set_disconn_callback"):
+            # Newer Bleak API
+            try:
+                controller.client.set_disconn_callback(_handle_disconnect)
+            except Exception as exc:
+                logging.warning(f"Could not set disconnect callback: {exc}")
+        elif hasattr(controller.client, "set_disconnected_callback"):
+            # Older Bleak API
+            try:
+                controller.client.set_disconnected_callback(_handle_disconnect)
+            except Exception as exc:
+                logging.warning(f"Could not set disconnect callback: {exc}")
+        else:
+            logging.debug("Disconnect callback not available in this Bleak version")
 
     await controller.switch_mode(WalkingPad.MODE_MANUAL)
 
@@ -179,47 +226,85 @@ async def _stats_monitor():
     """Active monitor: explicitly request a status packet every second."""
     global current_session_active_seconds
     logging.info("Stats monitor started")
-    while belt_running:
-        
-        if belt_running: # Double check, as belt_running can change between await calls
-            current_session_active_seconds += 1
-        
-        try:
-            status = await controller.ask_stats()
-            if status:
-                if isinstance(status, dict):
-                    dist = status.get("dist", 0)
-                    steps = status.get("steps", 0)
-                    speed = status.get("speed", 0)
-                else:
-                    dist = getattr(status, "dist", 0)
-                    steps = getattr(status, "steps", 0)
-                    speed = getattr(status, "speed", 0)
-                process_status_packet(dist, steps, speed)
-                logging.debug(f"Poll {status}")
-        except Exception as exc:
-            logging.warning(f"ask_stats error: {exc}")
-        await asyncio.sleep(1)
+
+    try:
+        while belt_running:
+            if belt_running:  # Double check, as belt_running can change between await calls
+                current_session_active_seconds += 1
+
+            try:
+                status = await asyncio.wait_for(controller.ask_stats(), timeout=2.0)
+                if status:
+                    if isinstance(status, dict):
+                        dist = status.get("dist", 0)
+                        steps = status.get("steps", 0)
+                        speed = status.get("speed", 0)
+                    else:
+                        dist = getattr(status, "dist", 0)
+                        steps = getattr(status, "steps", 0)
+                        speed = getattr(status, "speed", 0)
+                    process_status_packet(dist, steps, speed)
+                    logging.debug(f"Poll {status}")
+            except asyncio.TimeoutError:
+                logging.warning("Status poll timeout")
+            except Exception as exc:
+                logging.warning(f"ask_stats error: {exc}")
+
+            try:
+                await asyncio.sleep(1)
+            except asyncio.CancelledError:
+                logging.info("Stats monitor cancelled")
+                break
+    except Exception as exc:
+        logging.error(f"Stats monitor error: {exc}")
+    finally:
+        logging.info("Stats monitor stopped")
 
 
 def _ble_thread():
     global connected, connecting, connection_failed, ble_loop
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    ble_loop = loop
 
-    if not loop.run_until_complete(_connect_to_pad()):
+    # Create new event loop for BLE thread (works on Linux, MacOS, and Windows)
+    try:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    except RuntimeError as e:
+        logging.error(f"Failed to create event loop: {e}")
         connecting = False
         connection_failed = True
         return
 
-    connected = True
-    connecting = False
+    ble_loop = loop
+
     try:
-        loop.run_forever()
+        if not loop.run_until_complete(_connect_to_pad()):
+            connecting = False
+            connection_failed = True
+            return
+
+        connected = True
+        connecting = False
+        logging.info("BLE connection established, starting event loop")
+
+        try:
+            loop.run_forever()
+        except KeyboardInterrupt:
+            logging.info("BLE thread interrupted")
+        except Exception as e:
+            logging.error(f"Event loop error: {e}")
     finally:
         connected = False
-        loop.close()
+        logging.info("Closing BLE event loop")
+        try:
+            # Cancel all remaining tasks
+            pending = asyncio.all_tasks(loop)
+            for task in pending:
+                task.cancel()
+            loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+        except Exception as e:
+            logging.debug(f"Error canceling tasks: {e}")
+        finally:
+            loop.close()
 
 
 def _start_ble_thread():
@@ -292,14 +377,26 @@ def start_session():
     belt_running = True
 
     async def seq():
+        global belt_running
         try:
+            logging.info("Starting belt...")
             await controller.start_belt()
             await asyncio.sleep(0.5)
+            logging.info("Starting stats monitor...")
             asyncio.create_task(_stats_monitor())
+            logging.info("Session started successfully")
         except Exception as exc:
             logging.error(f"Start sequence error: {exc}")
+            belt_running = False
+            _handle_disconnect(None)
 
-    asyncio.run_coroutine_threadsafe(seq(), ble_loop)
+    try:
+        asyncio.run_coroutine_threadsafe(seq(), ble_loop)
+    except Exception as exc:
+        logging.error(f"Failed to queue start sequence: {exc}")
+        belt_running = False
+        return redirect(url_for("root"))
+
     return redirect(url_for("root"))
 
 
@@ -311,7 +408,7 @@ def pause_session():
     global belt_running, resume_speed_kmh
     if not belt_running:
         return redirect(url_for("root"))
-    
+
     # Use the most recent speed from our history for manual pause
     if speed_history:
         resume_speed_kmh = speed_history[-1]
@@ -325,7 +422,7 @@ def pause_session():
 @app.route("/resume_session", endpoint="resume_session")
 def resume_session():
     global belt_running, _auto_pause_grace_until, session_active # session_active ensures we only resume active sessions
-    
+
     if not session_active: # Can't resume if no session was active
         logging.warning("Resume called but no active session.")
         return redirect(url_for("root"))
@@ -340,6 +437,7 @@ def resume_session():
     _auto_pause_grace_until = time.time() + 7 # Generous 7-second grace period for commands to take effect
 
     async def seq():
+        global belt_running
         try:
             logging.info("Attempting resume: Sending wake-up and start sequence to device...")
             
@@ -361,12 +459,17 @@ def resume_session():
             logging.info("Resume sequence commands sent, monitor ensured.")
 
         except Exception as exc:
-            logging.error(f"Error during resume sequence, device may have disconnected: {exc}")
-            _handle_disconnect(None) # This will set belt_running = False and connected = False
-                                     # The frontend polling will then reload to the correct disconnected/connecting page.
+            logging.error(f"Error during resume sequence: {exc}")
+            belt_running = False
+            _handle_disconnect(None)
 
-    asyncio.run_coroutine_threadsafe(seq(), ble_loop)
-    # The redirect will now happen after belt_running is True in the main thread.
+    try:
+        asyncio.run_coroutine_threadsafe(seq(), ble_loop)
+    except Exception as exc:
+        logging.error(f"Failed to queue resume sequence: {exc}")
+        belt_running = False
+        return redirect(url_for("root"))
+
     return redirect(url_for("root"))
 
 
@@ -409,7 +512,7 @@ def max_speed():
     """Set the belt speed to maximum."""
     if not belt_running:
         return redirect(url_for("root"))
-    
+
     dev_speed = int(MAX_SPEED_KMH * 10)
     asyncio.run_coroutine_threadsafe(controller.change_speed(dev_speed), ble_loop)
     return redirect(url_for("root"))
