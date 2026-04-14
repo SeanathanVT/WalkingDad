@@ -20,7 +20,7 @@ logging.basicConfig(
 )
 
 # ── Device constants ────────────────────────────────────────────────────
-BLE_DEVICE_NAME = "WalkingPad"  # Change this to match your device's Bluetooth name
+BLE_DEVICE_NAME = "KS-BLC2"  # Change this to match your device's Bluetooth name
 
 # ── Conversion constants ─────────────────────────────────────────────────
 KM_TO_MI = 0.621371
@@ -56,6 +56,7 @@ controller: Controller | None = None
 _pad_address: str | None = None
 _auto_pause_grace_until = 0
 speed_history = deque(maxlen=15)
+_stats_monitor_task: asyncio.Task | None = None  # Track the stats monitor task
 
 session_active = belt_running = False
 resume_speed_kmh = 2.0  # default if none yet
@@ -317,13 +318,18 @@ def _start_ble_thread():
 
 def _handle_disconnect(client):
     """Callback function to handle unexpected disconnections."""
-    global connected, belt_running, connecting, connection_failed
-    if connected: # Only log if we thought we were connected
+    global connected, belt_running, connecting, connection_failed, _stats_monitor_task
+    if connected:
         logging.warning("Device has disconnected unexpectedly.")
     connected = False
     belt_running = False
     connecting = False
     connection_failed = True
+
+    # Cancel any running stats monitor task
+    if _stats_monitor_task and not _stats_monitor_task.done():
+        logging.info("Cancelling stats monitor due to disconnect")
+        _stats_monitor_task.cancel()
 
 # ── Flask routes ────────────────────────────────────────────────────────
 @app.route("/")
@@ -363,7 +369,7 @@ def reconnect():
 def start_session():
     """Begin a new session: reset counters, start belt, launch stats monitor."""
     global session_active, belt_running, current_distance_km, current_steps, current_calories, resume_speed_kmh
-    global current_session_active_seconds
+    global current_session_active_seconds, _stats_monitor_task
 
     if not connected:
         return redirect(url_for("root"))
@@ -377,13 +383,23 @@ def start_session():
     belt_running = True
 
     async def seq():
-        global belt_running
+        global belt_running, _stats_monitor_task
         try:
             logging.info("Starting belt...")
             await controller.start_belt()
             await asyncio.sleep(0.5)
+
+            # Cancel any existing stats monitor task
+            if _stats_monitor_task and not _stats_monitor_task.done():
+                logging.info("Cancelling existing stats monitor task")
+                _stats_monitor_task.cancel()
+                try:
+                    await _stats_monitor_task
+                except asyncio.CancelledError:
+                    pass
+
             logging.info("Starting stats monitor...")
-            asyncio.create_task(_stats_monitor())
+            _stats_monitor_task = asyncio.create_task(_stats_monitor())
             logging.info("Session started successfully")
         except Exception as exc:
             logging.error(f"Start sequence error: {exc}")
@@ -405,7 +421,7 @@ def start_session():
 @app.route("/pause", endpoint="pause")
 @app.route("/pause_session", endpoint="pause_session")
 def pause_session():
-    global belt_running, resume_speed_kmh
+    global belt_running, resume_speed_kmh, _stats_monitor_task
     if not belt_running:
         return redirect(url_for("root"))
 
@@ -414,6 +430,11 @@ def pause_session():
         resume_speed_kmh = speed_history[-1]
 
     belt_running = False
+
+    # Close the stats monitor by setting belt_running to False
+    # (it will exit its loop naturally)
+    logging.info("Pausing session - stats monitor will exit on next cycle")
+
     asyncio.run_coroutine_threadsafe(controller.stop_belt(), ble_loop)
     return redirect(url_for("root"))
 
@@ -421,23 +442,22 @@ def pause_session():
 @app.route("/resume", endpoint="resume")
 @app.route("/resume_session", endpoint="resume_session")
 def resume_session():
-    global belt_running, _auto_pause_grace_until, session_active # session_active ensures we only resume active sessions
+    global belt_running, _auto_pause_grace_until, session_active, _stats_monitor_task
 
-    if not session_active: # Can't resume if no session was active
+    if not session_active:
         logging.warning("Resume called but no active session.")
         return redirect(url_for("root"))
 
-    if belt_running: # Already running, do nothing
+    if belt_running:
         logging.info("Resume called but belt is already running.")
         return redirect(url_for("root"))
 
-    # --- CRITICAL FIX: Optimistically set state for UI and grace period ---
     logging.info("Resume button clicked. Setting app state to active.")
     belt_running = True
-    _auto_pause_grace_until = time.time() + 7 # Generous 7-second grace period for commands to take effect
+    _auto_pause_grace_until = time.time() + 7
 
     async def seq():
-        global belt_running
+        global belt_running, _stats_monitor_task
         try:
             logging.info("Attempting resume: Sending wake-up and start sequence to device...")
             
@@ -452,10 +472,19 @@ def resume_session():
             
             logging.info(f"Setting speed to {resume_speed_kmh:.1f} km/h.")
             await controller.change_speed(int(resume_speed_kmh * 10))
-            await asyncio.sleep(0.5) # Allow speed change to propagate
+            await asyncio.sleep(0.5)
             
-            # Start the monitor if it wasn't running or to be sure
-            asyncio.create_task(_stats_monitor())
+            # Cancel any existing stats monitor task and create a fresh one
+            if _stats_monitor_task and not _stats_monitor_task.done():
+                logging.info("Cancelling existing stats monitor task")
+                _stats_monitor_task.cancel()
+                try:
+                    await _stats_monitor_task
+                except asyncio.CancelledError:
+                    pass
+
+            logging.info("Starting stats monitor...")
+            _stats_monitor_task = asyncio.create_task(_stats_monitor())
             logging.info("Resume sequence commands sent, monitor ensured.")
 
         except Exception as exc:
