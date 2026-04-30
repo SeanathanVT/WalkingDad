@@ -1,4 +1,4 @@
-# WalkingPad Web Controller
+# WalkingDad
 
 A web-based application to control your KingSmith WalkingPad treadmill via Bluetooth Low Energy (BLE), offering features and a user experience that aims to improve upon the official app and remote.
 
@@ -30,6 +30,7 @@ This application was built for personal use but can be easily adapted for your o
     * Increase/Decrease speed buttons (0.6 km/h steps, configurable).
     * "Max Speed" preset button (default: 6.0 km/h / ~3.7 mph, configurable).
     * "Slow Walk" preset button (default: 4.5 km/h / ~2.8 mph, configurable).
+* **Cross-Platform BLE Reliability:** 9 robustness improvements including context manager scanning, exponential backoff retry, event loop cleanup, Bleak API version compatibility, and stats monitor lifecycle fixes (macOS/Windows/Linux).
 * **Dark Mode:** Three-state theme toggle (Light → Dark → System) with localStorage persistence and automatic OS preference following.
 * **User-Friendly Conveniences:**
     * Application automatically opens in your default web browser on startup.
@@ -221,7 +222,7 @@ PORT = 5001  # Change as needed
 
 ## Roadmap & Changelog
 
-See [`ROADMAP.md`](ROADMAP.md) for completed features, planned improvements, and the project roadmap.
+See [`ROADMAP.md`](ROADMAP.md) for completed features (BLE reliability fixes, Dark Mode), planned improvements (Phase 1–4), and the full project roadmap.
 
 ## License
 

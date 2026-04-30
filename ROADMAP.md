@@ -1,11 +1,12 @@
 # Roadmap
 
-## Completed Features
+## Phase 1: Stability & Safety (High Priority)
 
-### ✅ macOS / Cross-Platform BLE Reliability Fixes
+### ✅ 1.1 macOS / Cross-Platform BLE Reliability Fixes
+**Status:** ✅ Complete
 **Files Modified:** `app.py`
 
-A comprehensive set of reliability improvements for Bluetooth Low Energy communication across all platforms (macOS, Windows, Linux).
+A comprehensive set of reliability improvements for Bluetooth Low Energy communication across all platforms (macOS, Windows, Linux). Implemented before the ROADMAP existed.
 
 | Fix | Description |
 |---|---|
@@ -23,9 +24,7 @@ A comprehensive set of reliability improvements for Bluetooth Low Energy communi
 
 ---
 
-## Phase 1: Stability & Safety (High Priority)
-
-### 1.1 Graceful Shutdown
+### 1.2 Graceful Shutdown
 - **Status:** Planned
 - **Problem:** The `/shutdown` route uses `os._exit(0)`, which is a hard process kill. This leaves the treadmill in an undefined state (belt may still be running, BLE connection not cleanly closed).
 - **Solution:** Replace `os._exit(0)` with a proper shutdown sequence:
@@ -38,7 +37,7 @@ A comprehensive set of reliability improvements for Bluetooth Low Energy communi
 
 ---
 
-### 1.2 Session State Persistence
+### 1.3 Session State Persistence
 - **Status:** Planned
 - **Problem:** All cumulative stats (time, distance, steps, calories) are lost if the server restarts or crashes mid-session.
 - **Solution:** Persist session state to a local JSON file (`session_state.json`) after each stat update, and restore on startup if a session was active.
@@ -50,7 +49,7 @@ A comprehensive set of reliability improvements for Bluetooth Low Energy communi
 
 ---
 
-### 1.3 Automatic Reconnect on Disconnection
+### 1.4 Automatic Reconnect on Disconnection
 - **Status:** Planned
 - **Problem:** When the BLE connection drops unexpectedly, the user must manually click "Try Again" to reconnect.
 - **Solution:** Implement automatic reconnection with configurable retry interval (e.g., attempt every 5 seconds for up to 60 seconds), while still showing a "Disconnected" state in the UI.
@@ -60,7 +59,15 @@ A comprehensive set of reliability improvements for Bluetooth Low Energy communi
 
 ## Phase 2: User Experience (Medium Priority)
 
-### 2.1 Server-Sent Events for Real-Time Updates
+### ✅ 2.1 Dark Mode
+**Status:** ✅ Complete
+**Files Modified:** `templates/base.html`
+
+Three-state theme toggle (Light → Dark → System) with `localStorage` persistence and automatic OS preference following. Cycles: Light (sun) → Dark (moon) → System (display icon). Auto-follows OS theme changes in system mode.
+
+---
+
+### 2.2 Server-Sent Events for Real-Time Updates
 - **Status:** Planned
 - **Problem:** The client polls `/stats` every 1.5 seconds, which adds unnecessary HTTP overhead and introduces latency between stat updates on the server and display in the browser.
 - **Solution:** Replace polling with Server-Sent Events (SSE) for pushing stat updates from server to client in real time.
@@ -71,7 +78,7 @@ A comprehensive set of reliability improvements for Bluetooth Low Energy communi
 
 ---
 
-### 2.2 Keyboard Shortcuts
+### 2.3 Keyboard Shortcuts
 - **Status:** Planned
 - **Problem:** Adjusting speed or pausing requires using a mouse/touch, which is inconvenient while walking.
 - **Solution:** Add keyboard shortcuts for core actions:
@@ -84,7 +91,7 @@ A comprehensive set of reliability improvements for Bluetooth Low Energy communi
 
 ---
 
-### 2.3 Dual-Unit Display (Imperial / Metric Toggle)
+### 2.4 Dual-Unit Display (Imperial / Metric Toggle)
 - **Status:** Planned
 - **Problem:** The app always displays imperial units (mph, miles). Users who prefer metric must mentally convert or edit code constants.
 - **Solution:** Add a unit toggle (Imperial ↔ Metric) in the header that switches between mph/miles and km/h/km in real time. Store preference in `localStorage`.
@@ -95,7 +102,7 @@ A comprehensive set of reliability improvements for Bluetooth Low Energy communi
 
 ---
 
-### 2.4 Session History Log
+### 2.5 Session History Log
 - **Status:** Planned
 - **Problem:** There is no record of past workouts. Users cannot track progress over time.
 - **Solution:** Store completed sessions in a local JSON file (`session_history.json`) and display a summary table on the start screen.
