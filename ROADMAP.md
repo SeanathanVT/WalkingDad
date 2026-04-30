@@ -84,7 +84,20 @@ A comprehensive set of reliability improvements for Bluetooth Low Energy communi
 
 ---
 
-### 2.3 Dual-Unit Display (Imperial / Metric Toggle)
+### 2.3 Dark Mode (WIP)
+- **Status:** 🚧 In Progress
+- **Branch:** feature/dark-mode
+- **Description:** Three-state theme toggle (Light → Dark → System) with `localStorage` persistence and automatic OS preference following.
+- **Implementation:**
+  - CSS custom properties for light/dark color palettes
+  - JavaScript toggle handler cycling through modes, persisting to `localStorage`
+  - System mode uses `prefers-color-scheme` media query
+  - Toggle button in the header (sun/moon/system icon)
+- **Files Involved:** `templates/base.html`, inline CSS/JS in templates
+
+---
+
+### 2.4 Dual-Unit Display (Imperial / Metric Toggle)
 - **Status:** Planned
 - **Problem:** The app always displays imperial units (mph, miles). Users who prefer metric must mentally convert or edit code constants.
 - **Solution:** Add a unit toggle (Imperial ↔ Metric) in the header that switches between mph/miles and km/h/km in real time. Store preference in `localStorage`.
@@ -95,7 +108,7 @@ A comprehensive set of reliability improvements for Bluetooth Low Energy communi
 
 ---
 
-### 2.4 Session History Log
+### 2.5 Session History Log
 - **Status:** Planned
 - **Problem:** There is no record of past workouts. Users cannot track progress over time.
 - **Solution:** Store completed sessions in a local JSON file (`session_history.json`) and display a summary table on the start screen.
