@@ -196,22 +196,29 @@
         const themeIcon = document.getElementById('theme-icon');
         const STORAGE_KEY = 'walkingpad-theme';
 
+        // Track the explicit mode separately from the applied visual theme
+        var currentMode = 'system'; // default
+
         function getSystemPreference() {
             return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
         }
 
         function applyTheme(theme) {
             root.setAttribute('data-theme', theme);
-            if (theme === 'dark') {
-                themeIcon.className = 'bi bi-moon-fill';
-            } else {
-                themeIcon.className = 'bi bi-sun-fill';
+            // Only set icon if we are NOT in system mode (applyMode handles that)
+            if (currentMode !== 'system') {
+                if (theme === 'dark') {
+                    themeIcon.className = 'bi bi-moon-fill';
+                } else {
+                    themeIcon.className = 'bi bi-sun-fill';
+                }
             }
         }
 
         function applyMode(mode) {
-            // mode: 'light' | 'dark' | 'system' | null
-            if (mode === 'system' || mode === null) {
+            // mode: 'light' | 'dark' | 'system'
+            currentMode = mode;
+            if (mode === 'system') {
                 localStorage.removeItem(STORAGE_KEY);
                 themeIcon.className = 'bi bi-display-fill';
                 applyTheme(getSystemPreference());
@@ -222,25 +229,24 @@
         }
 
         // Initialize
-        const savedMode = localStorage.getItem(STORAGE_KEY);
+        var savedMode = localStorage.getItem(STORAGE_KEY);
         applyMode(savedMode || 'system');
 
         // Cycle: light → dark → system → light ...
         toggleBtn.addEventListener('click', function() {
-            const current = root.getAttribute('data-theme');
-            if (current === 'light') {
+            if (currentMode === 'light') {
                 applyMode('dark');
-            } else if (current === 'dark') {
+            } else if (currentMode === 'dark') {
                 applyMode('system');
             } else {
-                // fallback / default to light
+                // system → light
                 applyMode('light');
             }
         });
 
         // Listen for OS-level theme changes — only auto-follow in system mode
         window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function(e) {
-            if (!localStorage.getItem(STORAGE_KEY)) {
+            if (currentMode === 'system') {
                 applyTheme(e.matches ? 'dark' : 'light');
             }
         });
