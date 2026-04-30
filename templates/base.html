@@ -20,18 +20,37 @@
             --text-color: #0d141c;
             --primary-blue: #0c7ff2;
             --border-color: #e7edf4;
+            --header-bg: white;
+            --button-hover-bg: #d8e0ea;
+            --primary-hover: #0a6bcf;
+            --muted-color: #6c757d;
+        }
+
+        /* Dark mode overrides */
+        [data-theme="dark"] {
+            --background-color: #0f172a; /* slate-900 */
+            --card-color: #1e293b; /* slate-800 */
+            --text-color: #f1f5f9; /* slate-100 */
+            --primary-blue: #0c7ff2;
+            --border-color: #334155; /* slate-700 */
+            --header-bg: #1e293b; /* slate-800 */
+            --button-hover-bg: #334155; /* slate-700 */
+            --primary-hover: #3a94ff;
+            --muted-color: #94a3b8; /* slate-400 */
         }
 
         body {
             font-family: "Space Grotesk", "Noto Sans", sans-serif;
             background-color: var(--background-color);
             color: var(--text-color);
+            transition: background-color 0.2s ease, color 0.2s ease;
         }
 
         /* Header styles */
         .app-header {
-            background-color: white;
+            background-color: var(--header-bg);
             border-bottom: 1px solid var(--border-color);
+            transition: background-color 0.2s ease, border-color 0.2s ease;
         }
 
         .app-header .navbar-brand {
@@ -39,8 +58,8 @@
             font-size: 1.25rem;
             color: var(--text-color);
         }
-        
-        /* NEW styles for the header buttons and indicator */
+
+        /* Header buttons and indicator */
         .btn-header-close {
             background-color: var(--card-color);
             color: var(--text-color);
@@ -48,10 +67,33 @@
             font-size: 0.9rem;
             border: none;
             padding: 0.3rem 0.8rem;
+            transition: background-color 0.2s ease, color 0.2s ease;
         }
         .btn-header-close:hover {
-            background-color: #d8e0ea;
+            background-color: var(--button-hover-bg);
             color: var(--text-color);
+        }
+
+        /* Theme toggle button */
+        .btn-theme-toggle {
+            background-color: var(--card-color);
+            color: var(--text-color);
+            font-weight: 500;
+            font-size: 1rem;
+            border: none;
+            padding: 0.3rem 0.6rem;
+            cursor: pointer;
+            transition: background-color 0.2s ease, color 0.2s ease;
+        }
+        .btn-theme-toggle:hover {
+            background-color: var(--button-hover-bg);
+            color: var(--text-color);
+        }
+
+        /* Comma separator between header controls */
+        .header-separator {
+            color: var(--border-color);
+            user-select: none;
         }
 
         .connection-indicator {
@@ -65,8 +107,6 @@
         .connection-indicator .bi {
             font-size: 1.2rem;
         }
-        /* END NEW styles */
-
 
         /* Main content styles */
         .content-title {
@@ -78,6 +118,7 @@
             background-color: var(--card-color);
             padding: 1.5rem;
             border-radius: 0.5rem;
+            transition: background-color 0.2s ease;
         }
 
         .stat-card .stat-label {
@@ -98,8 +139,13 @@
             padding: 0.75rem 2rem;
         }
         .btn-custom-primary:hover {
-            background-color: #0a6bcf; /* A slightly darker blue for hover */
+            background-color: var(--primary-hover);
             color: white;
+        }
+
+        /* Override Bootstrap's .text-muted for dark mode readability */
+        .text-muted {
+            color: var(--muted-color) !important;
         }
     </style>
 </head>
@@ -111,7 +157,12 @@
                 <span>WalkingPad</span>
             </a>
 
-            <div class="d-flex align-items-center gap-4">
+            <div class="d-flex align-items-center gap-1">
+                <button id="theme-toggle" class="btn btn-theme-toggle" title="Toggle theme (Light / Dark / System)">
+                    <i class="bi bi-moon-fill" id="theme-icon"></i>
+                </button>
+                <span class="header-separator px-2">|</span>
+                
                 <button id="shutdown-button" class="btn btn-header-close">Close</button>
                 
                 <div class="connection-indicator">
@@ -138,6 +189,63 @@
     
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
+    // Dark Mode logic — three states: light, dark, system
+    (function() {
+        const root = document.documentElement;
+        const toggleBtn = document.getElementById('theme-toggle');
+        const themeIcon = document.getElementById('theme-icon');
+        const STORAGE_KEY = 'walkingpad-theme';
+
+        function getSystemPreference() {
+            return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        }
+
+        function applyTheme(theme) {
+            root.setAttribute('data-theme', theme);
+            if (theme === 'dark') {
+                themeIcon.className = 'bi bi-moon-fill';
+            } else {
+                themeIcon.className = 'bi bi-sun-fill';
+            }
+        }
+
+        function applyMode(mode) {
+            // mode: 'light' | 'dark' | 'system' | null
+            if (mode === 'system' || mode === null) {
+                localStorage.removeItem(STORAGE_KEY);
+                themeIcon.className = 'bi bi-display-fill';
+                applyTheme(getSystemPreference());
+            } else {
+                localStorage.setItem(STORAGE_KEY, mode);
+                applyTheme(mode);
+            }
+        }
+
+        // Initialize
+        const savedMode = localStorage.getItem(STORAGE_KEY);
+        applyMode(savedMode || 'system');
+
+        // Cycle: light → dark → system → light ...
+        toggleBtn.addEventListener('click', function() {
+            const current = root.getAttribute('data-theme');
+            if (current === 'light') {
+                applyMode('dark');
+            } else if (current === 'dark') {
+                applyMode('system');
+            } else {
+                // fallback / default to light
+                applyMode('light');
+            }
+        });
+
+        // Listen for OS-level theme changes — only auto-follow in system mode
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function(e) {
+            if (!localStorage.getItem(STORAGE_KEY)) {
+                applyTheme(e.matches ? 'dark' : 'light');
+            }
+        });
+    })();
+
     document.getElementById('shutdown-button').addEventListener('click', function(e) {
       e.preventDefault();
       if (confirm('Are you sure you want to shut down the server?')) {
