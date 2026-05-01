@@ -1,4 +1,5 @@
 /.venv
+.DS_Store
 *.pyc
 __pycache__
 icon.ico
