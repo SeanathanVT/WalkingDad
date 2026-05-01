@@ -16,6 +16,7 @@ The official WalkingPad experience is a bloated mobile app that wants your email
 - **Speed presets** — Max, slow walk, and incremental increase/decrease buttons
 - **Dark mode** — Three-state toggle (Light → Dark → System) with localStorage persistence
 - **Cross-platform BLE** — Tested on Windows, macOS, and Linux with retry logic and event loop cleanup
+- **Graceful shutdown** — Stops the belt, switches to standby, and disconnects BLE cleanly when you close the app
 - **No account. No cloud. No phone required.**
 
 ## Screenshots
