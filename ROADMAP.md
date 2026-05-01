@@ -24,16 +24,24 @@ A comprehensive set of reliability improvements for Bluetooth Low Energy communi
 
 ---
 
-### 1.2 Graceful Shutdown
-- **Status:** Planned
-- **Problem:** The `/shutdown` route uses `os._exit(0)`, which is a hard process kill. This leaves the treadmill in an undefined state (belt may still be running, BLE connection not cleanly closed).
-- **Solution:** Replace `os._exit(0)` with a proper shutdown sequence:
-    1. Stop the belt if a session is active (`controller.stop_belt()`)
-    2. Cancel the stats monitor task
-    3. Switch device to standby mode
-    4. Stop the BLE event loop gracefully
-    5. Exit the Flask/Waitress server
-- **Implementation:** Refactor `shutdown()` route to queue a cleanup coroutine on `ble_loop`, then signal the Waitress server to stop.
+### ✅ 1.2 Graceful Shutdown
+**Status:** ✅ Complete
+**Files Modified:** `app.py`, `templates/base.html`
+
+Replaced hard `os._exit(0)` with a two-phase graceful shutdown sequence.
+
+| Step | Description |
+|---|---|
+| **Stop Belt** | If `belt_running` is True, call `controller.stop_belt()` and wait 0.5s for the device to halt |
+| **Cancel Monitor** | Cancel the active `_stats_monitor_task` to stop polling |
+| **Standby Mode** | Switch device to `WalkingPad.MODE_STANDBY` so it enters a safe idle state |
+| **BLE Disconnect** | Call `controller.client.disconnect()` to close the BLE connection cleanly |
+| **Process Exit** | Return JSON response immediately, then spawn a background thread that waits 3s for cleanup to finish before calling `os._exit(0)` |
+
+Additional fixes:
+- Duplicate shutdown requests are ignored after the first
+- Edge case handling when `ble_loop` or `controller` is None (skip BLE cleanup, exit directly)
+- Shutdown message in browser is now vertically and horizontally centered using inline CSS (`min-height: 100vh`, flexbox centering) on the `<body>` element
 
 ---
 

@@ -59,6 +59,7 @@ speed_history = deque(maxlen=15)
 _stats_monitor_task: asyncio.Task | None = None  # Track the stats monitor task
 
 session_active = belt_running = False
+_shutting_down = False
 resume_speed_kmh = 2.0  # default if none yet
 
 current_speed_kmh = current_distance_km = 0.0
@@ -221,6 +222,48 @@ def process_status_packet(dev_dist, dev_steps, dev_speed):
 
     current_speed_kmh = new_reported_speed_kmh
     current_calories = kcal_estimate(current_distance_km * KM_TO_MI)
+
+
+async def _graceful_shutdown():
+    """Safely stop the treadmill, cancel monitors, and disconnect BLE before exit."""
+    global connected, belt_running, session_active, _stats_monitor_task
+    try:
+        # Step 1: Stop belt if running
+        if belt_running and controller:
+            logging.info("Stopping belt for graceful shutdown...")
+            await controller.stop_belt()
+            belt_running = False
+            await asyncio.sleep(0.5)
+
+        # Step 2: Cancel stats monitor task
+        if _stats_monitor_task and not _stats_monitor_task.done():
+            logging.info("Cancelling stats monitor for shutdown")
+            _stats_monitor_task.cancel()
+            try:
+                await _stats_monitor_task
+            except asyncio.CancelledError:
+                pass
+
+        # Step 3: Switch device to standby mode
+        if controller:
+            logging.info("Switching device to standby mode...")
+            await controller.switch_mode(WalkingPad.MODE_STANDBY)
+            await asyncio.sleep(0.5)
+
+        # Step 4: Disconnect BLE client gracefully
+        if controller and hasattr(controller, 'client') and controller.client:
+            logging.info("Disconnecting BLE client...")
+            try:
+                await controller.client.disconnect()
+            except Exception as exc:
+                logging.warning(f"BLE disconnect error (non-fatal): {exc}")
+    except Exception as exc:
+        logging.error(f"Graceful shutdown error (continuing exit): {exc}")
+    finally:
+        connected = False
+        session_active = False
+        belt_running = False
+        logging.info("Device cleanup complete")
 
 
 async def _stats_monitor():
@@ -571,9 +614,36 @@ def stats_json():
 # ── Shutdown endpoint ──────────────────────────────────────────────────
 @app.route("/shutdown", methods=['POST'])
 def shutdown():
-    """Forcefully shut down the Flask application process."""
-    logging.info("Server shutting down via forceful exit...")
-    os._exit(0)
+    """Gracefully shut down: stop belt, disconnect BLE, then exit."""
+    global _shutting_down
+
+    if _shutting_down:
+        logging.info("Shutdown already in progress, ignoring duplicate request")
+        return jsonify({"status": "shutting_down"})
+
+    _shutting_down = True
+    logging.info("Graceful shutdown initiated...")
+
+    def _exit_after_cleanup():
+        # Wait a moment for the BLE cleanup to complete, then exit
+        time.sleep(3)
+        logging.info("Exiting process after graceful shutdown...")
+        os._exit(0)
+
+    if ble_loop and not ble_loop.is_closed():
+        try:
+            fut = asyncio.run_coroutine_threadsafe(_graceful_shutdown(), ble_loop)
+            # Don't block the HTTP response — spawn a background thread to exit
+            threading.Thread(target=_exit_after_cleanup, daemon=True).start()
+        except Exception as exc:
+            logging.error(f"Failed to queue shutdown coroutine: {exc}")
+            os._exit(0)
+    else:
+        # No BLE loop running, exit directly
+        logging.info("No BLE loop active, exiting immediately")
+        os._exit(0)
+
+    return jsonify({"status": "shutting_down"})
 
 
 # ── Kick off BLE thread ──────────────────────────────────────────────────
