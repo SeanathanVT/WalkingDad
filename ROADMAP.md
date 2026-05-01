@@ -26,22 +26,28 @@ A comprehensive set of reliability improvements for Bluetooth Low Energy communi
 
 ### ✅ 1.2 Graceful Shutdown
 **Status:** ✅ Complete
-**Files Modified:** `app.py`, `templates/base.html`
+**Files Modified:** `app.py`, `run.py`, `templates/*.html`
 
-Replaced hard `os._exit(0)` with a two-phase graceful shutdown sequence.
+Multi-layer graceful shutdown ensuring the treadmill belt always stops and BLE disconnects cleanly, regardless of how the process exits. Includes a web UI notification so the user knows shutdown is in progress.
 
-| Step | Description |
-|---|---|
-| **Stop Belt** | If `belt_running` is True, call `controller.stop_belt()` and wait 0.5s for the device to halt |
-| **Cancel Monitor** | Cancel the active `_stats_monitor_task` to stop polling |
-| **Standby Mode** | Switch device to `WalkingPad.MODE_STANDBY` so it enters a safe idle state |
-| **BLE Disconnect** | Call `controller.client.disconnect()` to close the BLE connection cleanly |
-| **Process Exit** | Return JSON response immediately, then spawn a background thread that waits 3s for cleanup to finish before calling `os._exit(0)` |
+| Layer | Trigger | Description |
+|---|---|---|
+| **HTTP `/shutdown` route** | User clicks "Close" in the UI, or `run.py` calls it on Ctrl+C | Sets `_server_stopping = True`, awaits `_graceful_shutdown()` via `fut.result(timeout=10)`, stops the BLE event loop, returns HTTP response, then a background thread sleeps 5s and exits via `os._exit(0)` (Waitress suppresses `sys.exit()`) |
+| **Signal handlers (`SIGTERM`, `SIGINT`)** | Direct Ctrl+C on Waitress process (rare) | Same cleanup: sets `_server_stopping = True`, stops belt, standby mode, cancels monitor, disconnects BLE, stops event loop, then 2s delay + `os._exit(0)` |
+| **`atexit` safety net** | Any process exit not caught by the above layers | Last-resort cleanup that calls `_graceful_shutdown()` with a 5-second timeout to ensure the belt is stopped even on unexpected exits |
+
+Shutdown coroutine (`_graceful_shutdown()`) steps:
+1. **Stop Belt** — If `belt_running`, call `controller.stop_belt()` and wait 0.5s
+2. **Cancel Monitor** — Cancel `_stats_monitor_task` and await its `CancelledError`
+3. **Standby Mode** — Switch device to `WalkingPad.MODE_STANDBY`
+4. **BLE Disconnect** — Call `controller.client.disconnect()` to close the connection cleanly
 
 Additional fixes:
-- Duplicate shutdown requests are ignored after the first
+- Duplicate shutdown requests are ignored via thread-safe `_shutting_down` flag protected by `threading.Lock()`
+- Uses `os._exit(0)` (not `sys.exit(0)`) for reliable Waitress termination — Waitress catches and suppresses `SystemExit` from `sys.exit()`
+- **UI shutdown notification** — all session templates check `/stats` for `stopping: true` and display "Server is shutting down" message
+- **Process-isolated subprocess** — `run.py` launches Waitress via `os.setsid()` so Ctrl+C only hits the wrapper, not Waitress directly; gives the HTTP shutdown path time to complete
 - Edge case handling when `ble_loop` or `controller` is None (skip BLE cleanup, exit directly)
-- Shutdown message in browser is now vertically and horizontally centered using inline CSS (`min-height: 100vh`, flexbox centering) on the `<body>` element
 
 ---
 

@@ -29,6 +29,11 @@ All notable changes to WalkingDad will be documented in this file.
 - Stats monitor not updating after pause/resume cycle (global task lifecycle fix)
 - Event loop resource leaks on shutdown
 - macOS CoreBluetooth connection reliability
+- **Graceful shutdown overhaul** — replaced hardcoded delays with proper coroutine synchronization (`fut.result(timeout=10)`), `os._exit(0)` for reliable Waitress termination (Waitress suppresses `SystemExit` from `sys.exit()`), and `atexit` safety net for unexpected exits
+- **Ctrl+C no longer leaves belt running** — added `SIGTERM`/`SIGINT` signal handlers that trigger device cleanup (stop belt, standby mode, BLE disconnect)
+- **Process-isolated Waitress subprocess** — `run.py` launches Waitress via `os.setsid()` so Ctrl+C only hits the wrapper process, not the server directly; gives `/shutdown` HTTP endpoint time to complete cleanly
+- **Web UI shutdown notification** — when you press Ctrl+C or click Close, all session pages show "Server is shutting down. You may close this window." instead of silently going dead
+- **Thread-safe shutdown flag** — `_shutting_down` protected by `threading.Lock()` to prevent duplicate/racy shutdown attempts across Flask, signal, and background threads
 
 ---
 

@@ -40,10 +40,22 @@
 </div>
 
 <script>
+  var _shutdownShown = false;
   setInterval(function(){
     fetch("{{ url_for('get_stats') }}")
       .then(response => response.json())
       .then(data => {
+        if (data.stopping === true && !_shutdownShown) {
+          _shutdownShown = true;
+          document.body.style.minHeight = '100vh';
+          document.body.style.display = 'flex';
+          document.body.style.flexDirection = 'column';
+          document.body.style.justifyContent = 'center';
+          document.body.style.alignItems = 'center';
+          document.body.innerHTML = '<div class="container text-center"><h2>Server is shutting down. You may close this window.</h2></div>';
+          return;
+        }
+
         if (data.is_connected === false) {
           window.location.reload();
         }
