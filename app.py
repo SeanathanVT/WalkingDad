@@ -314,7 +314,15 @@ def _ble_thread():
     ble_loop = loop
 
     try:
-        if not loop.run_until_complete(_connect_to_pad()):
+        try:
+            connected_result = loop.run_until_complete(_connect_to_pad())
+        except RuntimeError:
+            # Event loop stopped during connection attempt (e.g., graceful shutdown
+            # while scanning is still in progress). This is expected and harmless.
+            logging.info("BLE connection interrupted by shutdown")
+            connected_result = False
+
+        if not connected_result:
             connecting = False
             connection_failed = True
             return
