@@ -91,6 +91,10 @@ Forked and expanded from the original [walkingpad](https://github.com/CodeJawn/w
 
 See [ROADMAP.md](ROADMAP.md) for completed features and planned improvements across four phases.
 
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for a history of changes.
+
 ## License
 
 See [LICENSE](LICENSE).
