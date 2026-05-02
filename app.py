@@ -1,14 +1,15 @@
 import asyncio
+import atexit
 import logging
 import os
+import signal
+import sys
 import threading
-import webbrowser
-from threading import Timer
 import time
 from collections import deque
 
 from bleak import BleakScanner
-from flask import Flask, render_template, redirect, url_for, jsonify, make_response, request
+from flask import Flask, render_template, redirect, url_for, jsonify, make_response
 from ph4_walkingpad.pad import Controller, WalkingPad
 
 # ── Logging Setup ────────────────────────────────────────────────────────
@@ -27,19 +28,18 @@ KM_TO_MI = 0.621371
 KMH_TO_MPH = 0.621371
 KCAL_PER_MILE = 95  # rough kcal per mile
 
-# Speed control constants
+# ── Speed control constants ──────────────────────────────────────────────
 MAX_SPEED_KMH = 6.0  # Approx 3.7 mph, a common max for these pads
 MIN_SPEED_KMH = 1.0
 SPEED_STEP = 0.6  # Speed change per button press in km/h
-SLOW_WALK_SPEED_KMH = 4.5 # Approx 2.8 MPH
-
+SLOW_WALK_SPEED_KMH = 4.5  # Approx 2.8 MPH
 
 
 def kcal_estimate(miles: float) -> float:
     return KCAL_PER_MILE * miles
 
-# In app.py
-def format_seconds_to_hms(total_seconds):
+
+def format_seconds_to_hms(total_seconds: int) -> str:
     """Converts total seconds to H:MM:SS string format."""
     hours = total_seconds // 3600
     minutes = (total_seconds % 3600) // 60
@@ -53,18 +53,21 @@ app = Flask(__name__)
 connected = connecting = connection_failed = False
 ble_loop: asyncio.AbstractEventLoop | None = None
 controller: Controller | None = None
-_pad_address: str | None = None
-_auto_pause_grace_until = 0
+_device_ble_address: str | None = None
+_resume_grace_deadline = 0
 speed_history = deque(maxlen=15)
 _stats_monitor_task: asyncio.Task | None = None  # Track the stats monitor task
 
 session_active = belt_running = False
+_shutting_down = False
+_server_stopping = False  # Flag for UI to detect Ctrl+C / signal shutdown
+_shutting_down_lock = threading.Lock()  # Protect shutdown state mutations
 resume_speed_kmh = 2.0  # default if none yet
 
 current_speed_kmh = current_distance_km = 0.0
 current_steps = 0
 current_calories = 0.0
-current_session_active_seconds = 0 
+current_session_active_seconds = 0
 
 _last_dev_dist = _last_dev_steps = 0
 
@@ -83,10 +86,10 @@ async def _scan_for_device(timeout: int = 10):
             devices = scanner.discovered_devices
 
             # First try to find by known address
-            if _pad_address:
+            if _device_ble_address:
                 for dev in devices:
-                    if dev.address == _pad_address:
-                        logging.info(f"Found device by known address: {_pad_address}")
+                    if dev.address == _device_ble_address:
+                        logging.info(f"Found device by known address: {_device_ble_address}")
                         return dev
 
             # Then try to find by name
@@ -103,7 +106,7 @@ async def _scan_for_device(timeout: int = 10):
 
 
 async def _connect_to_pad() -> bool:
-    global controller, _pad_address
+    global controller, _device_ble_address
     dev = None
     max_retries = 3
     retry_count = 0
@@ -114,8 +117,8 @@ async def _connect_to_pad() -> bool:
             logging.info(f"Retry {retry_count}/{max_retries} in {wait_time}s...")
             await asyncio.sleep(wait_time)
 
-        if _pad_address:
-            logging.info(f"Scanning for known device: {_pad_address}")
+        if _device_ble_address:
+            logging.info(f"Scanning for known device: {_device_ble_address}")
         else:
             logging.info(f"Scanning for device by name '{BLE_DEVICE_NAME}'...")
 
@@ -128,11 +131,11 @@ async def _connect_to_pad() -> bool:
 
     if not dev:
         logging.error(f"Could not find {BLE_DEVICE_NAME} after retries. Ensure it is on and in range.")
-        _pad_address = None
+        _device_ble_address = None
         return False
 
-    _pad_address = dev.address
-    logging.info(f"Device found! Address: {_pad_address}")
+    _device_ble_address = dev.address
+    logging.info(f"Device found! Address: {_device_ble_address}")
 
     controller = Controller()
     await controller.run(dev.address)
@@ -156,22 +159,15 @@ async def _connect_to_pad() -> bool:
 
     await controller.switch_mode(WalkingPad.MODE_MANUAL)
 
-    def _status_cb(_sender, st):
+    def _handle_status_update(_sender, status):
         try:
-            if isinstance(st, dict):
-                dist = st.get("dist", 0)
-                steps = st.get("steps", 0)
-                speed = st.get("speed", 0)
-            else:
-                dist = getattr(st, "dist", 0)
-                steps = getattr(st, "steps", 0)
-                speed = getattr(st, "speed", 0)
+            dist, steps, speed = _extract_status_fields(status)
             process_status_packet(dist, steps, speed)
             logging.debug(f"Push d={dist} s={steps} v={speed}")
         except Exception as exc:
-            logging.warning(f"status_cb error: {exc}")
+            logging.warning(f"_handle_status_update error: {exc}")
 
-    controller.on_cur_status_received = _status_cb
+    controller.on_cur_status_received = _handle_status_update
 
     if hasattr(controller, "enable_notifications"):
         try:
@@ -181,9 +177,16 @@ async def _connect_to_pad() -> bool:
     return True
 
 
-def process_status_packet(dev_dist, dev_steps, dev_speed):
+def _extract_status_fields(status) -> tuple:
+    """Extract (distance, steps, speed) from a status dict or object."""
+    if isinstance(status, dict):
+        return status.get("dist", 0), status.get("steps", 0), status.get("speed", 0)
+    return getattr(status, "dist", 0), getattr(status, "steps", 0), getattr(status, "speed", 0)
+
+
+def process_status_packet(dev_dist: float, dev_steps: int, dev_speed: float):
     """Update cumulative stats from raw values AND handle auto-pause."""
-    global belt_running, resume_speed_kmh, _auto_pause_grace_until
+    global belt_running, resume_speed_kmh, _resume_grace_deadline
     global current_speed_kmh, current_distance_km, current_steps, current_calories
     global _last_dev_dist, _last_dev_steps
 
@@ -194,7 +197,7 @@ def process_status_packet(dev_dist, dev_steps, dev_speed):
         speed_history.append(new_reported_speed_kmh)
 
     # AUTO-PAUSE LOGIC
-    if time.time() > _auto_pause_grace_until:
+    if time.time() > _resume_grace_deadline:
         if belt_running and new_reported_speed_kmh == 0 and current_speed_kmh > 0:
             logging.info("Belt has stopped unexpectedly. Auto-pausing session.")
             
@@ -207,8 +210,7 @@ def process_status_packet(dev_dist, dev_steps, dev_speed):
 
             belt_running = False
 
-    # CUMULATIVE STATS LOGIC (is unchanged)
-    # ...
+    # Cumulative stats accumulation
     if dev_dist < _last_dev_dist:
         _last_dev_dist = 0
     current_distance_km += (dev_dist - _last_dev_dist) / 100.0
@@ -223,6 +225,48 @@ def process_status_packet(dev_dist, dev_steps, dev_speed):
     current_calories = kcal_estimate(current_distance_km * KM_TO_MI)
 
 
+async def _graceful_shutdown():
+    """Safely stop the treadmill, cancel monitors, and disconnect BLE before exit."""
+    global connected, belt_running, session_active, _stats_monitor_task
+    try:
+        # Step 1: Stop belt if running
+        if belt_running and controller:
+            logging.info("Stopping belt for graceful shutdown...")
+            await controller.stop_belt()
+            belt_running = False
+            await asyncio.sleep(0.5)
+
+        # Step 2: Cancel stats monitor task
+        if _stats_monitor_task and not _stats_monitor_task.done():
+            logging.info("Cancelling stats monitor for shutdown")
+            _stats_monitor_task.cancel()
+            try:
+                await _stats_monitor_task
+            except asyncio.CancelledError:
+                pass
+
+        # Step 3: Switch device to standby mode
+        if controller:
+            logging.info("Switching device to standby mode...")
+            await controller.switch_mode(WalkingPad.MODE_STANDBY)
+            await asyncio.sleep(0.5)
+
+        # Step 4: Disconnect BLE client gracefully
+        if controller and hasattr(controller, 'client') and controller.client:
+            logging.info("Disconnecting BLE client...")
+            try:
+                await controller.client.disconnect()
+            except Exception as exc:
+                logging.warning(f"BLE disconnect error (non-fatal): {exc}")
+    except Exception as exc:
+        logging.error(f"Graceful shutdown error (continuing exit): {exc}")
+    finally:
+        connected = False
+        session_active = False
+        belt_running = False
+        logging.info("Device cleanup complete")
+
+
 async def _stats_monitor():
     """Active monitor: explicitly request a status packet every second."""
     global current_session_active_seconds
@@ -230,20 +274,12 @@ async def _stats_monitor():
 
     try:
         while belt_running:
-            if belt_running:  # Double check, as belt_running can change between await calls
-                current_session_active_seconds += 1
+            current_session_active_seconds += 1
 
             try:
                 status = await asyncio.wait_for(controller.ask_stats(), timeout=2.0)
                 if status:
-                    if isinstance(status, dict):
-                        dist = status.get("dist", 0)
-                        steps = status.get("steps", 0)
-                        speed = status.get("speed", 0)
-                    else:
-                        dist = getattr(status, "dist", 0)
-                        steps = getattr(status, "steps", 0)
-                        speed = getattr(status, "speed", 0)
+                    dist, steps, speed = _extract_status_fields(status)
                     process_status_packet(dist, steps, speed)
                     logging.debug(f"Poll {status}")
             except asyncio.TimeoutError:
@@ -278,7 +314,15 @@ def _ble_thread():
     ble_loop = loop
 
     try:
-        if not loop.run_until_complete(_connect_to_pad()):
+        try:
+            connected_result = loop.run_until_complete(_connect_to_pad())
+        except RuntimeError:
+            # Event loop stopped during connection attempt (e.g., graceful shutdown
+            # while scanning is still in progress). This is expected and harmless.
+            logging.info("BLE connection interrupted by shutdown")
+            connected_result = False
+
+        if not connected_result:
             connecting = False
             connection_failed = True
             return
@@ -326,19 +370,53 @@ def _handle_disconnect(client):
     connecting = False
     connection_failed = True
 
-    # Cancel any running stats monitor task
+    # Cancel any running stats monitor task (safe to call from any thread)
     if _stats_monitor_task and not _stats_monitor_task.done():
         logging.info("Cancelling stats monitor due to disconnect")
         _stats_monitor_task.cancel()
+
+
+def _handle_signal_shutdown(signum, frame):
+    """Handle SIGTERM/SIGINT by triggering graceful shutdown of the device."""
+    global _shutting_down, _server_stopping
+    with _shutting_down_lock:
+        if _shutting_down:
+            logging.info("Signal received but shutdown already in progress")
+            return
+        _shutting_down = True
+
+    # Set UI-visible flag early so the next /stats poll can inform the browser
+    _server_stopping = True
+    logging.info(f"Received signal {signum}, initiating graceful shutdown...")
+
+    if ble_loop and not ble_loop.is_closed():
+        try:
+            asyncio.run_coroutine_threadsafe(_graceful_shutdown(), ble_loop).result(timeout=10)
+        except Exception as exc:
+            logging.error(f"Graceful shutdown from signal failed: {exc}")
+    else:
+        logging.info("No BLE loop active during signal shutdown")
+
+    # Stop the event loop so the BLE thread can exit cleanly
+    if ble_loop and ble_loop.is_running():
+        try:
+            ble_loop.call_soon_threadsafe(ble_loop.stop)
+        except Exception as exc:
+            logging.debug(f"Error stopping BLE loop from signal: {exc}")
+
+    # Give the browser ~2 s to receive the last /stats response (stopping: true),
+    # render the shutdown message, and then force-kill the process.
+    time.sleep(2)
+    os._exit(0)
 
 # ── Flask routes ────────────────────────────────────────────────────────
 @app.route("/")
 def root():
     if not connected:
-        return render_template("connecting.html") #
+        return render_template("connecting.html")
 
-    time_active_display = "0:00:00" # Default for start/paused if not running
-    if session_active: # Only calculate if a session is or was active
+    time_active_display = "0:00:00"  # Default for start/paused if not running
+    if session_active:  # Only calculate if a session is or was active
         time_active_display = format_seconds_to_hms(current_session_active_seconds)
 
     if not session_active:
@@ -353,7 +431,7 @@ def root():
         distance=current_distance_km * KM_TO_MI,
         steps=current_steps,
         calories=current_calories,
-        time_active=time_active_display 
+        time_active=time_active_display,
     )
 
 
@@ -377,12 +455,12 @@ def start_session():
     current_distance_km = current_steps = current_calories = 0.0
     current_session_active_seconds = 0
     resume_speed_kmh = 2.0
-    speed_history.clear() 
+    speed_history.clear()
 
     session_active = True
     belt_running = True
 
-    async def seq():
+    async def _start_belt_sequence():
         global belt_running, _stats_monitor_task
         try:
             logging.info("Starting belt...")
@@ -407,7 +485,7 @@ def start_session():
             _handle_disconnect(None)
 
     try:
-        asyncio.run_coroutine_threadsafe(seq(), ble_loop)
+        asyncio.run_coroutine_threadsafe(_start_belt_sequence(), ble_loop)
     except Exception as exc:
         logging.error(f"Failed to queue start sequence: {exc}")
         belt_running = False
@@ -442,7 +520,7 @@ def pause_session():
 @app.route("/resume", endpoint="resume")
 @app.route("/resume_session", endpoint="resume_session")
 def resume_session():
-    global belt_running, _auto_pause_grace_until, session_active, _stats_monitor_task
+    global belt_running, _resume_grace_deadline, session_active, _stats_monitor_task
 
     if not session_active:
         logging.warning("Resume called but no active session.")
@@ -454,22 +532,22 @@ def resume_session():
 
     logging.info("Resume button clicked. Setting app state to active.")
     belt_running = True
-    _auto_pause_grace_until = time.time() + 7
+    _resume_grace_deadline = time.time() + 7
 
-    async def seq():
+    async def _resume_belt_sequence():
         global belt_running, _stats_monitor_task
         try:
             logging.info("Attempting resume: Sending wake-up and start sequence to device...")
-            
+
             # Standard wake-up and start sequence
             await controller.switch_mode(WalkingPad.MODE_STANDBY)
-            await asyncio.sleep(0.5) 
+            await asyncio.sleep(0.5)
             await controller.switch_mode(WalkingPad.MODE_MANUAL)
-            await asyncio.sleep(0.5) 
-            
+            await asyncio.sleep(0.5)
+
             await controller.start_belt()
-            await asyncio.sleep(0.5) 
-            
+            await asyncio.sleep(0.5)
+
             logging.info(f"Setting speed to {resume_speed_kmh:.1f} km/h.")
             await controller.change_speed(int(resume_speed_kmh * 10))
             await asyncio.sleep(0.5)
@@ -493,7 +571,7 @@ def resume_session():
             _handle_disconnect(None)
 
     try:
-        asyncio.run_coroutine_threadsafe(seq(), ble_loop)
+        asyncio.run_coroutine_threadsafe(_resume_belt_sequence(), ble_loop)
     except Exception as exc:
         logging.error(f"Failed to queue resume sequence: {exc}")
         belt_running = False
@@ -550,17 +628,17 @@ def max_speed():
 # ── Live JSON endpoint ───────────────────────────────────────────────────
 @app.route("/stats", endpoint="get_stats")
 def stats_json():
-    # Calculate formatted_time_active within the function scope
     formatted_time_active = format_seconds_to_hms(current_session_active_seconds)
 
     data = dict(
-        is_connected=connected,      
-        is_running=belt_running,     
+        is_connected=connected,
+        is_running=belt_running,
         speed=round(current_speed_kmh * KMH_TO_MPH, 1),
         distance=round(current_distance_km * KM_TO_MI, 2),
         steps=current_steps,
         calories=round(current_calories),
-        time_active=formatted_time_active 
+        time_active=formatted_time_active,
+        stopping=_server_stopping,
     )
 
     resp = make_response(jsonify(data))
@@ -571,10 +649,66 @@ def stats_json():
 # ── Shutdown endpoint ──────────────────────────────────────────────────
 @app.route("/shutdown", methods=['POST'])
 def shutdown():
-    """Forcefully shut down the Flask application process."""
-    logging.info("Server shutting down via forceful exit...")
-    os._exit(0)
+    """Gracefully shut down: stop belt, disconnect BLE, then exit."""
+    global _shutting_down, _server_stopping
 
+    with _shutting_down_lock:
+        if _shutting_down:
+            logging.info("Shutdown already in progress, ignoring duplicate request")
+            return jsonify({"status": "shutting_down"})
+        _shutting_down = True
+
+    # Set UI-visible flag immediately so the next /stats poll informs the browser
+    _server_stopping = True
+    logging.info("Graceful shutdown initiated via HTTP...")
+
+    if ble_loop and not ble_loop.is_closed():
+        try:
+            fut = asyncio.run_coroutine_threadsafe(_graceful_shutdown(), ble_loop)
+            # Wait for the coroutine to actually complete (with a timeout as safety net)
+            fut.result(timeout=10)
+        except Exception as exc:
+            logging.error(f"Graceful shutdown error: {exc}")
+
+        # Stop the BLE event loop so the thread can exit cleanly
+        if ble_loop.is_running():
+            try:
+                ble_loop.call_soon_threadsafe(ble_loop.stop)
+            except Exception as exc:
+                logging.debug(f"Error stopping BLE loop: {exc}")
+
+    # Return the HTTP response so the client knows shutdown was accepted
+    resp = jsonify({"status": "shutting_down"})
+
+    # Use os._exit(0) here because Waitress catches SystemExit from sys.exit(0)
+    # and continues running, which would prevent the server from actually stopping.
+    def _deferred_exit():
+        time.sleep(5)  # Give browser time to receive /stats with stopping:true
+        logging.info("Exiting process after graceful shutdown...")
+        os._exit(0)
+
+    threading.Thread(target=_deferred_exit, daemon=True).start()
+    return resp
+
+
+# ── Signal handlers for graceful shutdown on Ctrl+C / SIGTERM ──────────
+signal.signal(signal.SIGTERM, _handle_signal_shutdown)
+signal.signal(signal.SIGINT, _handle_signal_shutdown)
+
+# ── Atexit handler as safety net ────────────────────────────────────────
+def _atexit_cleanup():
+    """Safety net: attempt to stop the belt and disconnect BLE on process exit."""
+    global _shutting_down, ble_loop
+    if _shutting_down:
+        return  # Already handled gracefully
+    logging.info("atexit: performing emergency cleanup...")
+    if ble_loop and not ble_loop.is_closed():
+        try:
+            asyncio.run_coroutine_threadsafe(_graceful_shutdown(), ble_loop).result(timeout=5)
+        except Exception as exc:
+            logging.error(f"atexit cleanup error: {exc}")
+
+atexit.register(_atexit_cleanup)
 
 # ── Kick off BLE thread ──────────────────────────────────────────────────
 # The server is no longer started here. This just pre-starts the BLE thread.

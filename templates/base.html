@@ -154,7 +154,7 @@
         <nav class="container-xl d-flex align-items-center justify-content-between py-3 px-4">
             <a class="navbar-brand d-flex align-items-center gap-2" href="{{ url_for('root') }}">
                 <i class="bi bi-caret-down-fill"></i>
-                <span>WalkingPad</span>
+                <span>WalkingDad</span>
             </a>
 
             <div class="d-flex align-items-center gap-1">
@@ -255,17 +255,24 @@
     document.getElementById('shutdown-button').addEventListener('click', function(e) {
       e.preventDefault();
       if (confirm('Are you sure you want to shut down the server?')) {
-        // "Fire-and-forget" the shutdown request. We do not wait for a response
-        // because the server will be terminated before it can send one.
+        // Send shutdown request (server will perform graceful cleanup before exit).
         fetch("{{ url_for('shutdown') }}", { method: 'POST' });
 
-        // Immediately update the page and prepare to close the window.
-        document.body.innerHTML = '<div class="container text-center flex-fill d-flex flex-column justify-content-center"><h2>Server is shutting down. You may now close this window.</h2></div>';
-        
+        // Force full-viewport centering on the body so the message is always
+        // vertically & horizontally centered regardless of window size.
+        document.body.style.minHeight = '100vh';
+        document.body.style.display = 'flex';
+        document.body.style.flexDirection = 'column';
+        document.body.style.justifyContent = 'center';
+        document.body.style.alignItems = 'center';
+
+        // Replace page content with the centered shutdown message.
+        document.body.innerHTML = '<div class="container text-center"><h2>Server is shutting down. You may now close this window.</h2></div>';
+
         // Give the fetch request a moment to be sent before closing.
         setTimeout(function() {
           window.close();
-        }, 750); // Increased delay slightly
+        }, 750);
       }
     });
     </script>
