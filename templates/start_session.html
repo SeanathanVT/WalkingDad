@@ -51,29 +51,29 @@
             </button>
         </div>
     </div>
-    <div class="table-responsive">
-        <table class="table table-hover" style="background-color:var(--card-color);border-radius:0.5rem;overflow:hidden;">
-            <thead style="background-color:var(--border-color);">
+    <div class="table-responsive" style="border-radius:0.5rem;overflow:hidden;">
+        <table class="history-table">
+            <thead>
                 <tr>
-                    <th class="text-start ps-3">Date</th>
+                    <th class="text-start">Date</th>
                     <th>Time</th>
                     <th>Duration</th>
                     <th>Distance</th>
                     <th>Steps</th>
                     <th>Calories</th>
-                    <th class="text-end pe-3">Avg Speed</th>
+                    <th class="text-end">Avg Speed</th>
                 </tr>
             </thead>
             <tbody>
                 {% for s in history %}
                 <tr>
-                    <td class="text-start ps-3">{{ s.date }}</td>
+                    <td class="text-start">{{ s.date }}</td>
                     <td>{{ s.start_time }}</td>
                     <td>{{ s.duration_seconds // 60 }}m {{ s.duration_seconds % 60 }}s</td>
                     <td>{{ "%.2f"|format(s.distance_mi) }} mi</td>
                     <td>{{ "{:,}".format(s.steps|int) }}</td>
                     <td>{{ s.calories|round(0)|int }}</td>
-                    <td class="text-end pe-3">{{ s.avg_speed_mph }} mph</td>
+                    <td class="text-end">{{ s.avg_speed_mph }} mph</td>
                 </tr>
                 {% endfor %}
             </tbody>
