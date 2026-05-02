@@ -116,14 +116,25 @@ Three-state theme toggle (Light → Dark → System) with `localStorage` persist
 
 ---
 
-### 2.5 Session History Log
-- **Status:** Planned
-- **Problem:** There is no record of past workouts. Users cannot track progress over time.
-- **Solution:** Store completed sessions in a local JSON file (`session_history.json`) and display a summary table on the start screen.
-- **Implementation:**
-    - On session end (shutdown, or explicit "End Session" button), write session data to `session_history.json`
-    - Display last N sessions (date, time, distance, steps, calories) as a table on the start screen
-    - Add optional "Export as CSV" functionality
+### ✅ 2.5 Session History Log
+**Status:** ✅ Complete
+**Files Modified:** `app.py`, `templates/start_session.html`, `templates/active_session.html`, `templates/paused_session.html`, `templates/base.html`, `.gitignore`
+
+Stores completed sessions in a local JSON file (`session_history.json`) and displays a summary table on the start screen. Includes CSV export and history clearing.
+
+| Feature | Description |
+|---|---|
+| **Session Persistence** | On session end (explicit "End Session" button or graceful shutdown), all session stats are written to `session_history.json` as a JSON array of record objects |
+| **Thread-Safe I/O** | All file reads/writes protected by `threading.Lock()` (`_history_lock`) to prevent corruption across Flask request threads and the BLE thread |
+| **Session Record** | Each record stores: date, start_time, end_time, duration_seconds, distance_km, distance_mi, steps, calories, avg_speed_kmh, avg_speed_mph |
+| **Recent Sessions Table** | Start screen displays last 10 sessions (configurable via `HISTORY_DISPLAY_LIMIT`) in a responsive table with date, time, duration, distance, steps, calories, and avg speed |
+| **End Session Button** | Red "End Session" button on Active and Paused screens — stops belt, cancels monitor, saves session to history, resets all counters, returns to start screen |
+| **CSV Export** | `/export_csv` route generates a downloadable CSV with all historical sessions (full history, no limit) |
+| **Clear History** | "Clear" button on start screen with confirmation dialog, calls `/clear_history` POST endpoint to truncate the history file |
+| **Graceful Shutdown Hook** | `_save_session()` called at the start of `_graceful_shutdown()` so in-progress sessions are captured even on Ctrl+C or server Close |
+| **Fault Tolerant** | Corrupted or missing `session_history.json` is handled gracefully — starts fresh with empty array and logs warning |
+
+---
 
 ---
 

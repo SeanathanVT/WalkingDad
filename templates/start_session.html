@@ -38,6 +38,50 @@
     <a href="{{ url_for('start_session') }}" class="btn btn-custom-primary">Start</a>
 </div>
 
+{% if history %}
+<div class="mt-5">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="content-title" style="font-size:1.5rem;">Recent Sessions</h2>
+        <div class="d-flex gap-2">
+            <a href="{{ url_for('export_csv') }}" class="btn btn-sm" style="background-color:var(--card-color);color:var(--text-color);border:none;font-weight:500;padding:0.25rem 0.75rem;" title="Export all sessions as CSV">
+                <i class="bi bi-download"></i> Export CSV
+            </a>
+            <button id="clear-history-btn" class="btn btn-sm" style="background-color:var(--card-color);color:var(--text-color);border:none;font-weight:500;padding:0.25rem 0.75rem;" title="Clear all session history">
+                <i class="bi bi-trash"></i> Clear
+            </button>
+        </div>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-hover" style="background-color:var(--card-color);border-radius:0.5rem;overflow:hidden;">
+            <thead style="background-color:var(--border-color);">
+                <tr>
+                    <th class="text-start ps-3">Date</th>
+                    <th>Time</th>
+                    <th>Duration</th>
+                    <th>Distance</th>
+                    <th>Steps</th>
+                    <th>Calories</th>
+                    <th class="text-end pe-3">Avg Speed</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for s in history %}
+                <tr>
+                    <td class="text-start ps-3">{{ s.date }}</td>
+                    <td>{{ s.start_time }}</td>
+                    <td>{{ s.duration_seconds // 60 }}m {{ s.duration_seconds % 60 }}s</td>
+                    <td>{{ "%.2f"|format(s.distance_mi) }} mi</td>
+                    <td>{{ "{:,}".format(s.steps|int) }}</td>
+                    <td>{{ s.calories|round(0)|int }}</td>
+                    <td class="text-end pe-3">{{ s.avg_speed_mph }} mph</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
 <script>
   var _shutdownShown = false;
   setInterval(function(){
@@ -60,6 +104,17 @@
               }
           });
   }, 3000);
+
+  // Clear history button
+  var clearBtn = document.getElementById('clear-history-btn');
+  if (clearBtn) {
+      clearBtn.addEventListener('click', function() {
+          if (confirm('Are you sure you want to clear all session history? This cannot be undone.')) {
+              fetch("{{ url_for('clear_history') }}", { method: 'POST' })
+                  .then(function() { window.location.reload(); });
+          }
+      });
+  }
 </script>
 
 {% endblock %}
