@@ -1,5 +1,8 @@
 import asyncio
 import atexit
+import csv
+import io
+import json
 import logging
 import os
 import signal
@@ -7,6 +10,7 @@ import sys
 import threading
 import time
 from collections import deque
+from datetime import datetime
 
 from bleak import BleakScanner
 from flask import Flask, render_template, redirect, url_for, jsonify, make_response
@@ -57,6 +61,9 @@ _device_ble_address: str | None = None
 _resume_grace_deadline = 0
 speed_history = deque(maxlen=15)
 _stats_monitor_task: asyncio.Task | None = None  # Track the stats monitor task
+_history_lock = threading.Lock()  # Protect session_history.json reads/writes
+HISTORY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "session_history.json")
+HISTORY_DISPLAY_LIMIT = 10  # Max sessions shown on start screen
 
 session_active = belt_running = False
 _shutting_down = False
@@ -70,6 +77,102 @@ current_calories = 0.0
 current_session_active_seconds = 0
 
 _last_dev_dist = _last_dev_steps = 0
+
+
+# ── Session History Persistence ────────────────────────────────────────
+
+def _build_session_record() -> dict:
+    """Build a session record dict from current global state."""
+    now = datetime.now()
+    distance_mi = current_distance_km * KM_TO_MI
+    duration = max(current_session_active_seconds, 1)  # avoid div-by-zero
+    avg_speed_kmh = current_distance_km / (duration / 3600.0)
+    avg_speed_mph = avg_speed_kmh * KMH_TO_MPH
+
+    return {
+        "date": now.strftime("%Y-%m-%d"),
+        "start_time": now.strftime("%H:%M:%S"),
+        "end_time": now.strftime("%H:%M:%S"),
+        "duration_seconds": current_session_active_seconds,
+        "distance_km": round(current_distance_km, 3),
+        "distance_mi": round(distance_mi, 3),
+        "steps": current_steps,
+        "calories": round(current_calories),
+        "avg_speed_kmh": round(avg_speed_kmh, 1),
+        "avg_speed_mph": round(avg_speed_mph, 1),
+    }
+
+
+def _save_session():
+    """Append the current session to session_history.json (thread-safe)."""
+    if not session_active:
+        return
+
+    record = _build_session_record()
+
+    with _history_lock:
+        history = []
+        try:
+            if os.path.exists(HISTORY_FILE):
+                with open(HISTORY_FILE, "r") as f:
+                    history = json.load(f)
+                if not isinstance(history, list):
+                    history = []
+        except (json.JSONDecodeError, IOError) as exc:
+            logging.warning(f"Failed to read {HISTORY_FILE}, starting fresh: {exc}")
+            history = []
+
+        history.append(record)
+
+        try:
+            with open(HISTORY_FILE, "w") as f:
+                json.dump(history, f, indent=2)
+            logging.info(f"Session saved to {HISTORY_FILE} ({len(history)} total sessions)")
+        except IOError as exc:
+            logging.error(f"Failed to write session history: {exc}")
+
+
+def _load_session_history(limit: int = HISTORY_DISPLAY_LIMIT) -> list:
+    """Load session history from disk, return most recent entries first (thread-safe)."""
+    with _history_lock:
+        if not os.path.exists(HISTORY_FILE):
+            return []
+        try:
+            with open(HISTORY_FILE, "r") as f:
+                history = json.load(f)
+            if not isinstance(history, list):
+                return []
+            # Most recent first, sliced to limit
+            return list(reversed(history))[:limit]
+        except (json.JSONDecodeError, IOError) as exc:
+            logging.warning(f"Failed to read session history: {exc}")
+            return []
+
+
+def _clear_session_history():
+    """Delete or truncate the session history file (thread-safe)."""
+    with _history_lock:
+        try:
+            with open(HISTORY_FILE, "w") as f:
+                json.dump([], f)
+            logging.info("Session history cleared")
+        except IOError as exc:
+            logging.error(f"Failed to clear session history: {exc}")
+
+
+def _load_full_session_history() -> list:
+    """Load all session history (no limit), most recent first."""
+    if not os.path.exists(HISTORY_FILE):
+        return []
+    try:
+        with open(HISTORY_FILE, "r") as f:
+            history = json.load(f)
+        if not isinstance(history, list):
+            return []
+        return list(reversed(history))
+    except (json.JSONDecodeError, IOError) as exc:
+        logging.warning(f"Failed to read full session history: {exc}")
+        return []
 
 
 # ── Context processor so templates always know flags ────────────────────
@@ -229,6 +332,10 @@ async def _graceful_shutdown():
     """Safely stop the treadmill, cancel monitors, and disconnect BLE before exit."""
     global connected, belt_running, session_active, _stats_monitor_task
     try:
+        # Step 0.5: Save in-progress session to history before cleanup
+        if session_active:
+            _save_session()
+
         # Step 1: Stop belt if running
         if belt_running and controller:
             logging.info("Stopping belt for graceful shutdown...")
@@ -420,8 +527,9 @@ def root():
         time_active_display = format_seconds_to_hms(current_session_active_seconds)
 
     if not session_active:
-        # For start_session, always show 0 time initially
-        return render_template("start_session.html", time_active="0:00:00")
+        # For start_session, show history (last N sessions)
+        history = _load_session_history(HISTORY_DISPLAY_LIMIT)
+        return render_template("start_session.html", time_active="0:00:00", history=history)
 
     template = "active_session.html" if belt_running else "paused_session.html"
 
@@ -433,6 +541,72 @@ def root():
         calories=current_calories,
         time_active=time_active_display,
     )
+
+
+# ── End Session ────────────────────────────────────────────────────────
+@app.route("/end_session")
+def end_session():
+    """End the current session: save to history, reset counters, return to start."""
+    global session_active, belt_running, current_distance_km, current_steps
+    global current_calories, current_session_active_seconds, _stats_monitor_task
+
+    if not session_active:
+        return redirect(url_for("root"))
+
+    # Stop belt if running
+    if belt_running and controller:
+        try:
+            asyncio.run_coroutine_threadsafe(controller.stop_belt(), ble_loop)
+        except Exception as exc:
+            logging.error(f"Error stopping belt on end_session: {exc}")
+        belt_running = False
+        time.sleep(0.5)
+
+    # Cancel stats monitor
+    if _stats_monitor_task and not _stats_monitor_task.done():
+        _stats_monitor_task.cancel()
+
+    # Save session to history
+    _save_session()
+    logging.info("Session ended by user, saved to history")
+
+    # Reset all counters
+    current_distance_km = current_steps = current_calories = 0.0
+    current_session_active_seconds = 0
+    speed_history.clear()
+    session_active = False
+
+    return redirect(url_for("root"))
+
+
+# ── Export CSV ──────────────────────────────────────────────────────────
+@app.route("/export_csv")
+def export_csv():
+    """Export full session history as a CSV download."""
+    history = _load_full_session_history()
+    si = io.StringIO()
+    writer = csv.writer(si)
+    writer.writerow(["date", "start_time", "end_time", "duration_seconds",
+                      "distance_km", "distance_mi", "steps", "calories",
+                      "avg_speed_kmh", "avg_speed_mph"])
+    for row in history:
+        writer.writerow([row.get("date"), row.get("start_time"), row.get("end_time"),
+                         row.get("duration_seconds"), row.get("distance_km"),
+                         row.get("distance_mi"), row.get("steps"), row.get("calories"),
+                         row.get("avg_speed_kmh"), row.get("avg_speed_mph")])
+
+    resp = make_response(si.getvalue())
+    resp.headers["Content-Disposition"] = "attachment; filename=walkingdad_history.csv"
+    resp.headers["Content-Type"] = "text/csv"
+    return resp
+
+
+# ── Clear History ──────────────────────────────────────────────────────
+@app.route("/clear_history", methods=["POST"])
+def clear_history():
+    """Clear all session history."""
+    _clear_session_history()
+    return jsonify({"status": "cleared"})
 
 
 @app.route("/reconnect", endpoint="reconnect")

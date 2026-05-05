@@ -2,7 +2,7 @@
 
 > Your WalkingPad's original app is trash. This isn't.
 
-A desktop web controller for KingSmith WalkingPad treadmills. Runs locally, connects over Bluetooth, and doesn't ask you to create an account before it lets you walk. Because you shouldn't need a damn account to walk.
+A desktop web controller for KingSmith WalkingPad treadmills. Runs locally, connects over Bluetooth, and doesn't ask you to create an account before it lets you walk. Because you shouldn't need an account to walk.
 
 ## Why
 

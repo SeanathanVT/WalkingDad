@@ -35,7 +35,7 @@
       </div>
   </div>
 
-    <div class="d-flex justify-content-center gap-2">
+    <div class="d-flex justify-content-center gap-2 mb-3">
         <a href="{{ url_for('slow_speed') }}" class="btn btn-custom-primary d-flex align-items-center gap-2">
             <i class="bi bi-person-walking"></i> Slow
         </a>
@@ -49,8 +49,12 @@
             <i class="bi bi-plus-lg"></i> Increase
         </a>
         <a href="{{ url_for('max_speed') }}" class="btn btn-custom-primary d-flex align-items-center gap-2">
-            <i class="bi bi-speedometer"></i> Max </a>
+            <i class="bi bi-speedometer"></i> Max
+        </a>
     </div>
+    <a href="{{ url_for('end_session') }}" class="btn btn-custom-danger">
+        <i class="bi bi-stop-fill"></i> End Session
+    </a>
 </div>
 
 <script>

@@ -3,3 +3,4 @@
 *venv
 __pycache__
 icon.ico
+session_history.json

@@ -2,18 +2,37 @@
 
 All notable changes to WalkingDad will be documented in this file.
 
+## [1.2.0] — 2026-05-02
+
+### Added
+
+- **Session History Log** — Completed sessions are saved to `session_history.json` with date, time, duration, distance (km/mi), steps, calories, and average speed (km/h and mph). Start screen displays the last 10 sessions in a responsive table. Red "End Session" button on Active and Paused screens explicitly ends a session and saves it. CSV export (`/export_csv`) and Clear History functionality included. Thread-safe file I/O via `threading.Lock()`. In-progress sessions are captured on graceful shutdown (Ctrl+C, Close). Corrupted history files are handled gracefully.
+
+### Fixed
+
+- **Session history table dark mode** — Table background was not following the Light / Dark theme toggle, causing white-on-white (invisible) text in dark mode. Removed Bootstrap `.table` class dependency and rewrote all table styling from scratch using CSS custom properties so every color (background, borders, hover, text) properly switches with the theme toggle.
+
+---
+
+## [1.1.0] — 2026-05-01
+
+### Fixed
+
+- **Graceful shutdown overhaul** — Replaced hardcoded delays with proper coroutine synchronization (`fut.result(timeout=10)`), `os._exit(0)` for reliable Waitress termination (Waitress suppresses `SystemExit` from `sys.exit()`), and `atexit` safety net for unexpected exits
+- **Ctrl+C no longer leaves belt running** — Added `SIGTERM`/`SIGINT` signal handlers that trigger device cleanup (stop belt, standby mode, BLE disconnect)
+- **Process-isolated Waitress subprocess** — `run.py` launches Waitress via `os.setsid()` so Ctrl+C only hits the wrapper process, not the server directly; gives `/shutdown` HTTP endpoint time to complete cleanly
+- **Web UI shutdown notification** — When you press Ctrl+C or click Close, all session pages show "Server is shutting down. You may close this window." instead of silently going dead
+- **Thread-safe shutdown flag** — `_shutting_down` protected by `threading.Lock()` to prevent duplicate/racy shutdown attempts across Flask, signal, and background threads
+- **Shutdown during BLE scanning** — Clicking Close while the app is still scanning for the device no longer crashes with `RuntimeError: Event loop stopped before Future completed`; connection attempt now gracefully exits when loop is stopped
+
+---
+
 ## [1.0.0] — 2026-05-01
 
 ### Added
 
-- **Dark mode** — Three-state toggle (Light → Dark → System) with localStorage persistence and automatic OS preference following
+- **Dark mode** — Three-state toggle (Light / Dark / System) with localStorage persistence and automatic OS preference following
 - **Cross-platform BLE reliability** — Context manager scanning, exponential backoff retry, event loop cleanup, Bleak API version fallbacks, and stats monitor lifecycle fixes across macOS, Windows, and Linux
-- **Smart auto-pause & resume** — Detects when you step off the pad or stop via remote; remembers your speed with a 7-second grace period to prevent re-triggering on restart
-- **Speed presets** — Max speed, slow walk, and incremental increase/decrease buttons (all configurable in `app.py`)
-- **Cumulative session stats** — Distance, steps, calories, and active time persist across pause/resume cycles
-- **Web UI** — Responsive Bootstrap 5.3 interface with real-time stat updates, connection status indicator, and clean shutdown button
-- **Windows launch shortcut** — `start_app.bat` for one-click startup
-- **Project documentation** — README, ROADMAP, LICENSE
 
 ### Changed
 
@@ -25,16 +44,7 @@ All notable changes to WalkingDad will be documented in this file.
 
 ### Fixed
 
-- Resume speed bug after stepping off the pad (uses oldest speed from 15-sample buffer to skip deceleration noise)
-- Stats monitor not updating after pause/resume cycle (global task lifecycle fix)
-- Event loop resource leaks on shutdown
 - macOS CoreBluetooth connection reliability
-- **Graceful shutdown overhaul** — replaced hardcoded delays with proper coroutine synchronization (`fut.result(timeout=10)`), `os._exit(0)` for reliable Waitress termination (Waitress suppresses `SystemExit` from `sys.exit()`), and `atexit` safety net for unexpected exits
-- **Ctrl+C no longer leaves belt running** — added `SIGTERM`/`SIGINT` signal handlers that trigger device cleanup (stop belt, standby mode, BLE disconnect)
-- **Process-isolated Waitress subprocess** — `run.py` launches Waitress via `os.setsid()` so Ctrl+C only hits the wrapper process, not the server directly; gives `/shutdown` HTTP endpoint time to complete cleanly
-- **Web UI shutdown notification** — when you press Ctrl+C or click Close, all session pages show "Server is shutting down. You may close this window." instead of silently going dead
-- **Thread-safe shutdown flag** — `_shutting_down` protected by `threading.Lock()` to prevent duplicate/racy shutdown attempts across Flask, signal, and background threads
-- **Shutdown during BLE scanning** — clicking Close while the app is still scanning for the device no longer crashes with `RuntimeError: Event loop stopped before Future completed`; connection attempt now gracefully exits when loop is stopped
 
 ---
 
