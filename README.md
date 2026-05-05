@@ -1,3 +1,5 @@
+<p align="center"><img src="images/logo.png" width="250" alt="WalkingDad Logo"></p>
+
 # WalkingDad
 
 > Your WalkingPad's original app is trash. This isn't.
@@ -22,13 +24,13 @@ The official WalkingPad experience is a bloated mobile app that wants your email
 ## Screenshots
 
 **Start**
-![Start Session](screenshots/start.png)
+![Start Session](images/screenshots/start.png)
 
 **Active**
-![Active Session](screenshots/active.png)
+![Active Session](images/screenshots/active.png)
 
 **Paused**
-![Paused Session](screenshots/paused.png)
+![Paused Session](images/screenshots/paused.png)
 
 ## Quick Start
 
