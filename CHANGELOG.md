@@ -2,6 +2,27 @@
 
 All notable changes to WalkingDad will be documented in this file.
 
+## [1.3.0] — 2026-06-12
+
+### Fixed
+
+- **Session start time was always wrong** — `session_history.json` recorded the save time as both `start_time` and `end_time`. Added `_session_start_time` tracked from the moment the session begins; records now show the correct start and end times independently.
+- **CSV export race condition** — `_load_full_session_history()` (called by `/export_csv`) read `session_history.json` without holding `_history_lock`, meaning a concurrent session save could produce a corrupt read. Now consistently lock-protected like every other history I/O call.
+- **Session timer ran ~10% fast** — The stats monitor incremented the timer by one tick then slept for one second, but the `ask_stats()` poll itself takes ~100ms, causing ~6 minutes of drift over a 60-minute session. Timer now uses `time.monotonic()` so elapsed time reflects the wall clock, not loop iterations.
+
+### Changed
+
+- **Belt-control routes are now POST-only** — `/start`, `/pause`, `/resume`, `/end_session`, and all speed controls previously accepted GET requests, meaning browser prefetch, back-button navigation, or a stray link preview could accidentally send a belt command. All action routes now require POST; templates updated from `<a href>` links to `<form method="post">` buttons.
+
+### Internal
+
+- Merged `_load_full_session_history()` into `_load_session_history(limit=None)` — the two functions were identical except for a limit slice and the missing lock on the full variant.
+- Extracted `showShutdownOverlay()` into `base.html` — the shutdown DOM block was copy-pasted verbatim across three templates.
+- Removed duplicate `KMH_TO_MPH` constant (identical to `KM_TO_MI`); removed unused `sys` import; removed stale logging comment.
+- Removed `/manual_reconnect` route alias; `run.py` kwargs dict renamed from `startupinfo` to `popen_kwargs`; dropped a `time.sleep(0.5)` in `end_session` that followed a fire-and-forget coroutine dispatch.
+
+---
+
 ## [1.2.1] — 2026-05-05
 
 ### Changed
