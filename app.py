@@ -557,7 +557,8 @@ def end_session():
     logging.info("Session ended by user, saved to history")
 
     # Reset all counters
-    current_distance_km = current_steps = current_calories = 0.0
+    current_distance_km = current_calories = 0.0
+    current_steps = 0
     current_session_active_seconds = 0
     speed_history.clear()
     session_active = False
@@ -608,16 +609,22 @@ def start_session():
     """Begin a new session: reset counters, start belt, launch stats monitor."""
     global session_active, belt_running, current_distance_km, current_steps, current_calories, resume_speed_kmh
     global current_session_active_seconds, _stats_monitor_task, _session_start_time, current_speed_kmh
+    global _resume_grace_deadline
 
     if not connected:
         return redirect(url_for("root"))
 
-    current_distance_km = current_steps = current_calories = 0.0
+    if session_active:
+        return redirect(url_for("root"))
+
+    current_distance_km = current_calories = 0.0
+    current_steps = 0
     current_speed_kmh = 0.0
     current_session_active_seconds = 0
     resume_speed_kmh = 2.0
     speed_history.clear()
     _session_start_time = datetime.now()
+    _resume_grace_deadline = time.time() + 7
 
     session_active = True
     belt_running = True
