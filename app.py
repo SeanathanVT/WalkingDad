@@ -607,12 +607,13 @@ def reconnect():
 def start_session():
     """Begin a new session: reset counters, start belt, launch stats monitor."""
     global session_active, belt_running, current_distance_km, current_steps, current_calories, resume_speed_kmh
-    global current_session_active_seconds, _stats_monitor_task, _session_start_time
+    global current_session_active_seconds, _stats_monitor_task, _session_start_time, current_speed_kmh
 
     if not connected:
         return redirect(url_for("root"))
 
     current_distance_km = current_steps = current_calories = 0.0
+    current_speed_kmh = 0.0
     current_session_active_seconds = 0
     resume_speed_kmh = 2.0
     speed_history.clear()
