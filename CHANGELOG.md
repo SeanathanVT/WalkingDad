@@ -6,25 +6,20 @@ All notable changes to WalkingDad will be documented in this file.
 
 ### Fixed
 
-- **Session start time was always wrong** — `session_history.json` recorded the save time as both `start_time` and `end_time`. Added `_session_start_time` tracked from the moment the session begins; records now show the correct start and end times independently.
-- **CSV export race condition** — `_load_full_session_history()` (called by `/export_csv`) read `session_history.json` without holding `_history_lock`, meaning a concurrent session save could produce a corrupt read. Now consistently lock-protected like every other history I/O call.
-- **Session timer ran ~10% fast** — The stats monitor incremented the timer by one tick then slept for one second, but the `ask_stats()` poll itself takes ~100ms, causing ~6 minutes of drift over a 60-minute session. Timer now uses `time.monotonic()` so elapsed time reflects the wall clock, not loop iterations.
-- **Belt did not start after ending a session** — `_start_belt_sequence` called `start_belt()` directly without first switching the device out of STANDBY mode. After `stop_belt()` the device enters STANDBY; `start_belt()` alone silently fails. Added the same STANDBY → MANUAL wakeup used by the resume path.
-- **False auto-pause immediately after starting a new session** — `current_speed_kmh` was not reset when starting a new session. If the previous session ended while the belt was moving, the lingering speed value caused the auto-pause condition (`belt_running AND speed==0 AND current_speed_kmh>0`) to fire the instant the device reported a `speed=0` packet during belt spin-down. Reset `current_speed_kmh = 0.0` on start. Also reset in `end_session()` to prevent stale `/stats` responses.
-- **Belt startup jitter could auto-pause a new session** — `_resume_grace_deadline` was only set during Resume, not during Start. A momentary `speed=0` report while the belt was spinning up could trigger auto-pause. Grace period now applied on Start as well.
-- **Session guard missing in `/start`** — A POST to `/start` while a session was already active would silently reset all counters and discard the in-progress session without saving it. Route now returns early if `session_active` is already True.
-- **`current_steps` silently coerced to float** — The chained assignment `current_distance_km = current_steps = current_calories = 0.0` in both `start_session()` and `end_session()` set `current_steps` (an `int`) to `0.0`, causing history records to store steps as a float. Split into separate assignments.
+- **Session start time was always wrong** — `session_history.json` recorded the save time as both `start_time` and `end_time`. Records now correctly capture the real start time from when the session begins.
+- **CSV export race condition** — The history load used by `/export_csv` was not holding `_history_lock`, meaning a concurrent session save could produce a corrupt read.
+- **Session timer ran ~10% fast** — The stats monitor incremented a tick counter each loop, but the `ask_stats()` poll takes ~100ms, causing ~6 minutes of drift over a 60-minute session. Timer now measures elapsed wall-clock time via `time.monotonic()`.
 
 ### Changed
 
-- **Belt-control routes are now POST-only** — `/start`, `/pause`, `/resume`, `/end_session`, and all speed controls previously accepted GET requests, meaning browser prefetch, back-button navigation, or a stray link preview could accidentally send a belt command. All action routes now require POST; templates updated from `<a href>` links to `<form method="post">` buttons.
+- **Belt-control routes are now POST-only** — `/start`, `/pause`, `/resume`, `/end_session`, and all speed controls now require POST; templates updated from `<a href>` links to `<form method="post">` buttons. Prevents browser prefetch, back-navigation, or a stray link preview from accidentally sending a belt command.
 
 ### Internal
 
 - Merged `_load_full_session_history()` into `_load_session_history(limit=None)` — the two functions were identical except for a limit slice and the missing lock on the full variant.
 - Extracted `showShutdownOverlay()` into `base.html` — the shutdown DOM block was copy-pasted verbatim across three templates.
 - Removed duplicate `KMH_TO_MPH` constant (identical to `KM_TO_MI`); removed unused `sys` import; removed stale logging comment.
-- Removed `/manual_reconnect` route alias; `run.py` kwargs dict renamed from `startupinfo` to `popen_kwargs`; dropped a `time.sleep(0.5)` in `end_session` that followed a fire-and-forget coroutine dispatch.
+- Removed `/manual_reconnect` route alias; `run.py` kwargs dict renamed from `startupinfo` to `popen_kwargs`.
 
 ---
 
