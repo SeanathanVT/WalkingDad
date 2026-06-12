@@ -382,9 +382,12 @@ async def _stats_monitor():
     global current_session_active_seconds
     logging.info("Stats monitor started")
 
+    _base_seconds = current_session_active_seconds
+    _monitor_start = time.monotonic()
+
     try:
         while belt_running:
-            current_session_active_seconds += 1
+            current_session_active_seconds = _base_seconds + int(time.monotonic() - _monitor_start)
 
             try:
                 status = await asyncio.wait_for(controller.ask_stats(), timeout=2.0)
