@@ -163,18 +163,19 @@ def _clear_session_history():
 
 
 def _load_full_session_history() -> list:
-    """Load all session history (no limit), most recent first."""
-    if not os.path.exists(HISTORY_FILE):
-        return []
-    try:
-        with open(HISTORY_FILE, "r") as f:
-            history = json.load(f)
-        if not isinstance(history, list):
+    """Load all session history (no limit), most recent first (thread-safe)."""
+    with _history_lock:
+        if not os.path.exists(HISTORY_FILE):
             return []
-        return list(reversed(history))
-    except (json.JSONDecodeError, IOError) as exc:
-        logging.warning(f"Failed to read full session history: {exc}")
-        return []
+        try:
+            with open(HISTORY_FILE, "r") as f:
+                history = json.load(f)
+            if not isinstance(history, list):
+                return []
+            return list(reversed(history))
+        except (json.JSONDecodeError, IOError) as exc:
+            logging.warning(f"Failed to read full session history: {exc}")
+            return []
 
 
 # ── Context processor so templates always know flags ────────────────────
