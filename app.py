@@ -17,8 +17,6 @@ from flask import Flask, render_template, redirect, url_for, jsonify, make_respo
 from ph4_walkingpad.pad import Controller, WalkingPad
 
 # ── Logging Setup ────────────────────────────────────────────────────────
-# All print() statements will be replaced with this logging configuration.
-# It provides timed, leveled output. Set level=logging.DEBUG to see verbose messages.
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -29,7 +27,6 @@ BLE_DEVICE_NAME = "KS-BLC2"  # Change this to match your device's Bluetooth name
 
 # ── Conversion constants ─────────────────────────────────────────────────
 KM_TO_MI = 0.621371
-KMH_TO_MPH = 0.621371
 KCAL_PER_MILE = 95  # rough kcal per mile
 
 # ── Speed control constants ──────────────────────────────────────────────
@@ -89,7 +86,7 @@ def _build_session_record() -> dict:
     distance_mi = current_distance_km * KM_TO_MI
     duration = max(current_session_active_seconds, 1)  # avoid div-by-zero
     avg_speed_kmh = current_distance_km / (duration / 3600.0)
-    avg_speed_mph = avg_speed_kmh * KMH_TO_MPH
+    avg_speed_mph = avg_speed_kmh * KM_TO_MI
 
     return {
         "date": start.strftime("%Y-%m-%d"),
@@ -526,7 +523,7 @@ def root():
 
     return render_template(
         template,
-        speed=current_speed_kmh * KMH_TO_MPH,
+        speed=current_speed_kmh * KM_TO_MI,
         distance=current_distance_km * KM_TO_MI,
         steps=current_steps,
         calories=current_calories,
@@ -800,7 +797,7 @@ def stats_json():
     data = dict(
         is_connected=connected,
         is_running=belt_running,
-        speed=round(current_speed_kmh * KMH_TO_MPH, 1),
+        speed=round(current_speed_kmh * KM_TO_MI, 1),
         distance=round(current_distance_km * KM_TO_MI, 2),
         steps=current_steps,
         calories=round(current_calories),
