@@ -534,7 +534,7 @@ def root():
 @app.route("/end_session", methods=["POST"])
 def end_session():
     """End the current session: save to history, reset counters, return to start."""
-    global session_active, belt_running, current_distance_km, current_steps
+    global session_active, belt_running, current_distance_km, current_steps, current_speed_kmh
     global current_calories, current_session_active_seconds, _stats_monitor_task, _session_start_time
 
     if not session_active:
@@ -558,6 +558,7 @@ def end_session():
 
     # Reset all counters
     current_distance_km = current_calories = 0.0
+    current_speed_kmh = 0.0
     current_steps = 0
     current_session_active_seconds = 0
     speed_history.clear()
@@ -633,6 +634,10 @@ def start_session():
         global belt_running, _stats_monitor_task
         try:
             logging.info("Starting belt...")
+            await controller.switch_mode(WalkingPad.MODE_STANDBY)
+            await asyncio.sleep(0.5)
+            await controller.switch_mode(WalkingPad.MODE_MANUAL)
+            await asyncio.sleep(0.5)
             await controller.start_belt()
             await asyncio.sleep(0.5)
 
