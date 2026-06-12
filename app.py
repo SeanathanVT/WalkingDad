@@ -134,8 +134,8 @@ def _save_session():
             logging.error(f"Failed to write session history: {exc}")
 
 
-def _load_session_history(limit: int = HISTORY_DISPLAY_LIMIT) -> list:
-    """Load session history from disk, return most recent entries first (thread-safe)."""
+def _load_session_history(limit: int | None = None) -> list:
+    """Load session history from disk, most recent first (thread-safe). Pass limit=None for all."""
     with _history_lock:
         if not os.path.exists(HISTORY_FILE):
             return []
@@ -144,8 +144,8 @@ def _load_session_history(limit: int = HISTORY_DISPLAY_LIMIT) -> list:
                 history = json.load(f)
             if not isinstance(history, list):
                 return []
-            # Most recent first, sliced to limit
-            return list(reversed(history))[:limit]
+            result = list(reversed(history))
+            return result[:limit] if limit is not None else result
         except (json.JSONDecodeError, IOError) as exc:
             logging.warning(f"Failed to read session history: {exc}")
             return []
@@ -161,21 +161,6 @@ def _clear_session_history():
         except IOError as exc:
             logging.error(f"Failed to clear session history: {exc}")
 
-
-def _load_full_session_history() -> list:
-    """Load all session history (no limit), most recent first (thread-safe)."""
-    with _history_lock:
-        if not os.path.exists(HISTORY_FILE):
-            return []
-        try:
-            with open(HISTORY_FILE, "r") as f:
-                history = json.load(f)
-            if not isinstance(history, list):
-                return []
-            return list(reversed(history))
-        except (json.JSONDecodeError, IOError) as exc:
-            logging.warning(f"Failed to read full session history: {exc}")
-            return []
 
 
 # ── Context processor so templates always know flags ────────────────────
@@ -534,7 +519,7 @@ def root():
 
     if not session_active:
         # For start_session, show history (last N sessions)
-        history = _load_session_history(HISTORY_DISPLAY_LIMIT)
+        history = _load_session_history(limit=HISTORY_DISPLAY_LIMIT)
         return render_template("start_session.html", time_active="0:00:00", history=history)
 
     template = "active_session.html" if belt_running else "paused_session.html"
@@ -590,7 +575,7 @@ def end_session():
 @app.route("/export_csv")
 def export_csv():
     """Export full session history as a CSV download."""
-    history = _load_full_session_history()
+    history = _load_session_history()
     si = io.StringIO()
     writer = csv.writer(si)
     writer.writerow(["date", "start_time", "end_time", "duration_seconds",
