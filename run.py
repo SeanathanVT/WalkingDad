@@ -43,16 +43,13 @@ if __name__ == "__main__":
     # so that Ctrl+C in this terminal only hits run.py, not Waitress directly.
     # This gives the /shutdown HTTP endpoint time to complete cleanly.
     if os.name == "posix":
-        startupinfo = {}
-        preexec_fn_val = os.setsid
+        popen_kwargs = {"preexec_fn": os.setsid}
     else:
-        startupinfo = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
-        preexec_fn_val = None
+        popen_kwargs = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
 
     server_process = subprocess.Popen(
         ["waitress-serve", f"--host={HOST}", f"--port={PORT}", "app:app"],
-        **startupinfo,
-        preexec_fn=preexec_fn_val,
+        **popen_kwargs,
     )
 
     # Give the server a moment to start up

@@ -548,7 +548,6 @@ def end_session():
         except Exception as exc:
             logging.error(f"Error stopping belt on end_session: {exc}")
         belt_running = False
-        time.sleep(0.5)
 
     # Cancel stats monitor
     if _stats_monitor_task and not _stats_monitor_task.done():
@@ -598,8 +597,7 @@ def clear_history():
     return jsonify({"status": "cleared"})
 
 
-@app.route("/reconnect", endpoint="reconnect")
-@app.route("/manual_reconnect", endpoint="manual_reconnect")
+@app.route("/reconnect")
 def reconnect():
     if not connected and not connecting:
         _start_ble_thread()
