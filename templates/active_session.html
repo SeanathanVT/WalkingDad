@@ -36,25 +36,37 @@
   </div>
 
     <div class="d-flex justify-content-center gap-2 mb-3">
-        <a href="{{ url_for('slow_speed') }}" class="btn btn-custom-primary d-flex align-items-center gap-2">
-            <i class="bi bi-person-walking"></i> Slow
-        </a>
-        <a href="{{ url_for('decrease_speed') }}" class="btn btn-custom-primary d-flex align-items-center gap-2">
-            <i class="bi bi-dash-lg"></i> Decrease
-        </a>
-        <a href="{{ url_for('pause_session') }}" class="btn btn-custom-primary d-flex align-items-center gap-2">
-            <i class="bi bi-pause-fill"></i> Pause
-        </a>
-        <a href="{{ url_for('increase_speed') }}" class="btn btn-custom-primary d-flex align-items-center gap-2">
-            <i class="bi bi-plus-lg"></i> Increase
-        </a>
-        <a href="{{ url_for('max_speed') }}" class="btn btn-custom-primary d-flex align-items-center gap-2">
-            <i class="bi bi-speedometer"></i> Max
-        </a>
+        <form method="post" action="{{ url_for('slow_speed') }}" style="display:contents">
+            <button type="submit" class="btn btn-custom-primary d-flex align-items-center gap-2">
+                <i class="bi bi-person-walking"></i> Slow
+            </button>
+        </form>
+        <form method="post" action="{{ url_for('decrease_speed') }}" style="display:contents">
+            <button type="submit" class="btn btn-custom-primary d-flex align-items-center gap-2">
+                <i class="bi bi-dash-lg"></i> Decrease
+            </button>
+        </form>
+        <form method="post" action="{{ url_for('pause_session') }}" style="display:contents">
+            <button type="submit" class="btn btn-custom-primary d-flex align-items-center gap-2">
+                <i class="bi bi-pause-fill"></i> Pause
+            </button>
+        </form>
+        <form method="post" action="{{ url_for('increase_speed') }}" style="display:contents">
+            <button type="submit" class="btn btn-custom-primary d-flex align-items-center gap-2">
+                <i class="bi bi-plus-lg"></i> Increase
+            </button>
+        </form>
+        <form method="post" action="{{ url_for('max_speed') }}" style="display:contents">
+            <button type="submit" class="btn btn-custom-primary d-flex align-items-center gap-2">
+                <i class="bi bi-speedometer"></i> Max
+            </button>
+        </form>
     </div>
-    <a href="{{ url_for('end_session') }}" class="btn btn-custom-danger">
-        <i class="bi bi-stop-fill"></i> End Session
-    </a>
+    <form method="post" action="{{ url_for('end_session') }}" style="display:inline">
+        <button type="submit" class="btn btn-custom-danger">
+            <i class="bi bi-stop-fill"></i> End Session
+        </button>
+    </form>
 </div>
 
 <script>

@@ -532,7 +532,7 @@ def root():
 
 
 # ── End Session ────────────────────────────────────────────────────────
-@app.route("/end_session")
+@app.route("/end_session", methods=["POST"])
 def end_session():
     """End the current session: save to history, reset counters, return to start."""
     global session_active, belt_running, current_distance_km, current_steps
@@ -606,7 +606,7 @@ def reconnect():
     return redirect(url_for("root"))
 
 
-@app.route("/start")
+@app.route("/start", methods=["POST"])
 def start_session():
     """Begin a new session: reset counters, start belt, launch stats monitor."""
     global session_active, belt_running, current_distance_km, current_steps, current_calories, resume_speed_kmh
@@ -660,8 +660,8 @@ def start_session():
 
 # ── Pause / Resume ───────────────────────────────────────────────────────
 
-@app.route("/pause", endpoint="pause")
-@app.route("/pause_session", endpoint="pause_session")
+@app.route("/pause", methods=["POST"], endpoint="pause")
+@app.route("/pause_session", methods=["POST"], endpoint="pause_session")
 def pause_session():
     global belt_running, resume_speed_kmh, _stats_monitor_task
     if not belt_running:
@@ -681,8 +681,8 @@ def pause_session():
     return redirect(url_for("root"))
 
 
-@app.route("/resume", endpoint="resume")
-@app.route("/resume_session", endpoint="resume_session")
+@app.route("/resume", methods=["POST"], endpoint="resume")
+@app.route("/resume_session", methods=["POST"], endpoint="resume_session")
 def resume_session():
     global belt_running, _resume_grace_deadline, session_active, _stats_monitor_task
 
@@ -745,7 +745,7 @@ def resume_session():
 
 
 # ── Speed Controls ───────────────────────────────────────────────────────
-@app.route("/decrease_speed")
+@app.route("/decrease_speed", methods=["POST"])
 def decrease_speed():
     """Decrease the belt speed by one step."""
     if not belt_running:
@@ -756,7 +756,7 @@ def decrease_speed():
     asyncio.run_coroutine_threadsafe(controller.change_speed(dev_speed), ble_loop)
     return redirect(url_for("root"))
 
-@app.route("/slow_speed")
+@app.route("/slow_speed", methods=["POST"])
 def slow_speed():
     """Set the belt speed to a predefined slow walk speed."""
     if not belt_running:
@@ -766,7 +766,7 @@ def slow_speed():
     asyncio.run_coroutine_threadsafe(controller.change_speed(dev_speed), ble_loop)
     return redirect(url_for("root"))
 
-@app.route("/increase_speed")
+@app.route("/increase_speed", methods=["POST"])
 def increase_speed():
     """Increase the belt speed by one step."""
     if not belt_running:
@@ -778,7 +778,7 @@ def increase_speed():
     return redirect(url_for("root"))
 
 
-@app.route("/max_speed")
+@app.route("/max_speed", methods=["POST"])
 def max_speed():
     """Set the belt speed to maximum."""
     if not belt_running:

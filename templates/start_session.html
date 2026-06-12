@@ -35,7 +35,9 @@
         </div>
     </div>
 
-    <a href="{{ url_for('start_session') }}" class="btn btn-custom-primary">Start</a>
+    <form method="post" action="{{ url_for('start_session') }}" style="display:inline">
+        <button type="submit" class="btn btn-custom-primary">Start</button>
+    </form>
 </div>
 
 {% if history %}
