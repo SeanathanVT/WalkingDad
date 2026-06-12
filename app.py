@@ -66,6 +66,7 @@ HISTORY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "session
 HISTORY_DISPLAY_LIMIT = 10  # Max sessions shown on start screen
 
 session_active = belt_running = False
+_session_start_time: datetime | None = None
 _shutting_down = False
 _server_stopping = False  # Flag for UI to detect Ctrl+C / signal shutdown
 _shutting_down_lock = threading.Lock()  # Protect shutdown state mutations
@@ -83,16 +84,17 @@ _last_dev_dist = _last_dev_steps = 0
 
 def _build_session_record() -> dict:
     """Build a session record dict from current global state."""
-    now = datetime.now()
+    start = _session_start_time or datetime.now()
+    end = datetime.now()
     distance_mi = current_distance_km * KM_TO_MI
     duration = max(current_session_active_seconds, 1)  # avoid div-by-zero
     avg_speed_kmh = current_distance_km / (duration / 3600.0)
     avg_speed_mph = avg_speed_kmh * KMH_TO_MPH
 
     return {
-        "date": now.strftime("%Y-%m-%d"),
-        "start_time": now.strftime("%H:%M:%S"),
-        "end_time": now.strftime("%H:%M:%S"),
+        "date": start.strftime("%Y-%m-%d"),
+        "start_time": start.strftime("%H:%M:%S"),
+        "end_time": end.strftime("%H:%M:%S"),
         "duration_seconds": current_session_active_seconds,
         "distance_km": round(current_distance_km, 3),
         "distance_mi": round(distance_mi, 3),
@@ -548,7 +550,7 @@ def root():
 def end_session():
     """End the current session: save to history, reset counters, return to start."""
     global session_active, belt_running, current_distance_km, current_steps
-    global current_calories, current_session_active_seconds, _stats_monitor_task
+    global current_calories, current_session_active_seconds, _stats_monitor_task, _session_start_time
 
     if not session_active:
         return redirect(url_for("root"))
@@ -575,6 +577,7 @@ def end_session():
     current_session_active_seconds = 0
     speed_history.clear()
     session_active = False
+    _session_start_time = None
 
     return redirect(url_for("root"))
 
@@ -621,7 +624,7 @@ def reconnect():
 def start_session():
     """Begin a new session: reset counters, start belt, launch stats monitor."""
     global session_active, belt_running, current_distance_km, current_steps, current_calories, resume_speed_kmh
-    global current_session_active_seconds, _stats_monitor_task
+    global current_session_active_seconds, _stats_monitor_task, _session_start_time
 
     if not connected:
         return redirect(url_for("root"))
@@ -630,6 +633,7 @@ def start_session():
     current_session_active_seconds = 0
     resume_speed_kmh = 2.0
     speed_history.clear()
+    _session_start_time = datetime.now()
 
     session_active = True
     belt_running = True
