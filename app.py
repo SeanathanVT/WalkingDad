@@ -166,7 +166,6 @@ def _clear_session_history():
             logging.error(f"Failed to clear session history: {exc}")
 
 
-
 # ── Context processor so templates always know flags ────────────────────
 @app.context_processor
 def inject_flags():
@@ -295,7 +294,7 @@ def process_status_packet(dev_dist: float, dev_steps: int, dev_speed: float):
     if time.time() > _resume_grace_deadline:
         if belt_running and new_reported_speed_kmh == 0 and current_speed_kmh > 0:
             logging.info("Belt has stopped unexpectedly. Auto-pausing session.")
-            
+
             # Use the OLDEST speed from history to ignore the deceleration phase.
             if speed_history:
                 resume_speed_kmh = speed_history[0] # Use the first (oldest) item
@@ -543,6 +542,7 @@ def _handle_signal_shutdown(signum, frame):
     time.sleep(2)
     os._exit(0)
 
+
 # ── Flask routes ────────────────────────────────────────────────────────
 @app.route("/")
 def root():
@@ -710,7 +710,6 @@ def start_session():
 
 
 # ── Pause / Resume ───────────────────────────────────────────────────────
-
 @app.route("/pause", methods=["POST"], endpoint="pause")
 @app.route("/pause_session", methods=["POST"], endpoint="pause_session")
 def pause_session():
@@ -809,15 +808,17 @@ def decrease_speed():
     asyncio.run_coroutine_threadsafe(controller.change_speed(dev_speed), ble_loop)
     return redirect(url_for("root"))
 
+
 @app.route("/slow_speed", methods=["POST"])
 def slow_speed():
     """Set the belt speed to a predefined slow walk speed."""
     if not belt_running:
         return redirect(url_for("root"))
-    
+
     dev_speed = int(SLOW_WALK_SPEED_KMH * 10)
     asyncio.run_coroutine_threadsafe(controller.change_speed(dev_speed), ble_loop)
     return redirect(url_for("root"))
+
 
 @app.route("/increase_speed", methods=["POST"])
 def increase_speed():
