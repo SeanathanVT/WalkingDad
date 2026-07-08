@@ -3,13 +3,6 @@
 <div style="max-width:600px;margin:0 auto;">
     <h1 class="content-title mb-4">Settings</h1>
 
-    {% if saved %}
-    <div class="mb-4" style="background-color:var(--card-color);border-radius:0.5rem;padding:0.75rem 1rem;display:flex;align-items:center;gap:0.5rem;">
-        <i class="bi bi-check-circle-fill text-success"></i>
-        <span>Settings saved.</span>
-    </div>
-    {% endif %}
-
     <form method="post" action="{{ url_for('settings_page') }}">
 
         <div class="stat-card mb-4">

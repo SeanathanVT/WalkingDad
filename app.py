@@ -674,7 +674,7 @@ def settings_page():
         KCAL_PER_MILE               = config.KCAL_PER_MILE               = updates["kcal_per_mile"]
         RESUME_GRACE_PERIOD_SECONDS = config.RESUME_GRACE_PERIOD_SECONDS = updates["resume_grace_period_seconds"]
         HISTORY_DISPLAY_LIMIT       = config.HISTORY_DISPLAY_LIMIT       = updates["history_display_limit"]
-        return redirect(url_for("settings_page", saved=1))
+        return redirect(url_for("root", saved=1))
     return render_template(
         "settings.html",
         ble_device_name=BLE_DEVICE_NAME,
@@ -687,7 +687,6 @@ def settings_page():
         history_display_limit=HISTORY_DISPLAY_LIMIT,
         host=config.HOST,
         port=config.PORT,
-        saved=bool(request.args.get("saved")),
     )
 
 
