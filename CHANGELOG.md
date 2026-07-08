@@ -6,22 +6,24 @@ All notable changes to WalkingDad will be documented in this file.
 
 ### Fixed
 
-- **Session start time was always wrong** — `session_history.json` recorded the save time as both `start_time` and `end_time`. Records now correctly capture the real start time from when the session begins.
-- **CSV export race condition** — The history load used by `/export_csv` was not holding `_history_lock`, meaning a concurrent session save could produce a corrupt read.
-- **Session timer ran ~10% fast** — The stats monitor incremented a tick counter each loop, but the `ask_stats()` poll takes ~100ms, causing ~6 minutes of drift over a 60-minute session. Timer now measures elapsed wall-clock time via `time.monotonic()`.
-- **Pausing then immediately resuming could leave the belt stopped** — Two separate races: (1) the background stats monitor only noticed a pause on its next ~1s poll cycle, so an immediate resume could race it and have its polls interleave with the resume's device commands; (2) the pause and resume BLE sequences were dispatched as independent async tasks on the same event loop, so they ran concurrently and their commands interleaved at every `await`. Each belt sequence now cancels any prior in-flight sequence before registering itself and sending device commands, guaranteeing serial execution.
-- **Ending a session right after Resume could restart the belt** — `/end_session` had no way to stop an in-flight resume sequence, so ending a session moments after tapping Resume could let that sequence keep running afterward — sending its remaining device commands and leaving a stray monitor task alive for a session the UI already considered over.
-- **Double-tapping Start/Pause/Resume/End could trigger duplicate belt commands** — Each of those routes checked a shared state flag and flipped it several lines later with nothing serializing concurrent requests, so two near-simultaneous taps could both pass the check and dispatch duplicate device sequences. The four routes now share a lock around their state transitions.
+- **Session start time was always wrong** — `session_history.json` recorded the save time as both `start_time` and `end_time`. Records now capture the real start time from when the session begins.
+- **CSV export race condition** — A missing lock on the history read in `/export_csv` meant a concurrent session save could corrupt the data.
+- **Session timer ran ~10% fast** — Poll overhead (~100ms per cycle) wasn't accounted for, causing ~6 minutes of drift over a 60-minute session. Timer now tracks wall-clock elapsed time.
+- **Pausing then immediately resuming could leave the belt stopped** — Two separate races let the pause and resume sequences execute concurrently, interleaving their BLE commands on the device. Belt sequences now cancel any prior in-flight sequence before executing, guaranteeing serial execution.
+- **Ending a session right after Resume could restart the belt** — The in-flight resume sequence had no way to be cancelled, so it could keep sending device commands after the session was already considered over. End session now cancels any in-flight sequence first.
+- **Double-tapping Start/Pause/Resume/End could trigger duplicate belt commands** — A missing lock between the state-check and dispatch let two simultaneous taps both pass the guard. The four routes are now serialised with a lock.
 
 ### Changed
 
 - **Belt-control routes are now POST-only** — `/start`, `/pause`, `/resume`, `/end_session`, and all speed controls now require POST; templates updated from `<a href>` links to `<form method="post">` buttons. Prevents browser prefetch, back-navigation, or a stray link preview from accidentally sending a belt command.
-- **Action buttons disable immediately on tap and while the belt is transitioning** — Buttons on the active and paused screens disable on submit so a double-tap cannot fire a second command before the page reloads. On the paused screen, Resume and End Session also remain disabled while the pause sequence is still executing on the device, with a "Pausing belt…" indicator.
+- **Action buttons disable immediately on tap and while the belt is transitioning** — Buttons on the active and paused screens disable on submit so a double-tap cannot fire a second command before the page reloads. On the paused screen, Resume and End Session also remain disabled while the pause sequence is still in progress, with a "Pausing belt…" indicator.
 
 ### Internal
 
-- Merged `_load_full_session_history()` into `_load_session_history(limit=None)` — the two functions were identical except for a limit slice and the missing lock on the full variant.
+- Merged `_load_full_session_history()` into `_load_session_history(limit=None)` — the two functions were identical except for a limit slice and a missing lock on the full variant.
 - Extracted `showShutdownOverlay()` into `base.html` — the shutdown DOM block was copy-pasted verbatim across three templates.
+- Extracted `_cancel_stats_monitor()`, `_cancel_belt_sequence()`, and `_wake_and_start_belt()` helpers — deduplicated repeated monitor-cancel and device wake-up sequences shared by start, pause, and resume.
+- Named `RESUME_GRACE_PERIOD_SECONDS` constant; removed dead `_session_start_time or datetime.now()` fallback in `_build_session_record()`.
 - Removed duplicate `KMH_TO_MPH` constant (identical to `KM_TO_MI`); removed unused `sys` import; removed stale logging comment.
 - Removed `/manual_reconnect` route alias; `run.py` kwargs dict renamed from `startupinfo` to `popen_kwargs`.
 
