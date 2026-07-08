@@ -14,8 +14,10 @@ The official WalkingPad experience is a bloated mobile app that wants your email
 
 - **Web UI** — Control your treadmill from any browser on your local network
 - **Real-time stats** — Speed, distance, steps, calories, and active time, updated live
-- **Smart pause & resume** — Auto-detects when you step off; remembers your speed; 7-second grace period prevents re-triggering on restart
+- **Smart pause & resume** — Auto-detects when you step off; remembers your speed; configurable grace period prevents re-triggering on restart
 - **Speed presets** — Max, slow walk, and incremental increase/decrease buttons
+- **Session history** — Completed sessions saved to `session_history.json` with full stats; last 10 shown on the start screen. Includes CSV export and history clearing.
+- **Settings page** — Gear icon in the header lets you change any setting (device name, speed limits, port, and more) from the browser without editing files
 - **Dark mode** — Three-state toggle (Light → Dark → System) with localStorage persistence
 - **Cross-platform BLE** — Tested on Windows, macOS, and Linux with retry logic and event loop cleanup
 - **Graceful shutdown** — Stops the belt, switches to standby, and disconnects BLE whether you click Close in the UI, press Ctrl+C, or kill the process. Web UI shows "Server is shutting down" notification so you know what happened. Includes an `atexit` safety net as a last resort.
@@ -62,7 +64,7 @@ The app opens your browser automatically at `http://127.0.0.1:5001`. A console w
 2. Click **Start** to begin a session. Stats update in real time.
 3. Adjust speed with the control buttons, or click **Pause** to stop the belt.
 4. If you step off the pad, the app auto-pauses. Click **Resume** to pick back up.
-5. Toggle themes with the icon in the header. Close the app with **Close**.
+5. Toggle themes or adjust settings with the icons in the header. Close the app with **Close**.
 
 ## Configuration
 

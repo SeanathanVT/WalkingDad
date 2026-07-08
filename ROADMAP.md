@@ -16,7 +16,7 @@ A comprehensive set of reliability improvements for Bluetooth Low Energy communi
 | **Stats Monitor Robustness** | `asyncio.wait_for()` with 2s timeout, proper cancellation handling, no event-loop crashes on errors |
 | **Async Sequence Error Handling** | `start_belt()`, `resume_session()` now have try-catch; failures update app state and trigger disconnect handling |
 | **Thread-Safe Coroutine Execution** | Error handling on `run_coroutine_threadsafe()` calls; proper state management if queueing fails |
-| **Configurable Device Name** | `BLE_DEVICE_NAME` constant at top of `app.py` — users change device name without touching scanner logic |
+| **Configurable Device Name** | Device name configurable without touching scanner logic — initially a constant in `app.py`, now via `config.json` / Settings page (3.1) |
 | **Bleak API Version Compatibility** | Supports both `set_disconn_callback()` (newer) and `set_disconnected_callback()` (older) — works across Bleak versions |
 | **Stats Monitor Lifecycle Fix** | Global `_stats_monitor_task` tracks active monitor; old tasks cancelled before new ones on resume; cleaned up on disconnect. Fixes metrics-not-updating-after-pause/resume bug |
 
@@ -133,8 +133,6 @@ Stores completed sessions in a local JSON file (`session_history.json`) and disp
 | **Clear History** | "Clear" button on start screen with confirmation dialog, calls `/clear_history` POST endpoint to truncate the history file |
 | **Graceful Shutdown Hook** | `_save_session()` called at the start of `_graceful_shutdown()` so in-progress sessions are captured even on Ctrl+C or server Close |
 | **Fault Tolerant** | Corrupted or missing `session_history.json` is handled gracefully — starts fresh with empty array and logs warning |
-
----
 
 ---
 
