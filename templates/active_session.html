@@ -70,6 +70,17 @@
 </div>
 
 <script>
+  // Disable all action buttons immediately on any form submit so a double-tap
+  // or slow network can't dispatch a second belt command before the page reloads.
+  document.querySelectorAll('form').forEach(function(form) {
+    form.addEventListener('submit', function() {
+      document.querySelectorAll('button[type="submit"]').forEach(function(b) {
+        b.disabled = true;
+        b.style.opacity = '0.5';
+      });
+    });
+  });
+
   var _shutdownShown = false;
   setInterval(function(){
     fetch("{{ url_for('get_stats') }}")

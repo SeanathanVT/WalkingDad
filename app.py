@@ -63,6 +63,7 @@ _resume_grace_deadline = 0
 speed_history = deque(maxlen=15)
 _stats_monitor_task: asyncio.Task | None = None  # Track the stats monitor task
 _belt_sequence_task: asyncio.Task | None = None  # Track an in-flight start/resume/pause belt sequence
+_belt_transitioning = False  # True while a belt sequence is in flight; exposed in /stats for UI
 _history_lock = threading.Lock()  # Protect session_history.json reads/writes
 HISTORY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "session_history.json")
 HISTORY_DISPLAY_LIMIT = 10  # Max sessions shown on start screen
@@ -409,6 +410,24 @@ async def _cancel_stats_monitor():
             pass
 
 
+async def _cancel_belt_sequence():
+    """Cancel any in-flight belt sequence task and wait for it to unwind.
+
+    Belt sequences (_pause_belt_sequence, _start_belt_sequence,
+    _resume_belt_sequence) all register themselves in _belt_sequence_task.
+    Calling this at the top of each new sequence ensures they never run
+    concurrently — the prior sequence's BLE commands cannot interleave
+    with the incoming one's.
+    """
+    global _belt_sequence_task
+    if _belt_sequence_task and not _belt_sequence_task.done():
+        _belt_sequence_task.cancel()
+        try:
+            await _belt_sequence_task
+        except asyncio.CancelledError:
+            pass
+
+
 async def _wake_and_start_belt(target_speed_kmh: float | None = None):
     """Wake the device from standby and start the belt, optionally setting a speed.
 
@@ -684,18 +703,14 @@ def start_session():
         belt_running = True
 
         async def _start_belt_sequence():
-            global belt_running, _stats_monitor_task, _belt_sequence_task
+            global belt_running, _stats_monitor_task, _belt_sequence_task, _belt_transitioning
+            await _cancel_belt_sequence()
             _belt_sequence_task = asyncio.current_task()
+            _belt_transitioning = True
             try:
                 logging.info("Starting belt...")
-
-                # Cancel any existing stats monitor task BEFORE sending device
-                # commands so its ask_stats() polls can't interleave with the
-                # switch_mode/start_belt commands below.
                 await _cancel_stats_monitor()
-
                 await _wake_and_start_belt()
-
                 logging.info("Starting stats monitor...")
                 _stats_monitor_task = asyncio.create_task(_stats_monitor())
                 logging.info("Session started successfully")
@@ -707,6 +722,7 @@ def start_session():
                 _handle_disconnect(None)
             finally:
                 _belt_sequence_task = None
+                _belt_transitioning = False
 
         try:
             asyncio.run_coroutine_threadsafe(_start_belt_sequence(), ble_loop)
@@ -742,8 +758,17 @@ def pause_session():
         # could flip belt_running back to True before the old monitor even
         # notices, leaving it running concurrently with the resume sequence.
         async def _pause_belt_sequence():
-            await _cancel_stats_monitor()
-            await controller.stop_belt()
+            global _belt_sequence_task, _belt_transitioning
+            # Cancel any prior belt sequence before self-registering.
+            await _cancel_belt_sequence()
+            _belt_sequence_task = asyncio.current_task()
+            _belt_transitioning = True
+            try:
+                await _cancel_stats_monitor()
+                await controller.stop_belt()
+            finally:
+                _belt_sequence_task = None
+                _belt_transitioning = False
 
         asyncio.run_coroutine_threadsafe(_pause_belt_sequence(), ble_loop)
 
@@ -769,23 +794,21 @@ def resume_session():
         _resume_grace_deadline = time.time() + RESUME_GRACE_PERIOD_SECONDS
 
         async def _resume_belt_sequence():
-            global belt_running, _stats_monitor_task, _belt_sequence_task
+            global belt_running, _stats_monitor_task, _belt_sequence_task, _belt_transitioning
+            # Cancel any prior belt sequence (including an in-flight pause)
+            # before sending device commands. Without this, a rapid
+            # pause→resume dispatches both coroutines concurrently on
+            # ble_loop; their BLE writes interleave and the belt never starts.
+            await _cancel_belt_sequence()
             _belt_sequence_task = asyncio.current_task()
+            _belt_transitioning = True
             try:
                 logging.info("Attempting resume: Sending wake-up and start sequence to device...")
-
-                # Cancel any existing stats monitor task BEFORE sending device
-                # commands. If left running, its ask_stats() polls interleave
-                # with the switch_mode/start_belt/change_speed commands below
-                # and can garble the command order on the device.
                 await _cancel_stats_monitor()
-
                 await _wake_and_start_belt(resume_speed_kmh)
-
                 logging.info("Starting stats monitor...")
                 _stats_monitor_task = asyncio.create_task(_stats_monitor())
                 logging.info("Resume sequence commands sent, monitor ensured.")
-
             except asyncio.CancelledError:
                 logging.info("Resume sequence cancelled")
             except Exception as exc:
@@ -794,6 +817,7 @@ def resume_session():
                 _handle_disconnect(None)
             finally:
                 _belt_sequence_task = None
+                _belt_transitioning = False
 
         try:
             asyncio.run_coroutine_threadsafe(_resume_belt_sequence(), ble_loop)
@@ -858,6 +882,7 @@ def stats_json():
     data = dict(
         is_connected=connected,
         is_running=belt_running,
+        belt_transitioning=_belt_transitioning,
         speed=round(current_speed_kmh * KM_TO_MI, 1),
         distance=round(current_distance_km * KM_TO_MI, 2),
         steps=current_steps,
