@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block content %}
+<div style="max-width:600px;margin:0 auto;">
+    <h1 class="content-title mb-4">Settings</h1>
+
+    {% if saved %}
+    <div class="mb-4" style="background-color:var(--card-color);border-radius:0.5rem;padding:0.75rem 1rem;display:flex;align-items:center;gap:0.5rem;">
+        <i class="bi bi-check-circle-fill text-success"></i>
+        <span>Settings saved.</span>
+    </div>
+    {% endif %}
+
+    <form method="post" action="{{ url_for('settings_page') }}">
+
+        <div class="stat-card mb-4">
+            <h2 style="font-size:1.1rem;font-weight:700;margin-bottom:1rem;">Device</h2>
+            <div class="mb-3">
+                <label class="form-label fw-500" style="display:block;margin-bottom:0.25rem;">Bluetooth Device Name</label>
+                <input type="text" name="ble_device_name" value="{{ ble_device_name }}"
+                       class="form-control" style="background-color:var(--background-color);color:var(--text-color);border-color:var(--border-color);">
+                <small class="text-muted" style="font-family:monospace;">ble_device_name</small>
+            </div>
+        </div>
+
+        <div class="stat-card mb-4">
+            <h2 style="font-size:1.1rem;font-weight:700;margin-bottom:1rem;">Speed</h2>
+            <div class="mb-3">
+                <label class="form-label fw-500" style="display:block;margin-bottom:0.25rem;">Max Speed (km/h)</label>
+                <input type="number" name="max_speed_kmh" value="{{ max_speed_kmh }}" step="0.1" min="1"
+                       class="form-control" style="background-color:var(--background-color);color:var(--text-color);border-color:var(--border-color);">
+                <small class="text-muted" style="font-family:monospace;">max_speed_kmh</small>
+            </div>
+            <div class="mb-3">
+                <label class="form-label fw-500" style="display:block;margin-bottom:0.25rem;">Min Speed (km/h)</label>
+                <input type="number" name="min_speed_kmh" value="{{ min_speed_kmh }}" step="0.1" min="0.1"
+                       class="form-control" style="background-color:var(--background-color);color:var(--text-color);border-color:var(--border-color);">
+                <small class="text-muted" style="font-family:monospace;">min_speed_kmh</small>
+            </div>
+            <div class="mb-3">
+                <label class="form-label fw-500" style="display:block;margin-bottom:0.25rem;">Speed Step (km/h)</label>
+                <input type="number" name="speed_step" value="{{ speed_step }}" step="0.1" min="0.1"
+                       class="form-control" style="background-color:var(--background-color);color:var(--text-color);border-color:var(--border-color);">
+                <small class="text-muted" style="font-family:monospace;">speed_step</small>
+            </div>
+            <div class="mb-3">
+                <label class="form-label fw-500" style="display:block;margin-bottom:0.25rem;">Slow Walk Speed (km/h)</label>
+                <input type="number" name="slow_walk_speed_kmh" value="{{ slow_walk_speed_kmh }}" step="0.1" min="0.1"
+                       class="form-control" style="background-color:var(--background-color);color:var(--text-color);border-color:var(--border-color);">
+                <small class="text-muted" style="font-family:monospace;">slow_walk_speed_kmh</small>
+            </div>
+        </div>
+
+        <div class="stat-card mb-4">
+            <h2 style="font-size:1.1rem;font-weight:700;margin-bottom:1rem;">Session</h2>
+            <div class="mb-3">
+                <label class="form-label fw-500" style="display:block;margin-bottom:0.25rem;">Calories per Mile</label>
+                <input type="number" name="kcal_per_mile" value="{{ kcal_per_mile }}" step="1" min="1"
+                       class="form-control" style="background-color:var(--background-color);color:var(--text-color);border-color:var(--border-color);">
+                <small class="text-muted" style="font-family:monospace;">kcal_per_mile</small>
+            </div>
+            <div class="mb-3">
+                <label class="form-label fw-500" style="display:block;margin-bottom:0.25rem;">Auto-Pause Grace Period (seconds)</label>
+                <input type="number" name="resume_grace_period_seconds" value="{{ resume_grace_period_seconds }}" step="1" min="0"
+                       class="form-control" style="background-color:var(--background-color);color:var(--text-color);border-color:var(--border-color);">
+                <small class="text-muted" style="font-family:monospace;">resume_grace_period_seconds</small>
+            </div>
+            <div class="mb-3">
+                <label class="form-label fw-500" style="display:block;margin-bottom:0.25rem;">Session History Limit</label>
+                <input type="number" name="history_display_limit" value="{{ history_display_limit }}" step="1" min="1"
+                       class="form-control" style="background-color:var(--background-color);color:var(--text-color);border-color:var(--border-color);">
+                <small class="text-muted" style="font-family:monospace;">history_display_limit</small>
+            </div>
+        </div>
+
+        <div class="stat-card mb-4">
+            <h2 style="font-size:1.1rem;font-weight:700;margin-bottom:0.5rem;">Server</h2>
+            <p class="text-muted mb-3" style="font-size:0.875rem;">Changes to Host and Port require restarting the app to take effect.</p>
+            <div class="mb-3">
+                <label class="form-label fw-500" style="display:block;margin-bottom:0.25rem;">Server Host</label>
+                <input type="text" name="host" value="{{ host }}"
+                       class="form-control" style="background-color:var(--background-color);color:var(--text-color);border-color:var(--border-color);">
+                <small class="text-muted" style="font-family:monospace;">host</small>
+            </div>
+            <div class="mb-3">
+                <label class="form-label fw-500" style="display:block;margin-bottom:0.25rem;">Server Port</label>
+                <input type="number" name="port" value="{{ port }}" step="1" min="1" max="65535"
+                       class="form-control" style="background-color:var(--background-color);color:var(--text-color);border-color:var(--border-color);">
+                <small class="text-muted" style="font-family:monospace;">port</small>
+            </div>
+        </div>
+
+        <div class="text-center">
+            <button type="submit" class="btn btn-custom-primary">Save Settings</button>
+        </div>
+
+    </form>
+</div>
+{% endblock %}

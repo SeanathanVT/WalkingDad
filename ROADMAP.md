@@ -140,14 +140,11 @@ Stores completed sessions in a local JSON file (`session_history.json`) and disp
 
 ## Phase 3: Code Quality (Medium Priority)
 
-### 3.1 External Configuration File
-- **Status:** Planned
-- **Problem:** All settings (`BLE_DEVICE_NAME`, speed constants, `KCAL_PER_MILE`) are hardcoded in `app.py`. Users must edit source code to customize behavior.
-- **Solution:** Move all configurable settings to a `config.json` file (with `config.py` as a loader that provides defaults).
-- **Implementation:**
-    - Create `config.json.example` with all tunable parameters
-    - On startup, load `config.json` if it exists, otherwise use defaults from `config.py`
-    - Document all config options in README.md
+### ✅ 3.1 External Configuration File
+**Status:** ✅ Complete
+**Files Modified:** `config.py`, `config.json.example`, `app.py`, `run.py`, `.gitignore`, `README.md`, `templates/base.html`, `templates/settings.html`
+
+All user-tunable settings are now loaded from an optional `config.json` file, with `config.py` providing defaults. A Settings page (gear icon in the header) allows changing any setting from the browser without editing files. Most settings take effect immediately; host and port require a restart.
 
 ---
 

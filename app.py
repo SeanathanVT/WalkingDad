@@ -12,8 +12,15 @@ from collections import deque
 from datetime import datetime
 
 from bleak import BleakScanner
-from flask import Flask, render_template, redirect, url_for, jsonify, make_response
+from flask import Flask, render_template, redirect, url_for, jsonify, make_response, request
 from ph4_walkingpad.pad import Controller, WalkingPad
+
+import config
+from config import (
+    BLE_DEVICE_NAME, KCAL_PER_MILE, MAX_SPEED_KMH, MIN_SPEED_KMH,
+    SPEED_STEP, SLOW_WALK_SPEED_KMH, RESUME_GRACE_PERIOD_SECONDS,
+    HISTORY_DISPLAY_LIMIT,
+)
 
 # ── Logging Setup ────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -21,23 +28,8 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s',
 )
 
-# ── Device constants ────────────────────────────────────────────────────
-BLE_DEVICE_NAME = "KS-BLC2"  # Change this to match your device's Bluetooth name
-
 # ── Conversion constants ─────────────────────────────────────────────────
 KM_TO_MI = 0.621371
-KCAL_PER_MILE = 95  # rough kcal per mile
-
-# ── Speed control constants ──────────────────────────────────────────────
-MAX_SPEED_KMH = 6.0  # Approx 3.7 mph, a common max for these pads
-MIN_SPEED_KMH = 1.0
-SPEED_STEP = 0.6  # Speed change per button press in km/h
-SLOW_WALK_SPEED_KMH = 4.5  # Approx 2.8 MPH
-
-# ── Auto-pause grace period ──────────────────────────────────────────────
-# Suppresses false auto-pause detection for this many seconds after a
-# start/resume command, while the device is still ramping up to speed.
-RESUME_GRACE_PERIOD_SECONDS = 7
 
 
 def kcal_estimate(miles: float) -> float:
@@ -66,7 +58,7 @@ _belt_sequence_task: asyncio.Task | None = None  # Track an in-flight start/resu
 _belt_transitioning = False  # True while a belt sequence is in flight; exposed in /stats for UI
 _history_lock = threading.Lock()  # Protect session_history.json reads/writes
 HISTORY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "session_history.json")
-HISTORY_DISPLAY_LIMIT = 10  # Max sessions shown on start screen
+_CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
 
 session_active = belt_running = False
 _session_start_time: datetime | None = None
@@ -164,6 +156,17 @@ def _clear_session_history():
             logging.info("Session history cleared")
         except IOError as exc:
             logging.error(f"Failed to clear session history: {exc}")
+
+
+def _write_config(updates: dict) -> None:
+    """Merge updates into config.json, creating the file if it doesn't exist."""
+    existing = {}
+    if os.path.isfile(_CONFIG_FILE):
+        with open(_CONFIG_FILE) as f:
+            existing = json.load(f)
+    existing.update(updates)
+    with open(_CONFIG_FILE, "w") as f:
+        json.dump(existing, f, indent=2)
 
 
 # ── Context processor so templates always know flags ────────────────────
@@ -642,6 +645,50 @@ def clear_history():
     """Clear all session history."""
     _clear_session_history()
     return jsonify({"status": "cleared"})
+
+
+@app.route("/settings", methods=["GET", "POST"])
+def settings_page():
+    global BLE_DEVICE_NAME, MAX_SPEED_KMH, MIN_SPEED_KMH, SPEED_STEP
+    global SLOW_WALK_SPEED_KMH, KCAL_PER_MILE, RESUME_GRACE_PERIOD_SECONDS
+    global HISTORY_DISPLAY_LIMIT
+    if request.method == "POST":
+        updates = {
+            "ble_device_name":             request.form.get("ble_device_name", BLE_DEVICE_NAME).strip(),
+            "max_speed_kmh":               float(request.form.get("max_speed_kmh", MAX_SPEED_KMH)),
+            "min_speed_kmh":               float(request.form.get("min_speed_kmh", MIN_SPEED_KMH)),
+            "speed_step":                  float(request.form.get("speed_step", SPEED_STEP)),
+            "slow_walk_speed_kmh":         float(request.form.get("slow_walk_speed_kmh", SLOW_WALK_SPEED_KMH)),
+            "kcal_per_mile":               int(request.form.get("kcal_per_mile", KCAL_PER_MILE)),
+            "resume_grace_period_seconds": int(request.form.get("resume_grace_period_seconds", RESUME_GRACE_PERIOD_SECONDS)),
+            "history_display_limit":       int(request.form.get("history_display_limit", HISTORY_DISPLAY_LIMIT)),
+            "host":                        request.form.get("host", config.HOST).strip() or config.HOST,
+            "port":                        int(request.form.get("port", config.PORT)),
+        }
+        _write_config(updates)
+        BLE_DEVICE_NAME             = config.BLE_DEVICE_NAME             = updates["ble_device_name"]
+        MAX_SPEED_KMH               = config.MAX_SPEED_KMH               = updates["max_speed_kmh"]
+        MIN_SPEED_KMH               = config.MIN_SPEED_KMH               = updates["min_speed_kmh"]
+        SPEED_STEP                  = config.SPEED_STEP                  = updates["speed_step"]
+        SLOW_WALK_SPEED_KMH         = config.SLOW_WALK_SPEED_KMH         = updates["slow_walk_speed_kmh"]
+        KCAL_PER_MILE               = config.KCAL_PER_MILE               = updates["kcal_per_mile"]
+        RESUME_GRACE_PERIOD_SECONDS = config.RESUME_GRACE_PERIOD_SECONDS = updates["resume_grace_period_seconds"]
+        HISTORY_DISPLAY_LIMIT       = config.HISTORY_DISPLAY_LIMIT       = updates["history_display_limit"]
+        return redirect(url_for("settings_page", saved=1))
+    return render_template(
+        "settings.html",
+        ble_device_name=BLE_DEVICE_NAME,
+        max_speed_kmh=MAX_SPEED_KMH,
+        min_speed_kmh=MIN_SPEED_KMH,
+        speed_step=SPEED_STEP,
+        slow_walk_speed_kmh=SLOW_WALK_SPEED_KMH,
+        kcal_per_mile=KCAL_PER_MILE,
+        resume_grace_period_seconds=RESUME_GRACE_PERIOD_SECONDS,
+        history_display_limit=HISTORY_DISPLAY_LIMIT,
+        host=config.HOST,
+        port=config.PORT,
+        saved=bool(request.args.get("saved")),
+    )
 
 
 @app.route("/reconnect")

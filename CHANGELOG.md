@@ -2,6 +2,15 @@
 
 All notable changes to WalkingDad will be documented in this file.
 
+## [1.4.0] — 2026-07-08
+
+### Added
+
+- **External configuration file** — All user-tunable settings are now loaded from `config.json` (copy `config.json.example` to get started). Running without the file uses built-in defaults identical to the previous hardcoded values.
+- **Settings page** — A gear icon in the header opens a Settings page where all configurable options — device name, speed limits, calorie constant, server port, and more — can be changed in plain language without editing any files. Changes to most settings take effect immediately; host and port require a restart.
+
+---
+
 ## [1.3.0] — 2026-07-08
 
 ### Fixed

@@ -66,18 +66,22 @@ The app opens your browser automatically at `http://127.0.0.1:5001`. A console w
 
 ## Configuration
 
-All settings live at the top of `app.py`:
+All settings can be changed from the **Settings page** (gear icon in the header), or by editing `config.json` directly. Copy `config.json.example` to `config.json` to get started — running without the file uses the built-in defaults shown below.
 
-| Setting | Default | Description |
+| Key | Default | Description |
 |---|---|---|
-| `MAX_SPEED_KMH` | `6.0` | Max speed button (~3.7 mph) |
-| `MIN_SPEED_KMH` | `1.0` | Speed floor |
-| `SPEED_STEP` | `0.6` | Increment per button press |
-| `SLOW_WALK_SPEED_KMH` | `4.5` | Slow Walk preset (~2.8 mph) |
-| `BLE_DEVICE_NAME` | `"KS-BLC2"` | Your treadmill's Bluetooth name |
-| `KCAL_PER_MILE` | `95` | Calorie estimate constant |
+| `ble_device_name` | `"KS-BLC2"` | Your treadmill's Bluetooth name |
+| `max_speed_kmh` | `6.0` | Max speed button (~3.7 mph) |
+| `min_speed_kmh` | `1.0` | Speed floor |
+| `speed_step` | `0.6` | Increment per button press |
+| `slow_walk_speed_kmh` | `4.5` | Slow Walk preset (~2.8 mph) |
+| `kcal_per_mile` | `95` | Calorie estimate constant |
+| `resume_grace_period_seconds` | `7` | Seconds before auto-pause can trigger after start/resume |
+| `history_display_limit` | `10` | Sessions shown on the start screen |
+| `host` | `"0.0.0.0"` | Network interface to bind |
+| `port` | `5001` | Server port |
 
-Change the server port by editing `PORT` in `run.py` (default: `5001`).
+Changes to most settings take effect immediately via the Settings page. `host` and `port` require restarting the app.
 
 ## Troubleshooting
 
