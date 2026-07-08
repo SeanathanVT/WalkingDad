@@ -396,12 +396,7 @@ async def _stats_monitor():
 
 
 async def _cancel_stats_monitor():
-    """Cancel the running stats monitor task and wait for it to fully unwind.
-
-    Must be called from a coroutine already running on ble_loop, so the
-    await below actually observes the CancelledError instead of racing
-    the monitor's own BLE calls from another thread.
-    """
+    """Cancel the running stats monitor and wait for it to fully unwind."""
     if _stats_monitor_task and not _stats_monitor_task.done():
         _stats_monitor_task.cancel()
         try:
@@ -411,14 +406,7 @@ async def _cancel_stats_monitor():
 
 
 async def _cancel_belt_sequence():
-    """Cancel any in-flight belt sequence task and wait for it to unwind.
-
-    Belt sequences (_pause_belt_sequence, _start_belt_sequence,
-    _resume_belt_sequence) all register themselves in _belt_sequence_task.
-    Calling this at the top of each new sequence ensures they never run
-    concurrently — the prior sequence's BLE commands cannot interleave
-    with the incoming one's.
-    """
+    """Cancel any in-flight belt sequence; call before self-registering to prevent concurrent BLE commands."""
     global _belt_sequence_task
     if _belt_sequence_task and not _belt_sequence_task.done():
         _belt_sequence_task.cancel()
@@ -429,13 +417,7 @@ async def _cancel_belt_sequence():
 
 
 async def _wake_and_start_belt(target_speed_kmh: float | None = None):
-    """Wake the device from standby and start the belt, optionally setting a speed.
-
-    The device may be in MODE_STANDBY (e.g. after a prior stop_belt()), so
-    the STANDBY->MANUAL toggle is required, not just a formality — see
-    commit 5cbb8ba, which fixed a silent start_belt() failure caused by
-    skipping it.
-    """
+    """STANDBY→MANUAL toggle required: stop_belt() leaves device in STANDBY (commit 5cbb8ba)."""
     await controller.switch_mode(WalkingPad.MODE_STANDBY)
     await asyncio.sleep(0.5)
     await controller.switch_mode(WalkingPad.MODE_MANUAL)
@@ -510,6 +492,7 @@ def _start_ble_thread():
     connecting = True
     connection_failed = False
     threading.Thread(target=_ble_thread, daemon=True).start()
+
 
 def _handle_disconnect(client):
     """Callback function to handle unexpected disconnections."""
@@ -601,19 +584,11 @@ def end_session():
         was_running = belt_running
         belt_running = False
 
-        # Cancel any in-flight start/resume sequence and the stats monitor,
-        # then stop the belt, as a single ordered sequence on ble_loop.
-        # Without cancelling _belt_sequence_task, an in-flight resume (which
-        # sends several device commands over ~2s) would keep running after
-        # this session has already ended, restarting the belt and recreating
-        # a stats monitor task for a session the UI no longer considers active.
+        # Cancel any in-flight belt sequence and monitor, then stop the belt.
+        # Without cancelling, an in-flight resume sequence could keep running
+        # after end_session returns, recreating a monitor for a dead session.
         async def _end_belt_sequence():
-            if _belt_sequence_task and not _belt_sequence_task.done():
-                _belt_sequence_task.cancel()
-                try:
-                    await _belt_sequence_task
-                except asyncio.CancelledError:
-                    pass
+            await _cancel_belt_sequence()
             await _cancel_stats_monitor()
             if was_running and controller:
                 try:
@@ -750,13 +725,8 @@ def pause_session():
 
         belt_running = False
 
-        # Cancel the stats monitor and stop the belt as a single ordered
-        # sequence on ble_loop, rather than two independent fire-and-forget
-        # dispatches from this (Flask) thread. Otherwise the monitor's
-        # in-flight ask_stats() poll can still be unwinding when stop_belt()
-        # runs, interleaving with it on the wire — and an immediate resume
-        # could flip belt_running back to True before the old monitor even
-        # notices, leaving it running concurrently with the resume sequence.
+        # Single ordered sequence on ble_loop: cancel monitor before stop_belt()
+        # so an immediate resume can't interleave with the monitor's in-flight polls.
         async def _pause_belt_sequence():
             global _belt_sequence_task, _belt_transitioning
             # Cancel any prior belt sequence before self-registering.
@@ -795,10 +765,8 @@ def resume_session():
 
         async def _resume_belt_sequence():
             global belt_running, _stats_monitor_task, _belt_sequence_task, _belt_transitioning
-            # Cancel any prior belt sequence (including an in-flight pause)
-            # before sending device commands. Without this, a rapid
-            # pause→resume dispatches both coroutines concurrently on
-            # ble_loop; their BLE writes interleave and the belt never starts.
+            # Cancel any prior in-flight sequence (e.g. pause) before sending
+            # commands; concurrent coroutines on ble_loop interleave BLE writes.
             await _cancel_belt_sequence()
             _belt_sequence_task = asyncio.current_task()
             _belt_transitioning = True

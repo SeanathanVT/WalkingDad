@@ -67,8 +67,12 @@
   // Disable buttons immediately on submit so a double-tap can't fire twice.
   document.querySelectorAll('form').forEach(function(form) {
     form.addEventListener('submit', function() {
-      setTransitioning(true);
-      document.getElementById('transitioning-hint').style.display = 'none';
+      var btnResume = document.getElementById('btn-resume');
+      var btnEnd = document.getElementById('btn-end');
+      btnResume.disabled = true;
+      btnEnd.disabled = true;
+      btnResume.style.opacity = '0.5';
+      btnEnd.style.opacity = '0.5';
     });
   });
 
