@@ -2,7 +2,7 @@
 
 All notable changes to WalkingDad will be documented in this file.
 
-## [1.3.0] — 2026-06-12
+## [1.3.0] — 2026-07-08
 
 ### Fixed
 
