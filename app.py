@@ -64,6 +64,7 @@ HISTORY_DISPLAY_LIMIT = 10  # Max sessions shown on start screen
 
 session_active = belt_running = False
 _session_start_time: datetime | None = None
+_session_state_lock = threading.Lock()  # Protect session_active/belt_running check-then-set transitions
 _shutting_down = False
 _server_stopping = False  # Flag for UI to detect Ctrl+C / signal shutdown
 _shutting_down_lock = threading.Lock()  # Protect shutdown state mutations
@@ -548,46 +549,47 @@ def end_session():
     global session_active, belt_running, current_distance_km, current_steps, current_speed_kmh
     global current_calories, current_session_active_seconds, _session_start_time
 
-    if not session_active:
-        return redirect(url_for("root"))
+    with _session_state_lock:
+        if not session_active:
+            return redirect(url_for("root"))
 
-    was_running = belt_running
-    belt_running = False
+        was_running = belt_running
+        belt_running = False
 
-    # Cancel any in-flight start/resume sequence and the stats monitor,
-    # then stop the belt, as a single ordered sequence on ble_loop.
-    # Without cancelling _belt_sequence_task, an in-flight resume (which
-    # sends several device commands over ~2s) would keep running after
-    # this session has already ended, restarting the belt and recreating
-    # a stats monitor task for a session the UI no longer considers active.
-    async def _end_belt_sequence():
-        if _belt_sequence_task and not _belt_sequence_task.done():
-            _belt_sequence_task.cancel()
-            try:
-                await _belt_sequence_task
-            except asyncio.CancelledError:
-                pass
-        await _cancel_stats_monitor()
-        if was_running and controller:
-            try:
-                await controller.stop_belt()
-            except Exception as exc:
-                logging.error(f"Error stopping belt on end_session: {exc}")
+        # Cancel any in-flight start/resume sequence and the stats monitor,
+        # then stop the belt, as a single ordered sequence on ble_loop.
+        # Without cancelling _belt_sequence_task, an in-flight resume (which
+        # sends several device commands over ~2s) would keep running after
+        # this session has already ended, restarting the belt and recreating
+        # a stats monitor task for a session the UI no longer considers active.
+        async def _end_belt_sequence():
+            if _belt_sequence_task and not _belt_sequence_task.done():
+                _belt_sequence_task.cancel()
+                try:
+                    await _belt_sequence_task
+                except asyncio.CancelledError:
+                    pass
+            await _cancel_stats_monitor()
+            if was_running and controller:
+                try:
+                    await controller.stop_belt()
+                except Exception as exc:
+                    logging.error(f"Error stopping belt on end_session: {exc}")
 
-    asyncio.run_coroutine_threadsafe(_end_belt_sequence(), ble_loop)
+        asyncio.run_coroutine_threadsafe(_end_belt_sequence(), ble_loop)
 
-    # Save session to history
-    _save_session()
-    logging.info("Session ended by user, saved to history")
+        # Save session to history
+        _save_session()
+        logging.info("Session ended by user, saved to history")
 
-    # Reset all counters
-    current_distance_km = current_calories = 0.0
-    current_speed_kmh = 0.0
-    current_steps = 0
-    current_session_active_seconds = 0
-    speed_history.clear()
-    session_active = False
-    _session_start_time = None
+        # Reset all counters
+        current_distance_km = current_calories = 0.0
+        current_speed_kmh = 0.0
+        current_steps = 0
+        current_session_active_seconds = 0
+        speed_history.clear()
+        session_active = False
+        _session_start_time = None
 
     return redirect(url_for("root"))
 
@@ -639,57 +641,58 @@ def start_session():
     if not connected:
         return redirect(url_for("root"))
 
-    if session_active:
-        return redirect(url_for("root"))
+    with _session_state_lock:
+        if session_active:
+            return redirect(url_for("root"))
 
-    current_distance_km = current_calories = 0.0
-    current_steps = 0
-    current_speed_kmh = 0.0
-    current_session_active_seconds = 0
-    resume_speed_kmh = 2.0
-    speed_history.clear()
-    _session_start_time = datetime.now()
-    _resume_grace_deadline = time.time() + 7
+        current_distance_km = current_calories = 0.0
+        current_steps = 0
+        current_speed_kmh = 0.0
+        current_session_active_seconds = 0
+        resume_speed_kmh = 2.0
+        speed_history.clear()
+        _session_start_time = datetime.now()
+        _resume_grace_deadline = time.time() + 7
 
-    session_active = True
-    belt_running = True
+        session_active = True
+        belt_running = True
 
-    async def _start_belt_sequence():
-        global belt_running, _stats_monitor_task, _belt_sequence_task
-        _belt_sequence_task = asyncio.current_task()
+        async def _start_belt_sequence():
+            global belt_running, _stats_monitor_task, _belt_sequence_task
+            _belt_sequence_task = asyncio.current_task()
+            try:
+                logging.info("Starting belt...")
+
+                # Cancel any existing stats monitor task BEFORE sending device
+                # commands so its ask_stats() polls can't interleave with the
+                # switch_mode/start_belt commands below.
+                await _cancel_stats_monitor()
+
+                await controller.switch_mode(WalkingPad.MODE_STANDBY)
+                await asyncio.sleep(0.5)
+                await controller.switch_mode(WalkingPad.MODE_MANUAL)
+                await asyncio.sleep(0.5)
+                await controller.start_belt()
+                await asyncio.sleep(0.5)
+
+                logging.info("Starting stats monitor...")
+                _stats_monitor_task = asyncio.create_task(_stats_monitor())
+                logging.info("Session started successfully")
+            except asyncio.CancelledError:
+                logging.info("Start sequence cancelled")
+            except Exception as exc:
+                logging.error(f"Start sequence error: {exc}")
+                belt_running = False
+                _handle_disconnect(None)
+            finally:
+                _belt_sequence_task = None
+
         try:
-            logging.info("Starting belt...")
-
-            # Cancel any existing stats monitor task BEFORE sending device
-            # commands so its ask_stats() polls can't interleave with the
-            # switch_mode/start_belt commands below.
-            await _cancel_stats_monitor()
-
-            await controller.switch_mode(WalkingPad.MODE_STANDBY)
-            await asyncio.sleep(0.5)
-            await controller.switch_mode(WalkingPad.MODE_MANUAL)
-            await asyncio.sleep(0.5)
-            await controller.start_belt()
-            await asyncio.sleep(0.5)
-
-            logging.info("Starting stats monitor...")
-            _stats_monitor_task = asyncio.create_task(_stats_monitor())
-            logging.info("Session started successfully")
-        except asyncio.CancelledError:
-            logging.info("Start sequence cancelled")
+            asyncio.run_coroutine_threadsafe(_start_belt_sequence(), ble_loop)
         except Exception as exc:
-            logging.error(f"Start sequence error: {exc}")
+            logging.error(f"Failed to queue start sequence: {exc}")
             belt_running = False
-            _handle_disconnect(None)
-        finally:
-            _belt_sequence_task = None
-
-    try:
-        asyncio.run_coroutine_threadsafe(_start_belt_sequence(), ble_loop)
-    except Exception as exc:
-        logging.error(f"Failed to queue start sequence: {exc}")
-        belt_running = False
-        return redirect(url_for("root"))
+            return redirect(url_for("root"))
 
     return redirect(url_for("root"))
 
@@ -700,27 +703,29 @@ def start_session():
 @app.route("/pause_session", methods=["POST"], endpoint="pause_session")
 def pause_session():
     global belt_running, resume_speed_kmh
-    if not belt_running:
-        return redirect(url_for("root"))
+    with _session_state_lock:
+        if not belt_running:
+            return redirect(url_for("root"))
 
-    # Use the most recent speed from our history for manual pause
-    if speed_history:
-        resume_speed_kmh = speed_history[-1]
+        # Use the most recent speed from our history for manual pause
+        if speed_history:
+            resume_speed_kmh = speed_history[-1]
 
-    belt_running = False
+        belt_running = False
 
-    # Cancel the stats monitor and stop the belt as a single ordered
-    # sequence on ble_loop, rather than two independent fire-and-forget
-    # dispatches from this (Flask) thread. Otherwise the monitor's
-    # in-flight ask_stats() poll can still be unwinding when stop_belt()
-    # runs, interleaving with it on the wire — and an immediate resume
-    # could flip belt_running back to True before the old monitor even
-    # notices, leaving it running concurrently with the resume sequence.
-    async def _pause_belt_sequence():
-        await _cancel_stats_monitor()
-        await controller.stop_belt()
+        # Cancel the stats monitor and stop the belt as a single ordered
+        # sequence on ble_loop, rather than two independent fire-and-forget
+        # dispatches from this (Flask) thread. Otherwise the monitor's
+        # in-flight ask_stats() poll can still be unwinding when stop_belt()
+        # runs, interleaving with it on the wire — and an immediate resume
+        # could flip belt_running back to True before the old monitor even
+        # notices, leaving it running concurrently with the resume sequence.
+        async def _pause_belt_sequence():
+            await _cancel_stats_monitor()
+            await controller.stop_belt()
 
-    asyncio.run_coroutine_threadsafe(_pause_belt_sequence(), ble_loop)
+        asyncio.run_coroutine_threadsafe(_pause_belt_sequence(), ble_loop)
+
     return redirect(url_for("root"))
 
 
@@ -729,62 +734,63 @@ def pause_session():
 def resume_session():
     global belt_running, _resume_grace_deadline, session_active, _stats_monitor_task
 
-    if not session_active:
-        logging.warning("Resume called but no active session.")
-        return redirect(url_for("root"))
+    with _session_state_lock:
+        if not session_active:
+            logging.warning("Resume called but no active session.")
+            return redirect(url_for("root"))
 
-    if belt_running:
-        logging.info("Resume called but belt is already running.")
-        return redirect(url_for("root"))
+        if belt_running:
+            logging.info("Resume called but belt is already running.")
+            return redirect(url_for("root"))
 
-    logging.info("Resume button clicked. Setting app state to active.")
-    belt_running = True
-    _resume_grace_deadline = time.time() + 7
+        logging.info("Resume button clicked. Setting app state to active.")
+        belt_running = True
+        _resume_grace_deadline = time.time() + 7
 
-    async def _resume_belt_sequence():
-        global belt_running, _stats_monitor_task, _belt_sequence_task
-        _belt_sequence_task = asyncio.current_task()
+        async def _resume_belt_sequence():
+            global belt_running, _stats_monitor_task, _belt_sequence_task
+            _belt_sequence_task = asyncio.current_task()
+            try:
+                logging.info("Attempting resume: Sending wake-up and start sequence to device...")
+
+                # Cancel any existing stats monitor task BEFORE sending device
+                # commands. If left running, its ask_stats() polls interleave
+                # with the switch_mode/start_belt/change_speed commands below
+                # and can garble the command order on the device.
+                await _cancel_stats_monitor()
+
+                # Standard wake-up and start sequence
+                await controller.switch_mode(WalkingPad.MODE_STANDBY)
+                await asyncio.sleep(0.5)
+                await controller.switch_mode(WalkingPad.MODE_MANUAL)
+                await asyncio.sleep(0.5)
+
+                await controller.start_belt()
+                await asyncio.sleep(0.5)
+
+                logging.info(f"Setting speed to {resume_speed_kmh:.1f} km/h.")
+                await controller.change_speed(int(resume_speed_kmh * 10))
+                await asyncio.sleep(0.5)
+
+                logging.info("Starting stats monitor...")
+                _stats_monitor_task = asyncio.create_task(_stats_monitor())
+                logging.info("Resume sequence commands sent, monitor ensured.")
+
+            except asyncio.CancelledError:
+                logging.info("Resume sequence cancelled")
+            except Exception as exc:
+                logging.error(f"Error during resume sequence: {exc}")
+                belt_running = False
+                _handle_disconnect(None)
+            finally:
+                _belt_sequence_task = None
+
         try:
-            logging.info("Attempting resume: Sending wake-up and start sequence to device...")
-
-            # Cancel any existing stats monitor task BEFORE sending device
-            # commands. If left running, its ask_stats() polls interleave
-            # with the switch_mode/start_belt/change_speed commands below
-            # and can garble the command order on the device.
-            await _cancel_stats_monitor()
-
-            # Standard wake-up and start sequence
-            await controller.switch_mode(WalkingPad.MODE_STANDBY)
-            await asyncio.sleep(0.5)
-            await controller.switch_mode(WalkingPad.MODE_MANUAL)
-            await asyncio.sleep(0.5)
-
-            await controller.start_belt()
-            await asyncio.sleep(0.5)
-
-            logging.info(f"Setting speed to {resume_speed_kmh:.1f} km/h.")
-            await controller.change_speed(int(resume_speed_kmh * 10))
-            await asyncio.sleep(0.5)
-
-            logging.info("Starting stats monitor...")
-            _stats_monitor_task = asyncio.create_task(_stats_monitor())
-            logging.info("Resume sequence commands sent, monitor ensured.")
-
-        except asyncio.CancelledError:
-            logging.info("Resume sequence cancelled")
+            asyncio.run_coroutine_threadsafe(_resume_belt_sequence(), ble_loop)
         except Exception as exc:
-            logging.error(f"Error during resume sequence: {exc}")
+            logging.error(f"Failed to queue resume sequence: {exc}")
             belt_running = False
-            _handle_disconnect(None)
-        finally:
-            _belt_sequence_task = None
-
-    try:
-        asyncio.run_coroutine_threadsafe(_resume_belt_sequence(), ble_loop)
-    except Exception as exc:
-        logging.error(f"Failed to queue resume sequence: {exc}")
-        belt_running = False
-        return redirect(url_for("root"))
+            return redirect(url_for("root"))
 
     return redirect(url_for("root"))
 
