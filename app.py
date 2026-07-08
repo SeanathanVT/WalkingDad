@@ -634,14 +634,10 @@ def start_session():
         global belt_running, _stats_monitor_task
         try:
             logging.info("Starting belt...")
-            await controller.switch_mode(WalkingPad.MODE_STANDBY)
-            await asyncio.sleep(0.5)
-            await controller.switch_mode(WalkingPad.MODE_MANUAL)
-            await asyncio.sleep(0.5)
-            await controller.start_belt()
-            await asyncio.sleep(0.5)
 
-            # Cancel any existing stats monitor task
+            # Cancel any existing stats monitor task BEFORE sending device
+            # commands so its ask_stats() polls can't interleave with the
+            # switch_mode/start_belt commands below.
             if _stats_monitor_task and not _stats_monitor_task.done():
                 logging.info("Cancelling existing stats monitor task")
                 _stats_monitor_task.cancel()
@@ -649,6 +645,13 @@ def start_session():
                     await _stats_monitor_task
                 except asyncio.CancelledError:
                     pass
+
+            await controller.switch_mode(WalkingPad.MODE_STANDBY)
+            await asyncio.sleep(0.5)
+            await controller.switch_mode(WalkingPad.MODE_MANUAL)
+            await asyncio.sleep(0.5)
+            await controller.start_belt()
+            await asyncio.sleep(0.5)
 
             logging.info("Starting stats monitor...")
             _stats_monitor_task = asyncio.create_task(_stats_monitor())
@@ -683,9 +686,16 @@ def pause_session():
 
     belt_running = False
 
-    # Close the stats monitor by setting belt_running to False
-    # (it will exit its loop naturally)
-    logging.info("Pausing session - stats monitor will exit on next cycle")
+    # Cancel the stats monitor immediately rather than waiting for it to
+    # notice belt_running went False on its next loop iteration. Otherwise
+    # an immediate resume can flip belt_running back to True before the
+    # monitor exits, leaving it running concurrently with the resume
+    # sequence and interleaving ask_stats() polls with device commands.
+    # This route runs on the Flask thread, not ble_loop's thread, so the
+    # task must be cancelled via call_soon_threadsafe rather than calling
+    # task.cancel() directly across threads.
+    if _stats_monitor_task and not _stats_monitor_task.done() and ble_loop:
+        ble_loop.call_soon_threadsafe(_stats_monitor_task.cancel)
 
     asyncio.run_coroutine_threadsafe(controller.stop_belt(), ble_loop)
     return redirect(url_for("root"))
@@ -713,6 +723,18 @@ def resume_session():
         try:
             logging.info("Attempting resume: Sending wake-up and start sequence to device...")
 
+            # Cancel any existing stats monitor task BEFORE sending device
+            # commands. If left running, its ask_stats() polls interleave
+            # with the switch_mode/start_belt/change_speed commands below
+            # and can garble the command order on the device.
+            if _stats_monitor_task and not _stats_monitor_task.done():
+                logging.info("Cancelling existing stats monitor task")
+                _stats_monitor_task.cancel()
+                try:
+                    await _stats_monitor_task
+                except asyncio.CancelledError:
+                    pass
+
             # Standard wake-up and start sequence
             await controller.switch_mode(WalkingPad.MODE_STANDBY)
             await asyncio.sleep(0.5)
@@ -725,15 +747,6 @@ def resume_session():
             logging.info(f"Setting speed to {resume_speed_kmh:.1f} km/h.")
             await controller.change_speed(int(resume_speed_kmh * 10))
             await asyncio.sleep(0.5)
-            
-            # Cancel any existing stats monitor task and create a fresh one
-            if _stats_monitor_task and not _stats_monitor_task.done():
-                logging.info("Cancelling existing stats monitor task")
-                _stats_monitor_task.cancel()
-                try:
-                    await _stats_monitor_task
-                except asyncio.CancelledError:
-                    pass
 
             logging.info("Starting stats monitor...")
             _stats_monitor_task = asyncio.create_task(_stats_monitor())

@@ -9,6 +9,7 @@ All notable changes to WalkingDad will be documented in this file.
 - **Session start time was always wrong** — `session_history.json` recorded the save time as both `start_time` and `end_time`. Records now correctly capture the real start time from when the session begins.
 - **CSV export race condition** — The history load used by `/export_csv` was not holding `_history_lock`, meaning a concurrent session save could produce a corrupt read.
 - **Session timer ran ~10% fast** — The stats monitor incremented a tick counter each loop, but the `ask_stats()` poll takes ~100ms, causing ~6 minutes of drift over a 60-minute session. Timer now measures elapsed wall-clock time via `time.monotonic()`.
+- **Pausing then immediately resuming could leave the belt stopped** — The background stats monitor only noticed a pause on its next ~1s poll cycle. An immediate resume could flip the state back to "running" before the old monitor task exited, so its status polls interleaved with the resume command sequence and confused the device. The monitor is now cancelled synchronously on pause and resume, before any device commands are sent.
 
 ### Changed
 
