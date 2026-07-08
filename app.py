@@ -34,6 +34,11 @@ MIN_SPEED_KMH = 1.0
 SPEED_STEP = 0.6  # Speed change per button press in km/h
 SLOW_WALK_SPEED_KMH = 4.5  # Approx 2.8 MPH
 
+# ── Auto-pause grace period ──────────────────────────────────────────────
+# Suppresses false auto-pause detection for this many seconds after a
+# start/resume command, while the device is still ramping up to speed.
+RESUME_GRACE_PERIOD_SECONDS = 7
+
 
 def kcal_estimate(miles: float) -> float:
     return KCAL_PER_MILE * miles
@@ -82,7 +87,7 @@ _last_dev_dist = _last_dev_steps = 0
 
 def _build_session_record() -> dict:
     """Build a session record dict from current global state."""
-    start = _session_start_time or datetime.now()
+    start = _session_start_time
     end = datetime.now()
     distance_mi = current_distance_km * KM_TO_MI
     duration = max(current_session_active_seconds, 1)  # avoid div-by-zero
@@ -404,6 +409,27 @@ async def _cancel_stats_monitor():
             pass
 
 
+async def _wake_and_start_belt(target_speed_kmh: float | None = None):
+    """Wake the device from standby and start the belt, optionally setting a speed.
+
+    The device may be in MODE_STANDBY (e.g. after a prior stop_belt()), so
+    the STANDBY->MANUAL toggle is required, not just a formality — see
+    commit 5cbb8ba, which fixed a silent start_belt() failure caused by
+    skipping it.
+    """
+    await controller.switch_mode(WalkingPad.MODE_STANDBY)
+    await asyncio.sleep(0.5)
+    await controller.switch_mode(WalkingPad.MODE_MANUAL)
+    await asyncio.sleep(0.5)
+    await controller.start_belt()
+    await asyncio.sleep(0.5)
+
+    if target_speed_kmh is not None:
+        logging.info(f"Setting speed to {target_speed_kmh:.1f} km/h.")
+        await controller.change_speed(int(target_speed_kmh * 10))
+        await asyncio.sleep(0.5)
+
+
 def _ble_thread():
     global connected, connecting, connection_failed, ble_loop
 
@@ -652,7 +678,7 @@ def start_session():
         resume_speed_kmh = 2.0
         speed_history.clear()
         _session_start_time = datetime.now()
-        _resume_grace_deadline = time.time() + 7
+        _resume_grace_deadline = time.time() + RESUME_GRACE_PERIOD_SECONDS
 
         session_active = True
         belt_running = True
@@ -668,12 +694,7 @@ def start_session():
                 # switch_mode/start_belt commands below.
                 await _cancel_stats_monitor()
 
-                await controller.switch_mode(WalkingPad.MODE_STANDBY)
-                await asyncio.sleep(0.5)
-                await controller.switch_mode(WalkingPad.MODE_MANUAL)
-                await asyncio.sleep(0.5)
-                await controller.start_belt()
-                await asyncio.sleep(0.5)
+                await _wake_and_start_belt()
 
                 logging.info("Starting stats monitor...")
                 _stats_monitor_task = asyncio.create_task(_stats_monitor())
@@ -745,7 +766,7 @@ def resume_session():
 
         logging.info("Resume button clicked. Setting app state to active.")
         belt_running = True
-        _resume_grace_deadline = time.time() + 7
+        _resume_grace_deadline = time.time() + RESUME_GRACE_PERIOD_SECONDS
 
         async def _resume_belt_sequence():
             global belt_running, _stats_monitor_task, _belt_sequence_task
@@ -759,18 +780,7 @@ def resume_session():
                 # and can garble the command order on the device.
                 await _cancel_stats_monitor()
 
-                # Standard wake-up and start sequence
-                await controller.switch_mode(WalkingPad.MODE_STANDBY)
-                await asyncio.sleep(0.5)
-                await controller.switch_mode(WalkingPad.MODE_MANUAL)
-                await asyncio.sleep(0.5)
-
-                await controller.start_belt()
-                await asyncio.sleep(0.5)
-
-                logging.info(f"Setting speed to {resume_speed_kmh:.1f} km/h.")
-                await controller.change_speed(int(resume_speed_kmh * 10))
-                await asyncio.sleep(0.5)
+                await _wake_and_start_belt(resume_speed_kmh)
 
                 logging.info("Starting stats monitor...")
                 _stats_monitor_task = asyncio.create_task(_stats_monitor())
