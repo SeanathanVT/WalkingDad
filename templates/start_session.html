@@ -35,7 +35,9 @@
         </div>
     </div>
 
-    <a href="{{ url_for('start_session') }}" class="btn btn-custom-primary">Start</a>
+    <form method="post" action="{{ url_for('start_session') }}" style="display:inline">
+        <button type="submit" class="btn btn-custom-primary">Start</button>
+    </form>
 </div>
 
 {% if history %}
@@ -90,12 +92,7 @@
           .then(data => {
               if (data.stopping === true && !_shutdownShown) {
                   _shutdownShown = true;
-                  document.body.style.minHeight = '100vh';
-                  document.body.style.display = 'flex';
-                  document.body.style.flexDirection = 'column';
-                  document.body.style.justifyContent = 'center';
-                  document.body.style.alignItems = 'center';
-                  document.body.innerHTML = '<div class="container text-center"><h2>Server is shutting down. You may close this window.</h2></div>';
+                  showShutdownOverlay();
                   return;
               }
 

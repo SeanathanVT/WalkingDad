@@ -10,10 +10,10 @@
     {% elif connection_failed %}
         <h2 class="content-title text-danger">Connection Failed</h2>
         <p class="text-muted mb-4">Could not find the WalkingPad. Please ensure it's on and in range.</p>
-        <a href="{{ url_for('manual_reconnect') }}" class="btn btn-custom-primary">Try Again</a>
+        <a href="{{ url_for('reconnect') }}" class="btn btn-custom-primary">Try Again</a>
     {% else %}
         <h2 class="content-title text-danger">Disconnected</h2>
-         <a href="{{ url_for('manual_reconnect') }}" class="btn btn-custom-primary">Connect</a>
+         <a href="{{ url_for('reconnect') }}" class="btn btn-custom-primary">Connect</a>
     {% endif %}
 </div>
 {% endblock %}

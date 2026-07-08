@@ -36,36 +36,69 @@
         </div>
     </div>
 
+    <p id="transitioning-hint" class="text-muted mb-2" style="display:none;font-size:0.9rem;">
+        <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+        Pausing belt&hellip;
+    </p>
     <div class="d-flex justify-content-center gap-3">
-        <a href="{{ url_for('resume_session') }}" class="btn btn-custom-primary">Resume</a>
-        <a href="{{ url_for('end_session') }}" class="btn btn-custom-danger">
-            <i class="bi bi-stop-fill"></i> End Session
-        </a>
+        <form method="post" action="{{ url_for('resume_session') }}" style="display:contents">
+            <button id="btn-resume" type="submit" class="btn btn-custom-primary">Resume</button>
+        </form>
+        <form method="post" action="{{ url_for('end_session') }}" style="display:contents">
+            <button id="btn-end" type="submit" class="btn btn-custom-danger">
+                <i class="bi bi-stop-fill"></i> End Session
+            </button>
+        </form>
     </div>
 </div>
 
 <script>
+  function setTransitioning(on) {
+    var hint = document.getElementById('transitioning-hint');
+    var btnResume = document.getElementById('btn-resume');
+    var btnEnd = document.getElementById('btn-end');
+    hint.style.display = on ? '' : 'none';
+    btnResume.disabled = on;
+    btnEnd.disabled = on;
+    btnResume.style.opacity = on ? '0.5' : '';
+    btnEnd.style.opacity = on ? '0.5' : '';
+  }
+
+  // Disable buttons immediately on submit so a double-tap can't fire twice.
+  document.querySelectorAll('form').forEach(function(form) {
+    form.addEventListener('submit', function() {
+      var btnResume = document.getElementById('btn-resume');
+      var btnEnd = document.getElementById('btn-end');
+      btnResume.disabled = true;
+      btnEnd.disabled = true;
+      btnResume.style.opacity = '0.5';
+      btnEnd.style.opacity = '0.5';
+    });
+  });
+
   var _shutdownShown = false;
-  setInterval(function(){
+
+  function pollStats() {
     fetch("{{ url_for('get_stats') }}")
       .then(response => response.json())
       .then(data => {
         if (data.stopping === true && !_shutdownShown) {
           _shutdownShown = true;
-          document.body.style.minHeight = '100vh';
-          document.body.style.display = 'flex';
-          document.body.style.flexDirection = 'column';
-          document.body.style.justifyContent = 'center';
-          document.body.style.alignItems = 'center';
-          document.body.innerHTML = '<div class="container text-center"><h2>Server is shutting down. You may close this window.</h2></div>';
+          showShutdownOverlay();
           return;
         }
-
         if (data.is_connected === false) {
           window.location.reload();
+          return;
         }
+        setTransitioning(data.belt_transitioning === true);
       });
-  }, 3000);
+  }
+
+  // Check immediately on page load so Resume is disabled if the pause
+  // sequence is still in flight when the browser lands here.
+  pollStats();
+  setInterval(pollStats, 1500);
 </script>
 
 {% endblock %}
