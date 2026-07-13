@@ -51,15 +51,21 @@ Additional fixes:
 
 ---
 
-### 1.3 Session State Persistence
-- **Status:** Planned
-- **Problem:** All cumulative stats (time, distance, steps, calories) are lost if the server restarts or crashes mid-session.
-- **Solution:** Persist session state to a local JSON file (`session_state.json`) after each stat update, and restore on startup if a session was active.
-- **Implementation:**
-    - Add `session_state.json` in the project directory
-    - Write state periodically (e.g., every 5 seconds) or on state changes
-    - On app start, check for existing state file and offer to restore the previous session
-- **File:** `session_state.json` (auto-generated)
+### ✅ 1.3 Session State Persistence
+**Status:** ✅ Complete
+**Files Modified:** `app.py`, `templates/start_session.html`, `.gitignore`
+
+Cumulative session stats now survive a server crash or restart. In-progress session state is written to `session_state.json` and offered back to the user on next launch instead of being silently lost.
+
+| Feature | Description |
+|---|---|
+| **Periodic Save** | `_save_session_state()` writes distance/steps/calories/active-time/resume-speed/raw-device-counters to `session_state.json` every 5 seconds while the stats monitor is running |
+| **State-Change Saves** | Also saved immediately on `/start`, `/pause`, and `/resume` so a crash right after a transition doesn't lose it |
+| **Startup Detection** | On launch, `_load_session_state()` checks for a leftover file from an unclean exit; if found, it's held as a pending restore rather than auto-resumed (no BLE connection to trust yet) |
+| **Restore Banner** | Start screen shows a summary (distance, steps, calories, time) of the interrupted session with **Restore Session** / **Discard** actions |
+| **Restore Session** | `/restore_session` reinstates the session in **paused** state (belt physically stopped) — user hits Resume to reconnect and continue, matching the existing pause/resume flow |
+| **Clean-Exit Cleanup** | `session_state.json` is removed once a session is finalized normally — on `/end_session` (after saving to history) and during graceful shutdown (Ctrl+C / signal / `/shutdown`) — so a clean exit never triggers a restore prompt |
+| **Fault Tolerant** | Corrupted or missing `session_state.json` is ignored gracefully, same pattern as `session_history.json` |
 
 ---
 
