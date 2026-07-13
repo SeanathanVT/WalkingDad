@@ -4,8 +4,8 @@ import time
 import urllib.request
 import webbrowser
 
-HOST = "0.0.0.0"
-PORT = 5001
+from config import HOST, PORT
+
 SHUTDOWN_URL = f"http://127.0.0.1:{PORT}/shutdown"
 
 def open_browser():

@@ -16,7 +16,7 @@ A comprehensive set of reliability improvements for Bluetooth Low Energy communi
 | **Stats Monitor Robustness** | `asyncio.wait_for()` with 2s timeout, proper cancellation handling, no event-loop crashes on errors |
 | **Async Sequence Error Handling** | `start_belt()`, `resume_session()` now have try-catch; failures update app state and trigger disconnect handling |
 | **Thread-Safe Coroutine Execution** | Error handling on `run_coroutine_threadsafe()` calls; proper state management if queueing fails |
-| **Configurable Device Name** | `BLE_DEVICE_NAME` constant at top of `app.py` — users change device name without touching scanner logic |
+| **Configurable Device Name** | Device name configurable without touching scanner logic — initially a constant in `app.py`, now via `config.json` / Settings page (3.1) |
 | **Bleak API Version Compatibility** | Supports both `set_disconn_callback()` (newer) and `set_disconnected_callback()` (older) — works across Bleak versions |
 | **Stats Monitor Lifecycle Fix** | Global `_stats_monitor_task` tracks active monitor; old tasks cancelled before new ones on resume; cleaned up on disconnect. Fixes metrics-not-updating-after-pause/resume bug |
 
@@ -136,18 +136,13 @@ Stores completed sessions in a local JSON file (`session_history.json`) and disp
 
 ---
 
----
-
 ## Phase 3: Code Quality (Medium Priority)
 
-### 3.1 External Configuration File
-- **Status:** Planned
-- **Problem:** All settings (`BLE_DEVICE_NAME`, speed constants, `KCAL_PER_MILE`) are hardcoded in `app.py`. Users must edit source code to customize behavior.
-- **Solution:** Move all configurable settings to a `config.json` file (with `config.py` as a loader that provides defaults).
-- **Implementation:**
-    - Create `config.json.example` with all tunable parameters
-    - On startup, load `config.json` if it exists, otherwise use defaults from `config.py`
-    - Document all config options in README.md
+### ✅ 3.1 External Configuration File
+**Status:** ✅ Complete
+**Files Modified:** `config.py`, `config.json.example`, `app.py`, `run.py`, `.gitignore`, `README.md`, `templates/base.html`, `templates/settings.html`
+
+All user-tunable settings are now loaded from an optional `config.json` file, with `config.py` providing defaults. A Settings page (gear icon in the header) allows changing any setting from the browser without editing files. Most settings take effect immediately; host and port require a restart.
 
 ---
 

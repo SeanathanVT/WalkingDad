@@ -1,0 +1,12 @@
+{
+  "ble_device_name": "KS-BLC2",
+  "max_speed_kmh": 6.0,
+  "min_speed_kmh": 1.0,
+  "speed_step": 0.6,
+  "slow_walk_speed_kmh": 4.5,
+  "kcal_per_mile": 95,
+  "resume_grace_period_seconds": 7,
+  "history_display_limit": 10,
+  "host": "0.0.0.0",
+  "port": 5001
+}

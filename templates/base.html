@@ -205,6 +205,9 @@
                 <button id="theme-toggle" class="btn btn-theme-toggle" title="Toggle theme (Light / Dark / System)">
                     <i class="bi bi-moon-fill" id="theme-icon"></i>
                 </button>
+                <a href="{{ url_for('settings_page') }}" class="btn btn-theme-toggle" title="Settings">
+                    <i class="bi bi-gear-fill"></i>
+                </a>
                 <span class="header-separator px-2">|</span>
                 
                 <button id="shutdown-button" class="btn btn-header-close">Close</button>
@@ -320,6 +323,27 @@
         }, 750);
       }
     });
+    </script>
+    <div id="settings-saved-toast" class="toast-container position-fixed bottom-0 end-0 p-3" style="z-index:1100;">
+        <div class="toast align-items-center border-0" role="alert" aria-live="assertive"
+             style="background-color:var(--card-color);color:var(--text-color);">
+            <div class="d-flex">
+                <div class="toast-body">
+                    <i class="bi bi-check-circle-fill text-success me-2"></i>Settings saved.
+                </div>
+                <button type="button" class="btn-close me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+            </div>
+        </div>
+    </div>
+    <script>
+    (function() {
+        var params = new URLSearchParams(window.location.search);
+        if (params.get('saved') === '1') {
+            history.replaceState({}, '', window.location.pathname);
+            var toastEl = document.querySelector('#settings-saved-toast .toast');
+            new bootstrap.Toast(toastEl, { delay: 3000 }).show();
+        }
+    })();
     </script>
 </body>
 </html>

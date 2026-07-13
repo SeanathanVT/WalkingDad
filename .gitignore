@@ -5,3 +5,4 @@
 __pycache__
 icon.ico
 session_history.json
+config.json
