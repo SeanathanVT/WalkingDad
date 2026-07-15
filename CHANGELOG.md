@@ -2,6 +2,14 @@
 
 All notable changes to WalkingDad will be documented in this file.
 
+## [1.5.2] — 2026-07-15
+
+### Fixed
+
+- **Stats could silently freeze mid-session** — If the BLE status-read path (`ask_stats()`) degraded while writes kept working, a session could start normally (belt moving) but speed/distance/steps/calories would stay frozen at zero indefinitely while Time kept ticking, with no error surfaced. `_stats_monitor()` now tracks consecutive `ask_stats()` failures and treats 5 in a row as a dead connection, triggering the same disconnect/reconnect flow ("Connection Failed — Try Again") already used for other BLE disconnects.
+
+---
+
 ## [1.5.1] — 2026-07-15
 
 ### Added

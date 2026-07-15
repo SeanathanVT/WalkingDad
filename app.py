@@ -63,6 +63,7 @@ _CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.
 _session_state_file_lock = threading.Lock()  # Protect session_state.json reads/writes
 SESSION_STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "session_state.json")
 _SESSION_STATE_SAVE_INTERVAL_SECONDS = 5
+_MAX_CONSECUTIVE_ASK_STATS_FAILURES = 5  # ask_stats() failures in a row before treating the link as dead
 _pending_restore: dict | None = None  # Loaded at startup; cleared once restored or discarded
 
 session_active = belt_running = False
@@ -444,6 +445,7 @@ async def _stats_monitor():
     _base_seconds = current_session_active_seconds
     _monitor_start = time.monotonic()
     _ticks_since_save = 0
+    _consecutive_ask_stats_failures = 0
 
     try:
         while belt_running:
@@ -455,10 +457,24 @@ async def _stats_monitor():
                     dist, steps, speed = _extract_status_fields(status)
                     process_status_packet(dist, steps, speed)
                     logging.debug(f"Poll {status}")
+                    _consecutive_ask_stats_failures = 0
+                else:
+                    logging.warning("ask_stats returned empty status")
+                    _consecutive_ask_stats_failures += 1
             except asyncio.TimeoutError:
                 logging.warning("Status poll timeout")
+                _consecutive_ask_stats_failures += 1
             except Exception as exc:
                 logging.warning(f"ask_stats error: {exc}")
+                _consecutive_ask_stats_failures += 1
+
+            if _consecutive_ask_stats_failures >= _MAX_CONSECUTIVE_ASK_STATS_FAILURES:
+                logging.error(
+                    f"ask_stats failed {_consecutive_ask_stats_failures} consecutive times; "
+                    "treating connection as dead."
+                )
+                _handle_disconnect(None)
+                break
 
             _ticks_since_save += 1
             if _ticks_since_save >= _SESSION_STATE_SAVE_INTERVAL_SECONDS:
