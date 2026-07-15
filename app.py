@@ -624,8 +624,18 @@ def _handle_disconnect(client):
     connecting = False
     connection_failed = True
 
-    # Cancel any running stats monitor task (safe to call from any thread)
-    if _stats_monitor_task and not _stats_monitor_task.done():
+    # Cancel any running stats monitor task (safe to call from any thread).
+    # Skip self-cancellation: if this is being called from within the stats
+    # monitor's own task (its staleness watchdog calling us on itself),
+    # .cancel()-ing yourself mid-step still marks the task cancelled() even
+    # after it exits cleanly via `break`, which is misleading -- the task is
+    # already unwinding on its own, no cancellation is needed to stop it.
+    try:
+        is_self_task = _stats_monitor_task is not None and _stats_monitor_task is asyncio.current_task()
+    except RuntimeError:
+        # No running event loop in this thread -- can't be the monitor's own task.
+        is_self_task = False
+    if _stats_monitor_task and not _stats_monitor_task.done() and not is_self_task:
         logging.info("Cancelling stats monitor due to disconnect")
         _stats_monitor_task.cancel()
 
