@@ -64,7 +64,13 @@ _CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.
 _session_state_file_lock = threading.Lock()  # Protect session_state.json reads/writes
 SESSION_STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "session_state.json")
 _SESSION_STATE_SAVE_INTERVAL_SECONDS = 5
-_MAX_CONSECUTIVE_ASK_STATS_FAILURES = 5  # ask_stats() failures in a row before treating the link as dead
+# ask_stats() only sends a request — the ph4_walkingpad library never returns the reply
+# synchronously; the real data always lands via the on_cur_status_received notification
+# callback (also routed through process_status_packet), independent of ask_stats(). So
+# "is the connection alive" is judged by recency of ANY successful process_status_packet()
+# call, not by ask_stats()'s own return value/exceptions.
+_STALE_STATUS_TIMEOUT_SECONDS = 15
+_last_status_update_monotonic = 0.0
 _pending_restore: dict | None = None  # Loaded at startup; cleared once restored or discarded
 
 session_active = belt_running = False
@@ -355,10 +361,17 @@ def _extract_status_fields(status) -> tuple:
 
 
 def process_status_packet(dev_dist: float, dev_steps: int, dev_speed: float):
-    """Update cumulative stats from raw values AND handle auto-pause."""
+    """Update cumulative stats from raw values AND handle auto-pause.
+
+    Called from both the active poll (_stats_monitor -> ask_stats) and the
+    passive BLE notification callback (_handle_status_update) — either path
+    landing here means the connection is alive.
+    """
     global belt_running, resume_speed_kmh, _resume_grace_deadline
     global current_speed_kmh, current_distance_km, current_steps, current_calories
-    global _last_dev_dist, _last_dev_steps
+    global _last_dev_dist, _last_dev_steps, _last_status_update_monotonic
+
+    _last_status_update_monotonic = time.monotonic()
 
     new_reported_speed_kmh = dev_speed / 10.0
     just_auto_paused = False
@@ -444,14 +457,22 @@ async def _graceful_shutdown():
 
 
 async def _stats_monitor():
-    """Active monitor: explicitly request a status packet every second."""
-    global current_session_active_seconds
+    """Active monitor: explicitly request a status packet every second.
+
+    ask_stats() only sends the request — the reply (if any) arrives via a
+    separate BLE notification handled by _handle_status_update, so a falsy/
+    empty return here is normal on some devices and is NOT a failure signal.
+    Connection health is judged instead by _last_status_update_monotonic,
+    which process_status_packet() stamps on every successful update from
+    either path (active poll or passive notification).
+    """
+    global current_session_active_seconds, _last_status_update_monotonic
     logging.info("Stats monitor started")
 
     _base_seconds = current_session_active_seconds
     _monitor_start = time.monotonic()
     _ticks_since_save = 0
-    _consecutive_ask_stats_failures = 0
+    _last_status_update_monotonic = time.monotonic()  # fresh grace period for this session
 
     try:
         while belt_running:
@@ -463,20 +484,16 @@ async def _stats_monitor():
                     dist, steps, speed = _extract_status_fields(status)
                     process_status_packet(dist, steps, speed)
                     logging.debug(f"Poll {status}")
-                    _consecutive_ask_stats_failures = 0
                 else:
-                    logging.warning("ask_stats returned empty status")
-                    _consecutive_ask_stats_failures += 1
+                    logging.debug("ask_stats returned no reply (expected on this device/library)")
             except asyncio.TimeoutError:
                 logging.warning("Status poll timeout")
-                _consecutive_ask_stats_failures += 1
             except Exception as exc:
                 logging.warning(f"ask_stats error: {exc}")
-                _consecutive_ask_stats_failures += 1
 
-            if _consecutive_ask_stats_failures >= _MAX_CONSECUTIVE_ASK_STATS_FAILURES:
+            if time.monotonic() - _last_status_update_monotonic > _STALE_STATUS_TIMEOUT_SECONDS:
                 logging.error(
-                    f"ask_stats failed {_consecutive_ask_stats_failures} consecutive times; "
+                    f"No status update (active or passive) in over {_STALE_STATUS_TIMEOUT_SECONDS}s; "
                     "treating connection as dead."
                 )
                 _handle_disconnect(None)

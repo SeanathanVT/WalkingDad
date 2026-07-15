@@ -20,7 +20,7 @@ All notable changes to WalkingDad will be documented in this file.
 
 ### Fixed
 
-- **Stats could silently freeze mid-session** — If the BLE status-read path (`ask_stats()`) degraded while writes kept working, a session could start normally (belt moving) but speed/distance/steps/calories would stay frozen at zero indefinitely while Time kept ticking, with no error surfaced. `_stats_monitor()` now tracks consecutive `ask_stats()` failures and treats 5 in a row as a dead connection, triggering the same disconnect/reconnect flow ("Connection Failed — Try Again") already used for other BLE disconnects.
+- **Stats could silently freeze mid-session** — Speed/distance/steps/calories could stay frozen at zero indefinitely while Time kept ticking, with no error surfaced, if the connection stopped delivering real status updates. `_stats_monitor()` now tracks how recently *any* status update landed — whether from the active poll (`ask_stats()`) or the passive BLE notification callback that the `ph4_walkingpad` library actually uses to deliver data — and treats 15 seconds of silence from both as a dead connection, triggering the same disconnect/reconnect flow ("Connection Failed — Try Again") already used for other BLE disconnects. (Note: `ask_stats()` itself never returns the reply synchronously on this library — it only sends the request; the real data always arrives via the notification callback, so counting `ask_stats()`'s own return value alone is not a valid liveness signal.)
 
 ---
 
