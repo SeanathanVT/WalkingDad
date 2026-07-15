@@ -210,6 +210,10 @@
                 es.close();
                 return;
             }
+            if (data.is_connected === false) {
+                window.location.reload();
+                return;
+            }
             onMessage(data);
         };
         es.onerror = function() {

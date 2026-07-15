@@ -82,12 +82,6 @@
   });
 
   startStatsStream(function(data) {
-    // Connection lost
-    if (data.is_connected === false) {
-      window.location.reload();
-      return;
-    }
-
     // Check if the server has auto-paused the session
     if (data.is_running === false) {
       window.location.reload();
