@@ -55,6 +55,7 @@ _device_ble_address: str | None = None
 _resume_grace_deadline = 0
 speed_history = deque(maxlen=15)
 _stats_monitor_task: asyncio.Task | None = None  # Track the stats monitor task
+_idle_watchdog_task: asyncio.Task | None = None  # Track the paused/idle connection watchdog
 _belt_sequence_task: asyncio.Task | None = None  # Track an in-flight start/resume/pause belt sequence
 _belt_transitioning = False  # True while a belt sequence is in flight; exposed in /stats for UI
 _history_lock = threading.Lock()  # Protect session_history.json reads/writes
@@ -71,6 +72,14 @@ _SESSION_STATE_SAVE_INTERVAL_SECONDS = 5
 # call, not by ask_stats()'s own return value/exceptions.
 _STALE_STATUS_TIMEOUT_SECONDS = 15
 _last_status_update_monotonic = 0.0
+# _stats_monitor()'s staleness check only runs while belt_running, so it's blind
+# during a paused session or idle connection. The device only emits a status
+# notification in response to an explicit ask_stats() request -- it does not
+# push anything on its own -- so nothing else keeps _last_status_update_monotonic
+# fresh during those periods. _idle_connection_watchdog() pings periodically
+# whenever connected but no active stats monitor is running, purely to catch a
+# dead link before the user notices only when they try to Resume.
+_IDLE_WATCHDOG_PING_INTERVAL_SECONDS = 10
 _pending_restore: dict | None = None  # Loaded at startup; cleared once restored or discarded
 
 session_active = belt_running = False
@@ -282,7 +291,7 @@ async def _scan_for_device(timeout: int = 10):
 
 
 async def _connect_to_pad() -> bool:
-    global controller, _device_ble_address
+    global controller, _device_ble_address, _idle_watchdog_task, _last_status_update_monotonic
     dev = None
     max_retries = 3
     retry_count = 0
@@ -350,6 +359,9 @@ async def _connect_to_pad() -> bool:
             await controller.enable_notifications()
         except Exception as exc:
             logging.warning(f"enable_notifications failed: {exc}")
+
+    _last_status_update_monotonic = time.monotonic()  # fresh baseline for this connection
+    _idle_watchdog_task = asyncio.create_task(_idle_connection_watchdog())
     return True
 
 
@@ -434,9 +446,10 @@ async def _graceful_shutdown():
             belt_running = False
             await asyncio.sleep(0.5)
 
-        # Step 2: Cancel stats monitor task
+        # Step 2: Cancel stats monitor and idle watchdog tasks
         logging.info("Cancelling stats monitor for shutdown")
         await _cancel_stats_monitor()
+        await _cancel_idle_watchdog()
 
         # Step 3: Switch device to standby mode
         if controller:
@@ -458,6 +471,37 @@ async def _graceful_shutdown():
         session_active = False
         belt_running = False
         logging.info("Device cleanup complete")
+
+
+async def _idle_connection_watchdog():
+    """Keep _last_status_update_monotonic fresh whenever _stats_monitor() isn't
+    running (paused session or idle/no session), so a dead BLE link is caught
+    within a bounded time instead of only surfacing the next time the user
+    tries to Resume.
+
+    Runs for the lifetime of a single connection (started once per successful
+    connect in _connect_to_pad(), cancelled on disconnect/shutdown).
+    """
+    while True:
+        await asyncio.sleep(_IDLE_WATCHDOG_PING_INTERVAL_SECONDS)
+        if not connected:
+            break  # disconnected via another path; nothing left for this task to do
+
+        if belt_running:
+            continue  # _stats_monitor() owns liveness now; keep waiting for it to finish
+
+        if time.monotonic() - _last_status_update_monotonic > _STALE_STATUS_TIMEOUT_SECONDS:
+            logging.error(
+                f"No status update in over {_STALE_STATUS_TIMEOUT_SECONDS}s while idle/paused; "
+                "treating connection as dead."
+            )
+            _handle_disconnect(None)
+            break
+
+        try:
+            await asyncio.wait_for(controller.ask_stats(), timeout=2.0)
+        except Exception as exc:
+            logging.debug(f"Idle watchdog ping error (will retry next cycle): {exc}")
 
 
 async def _stats_monitor():
@@ -525,6 +569,16 @@ async def _cancel_stats_monitor():
         _stats_monitor_task.cancel()
         try:
             await _stats_monitor_task
+        except asyncio.CancelledError:
+            pass
+
+
+async def _cancel_idle_watchdog():
+    """Cancel the running idle connection watchdog and wait for it to unwind."""
+    if _idle_watchdog_task and not _idle_watchdog_task.done():
+        _idle_watchdog_task.cancel()
+        try:
+            await _idle_watchdog_task
         except asyncio.CancelledError:
             pass
 
@@ -619,8 +673,12 @@ def _start_ble_thread():
 
 
 def _handle_disconnect(client):
-    """Callback function to handle unexpected disconnections."""
-    global connected, belt_running, connecting, connection_failed, _stats_monitor_task
+    """Callback function to handle unexpected disconnections. Safe to call
+    from any thread -- both the stats monitor and the idle watchdog can call
+    this on themselves when they detect a dead link.
+    """
+    global connected, belt_running, connecting, connection_failed
+    global _stats_monitor_task, _idle_watchdog_task
     if connected:
         logging.warning("Device has disconnected unexpectedly.")
     connected = False
@@ -628,20 +686,19 @@ def _handle_disconnect(client):
     connecting = False
     connection_failed = True
 
-    # Cancel any running stats monitor task (safe to call from any thread).
-    # Skip self-cancellation: if this is being called from within the stats
-    # monitor's own task (its staleness watchdog calling us on itself),
-    # .cancel()-ing yourself mid-step still marks the task cancelled() even
-    # after it exits cleanly via `break`, which is misleading -- the task is
-    # already unwinding on its own, no cancellation is needed to stop it.
     try:
-        is_self_task = _stats_monitor_task is not None and _stats_monitor_task is asyncio.current_task()
+        current = asyncio.current_task()
     except RuntimeError:
-        # No running event loop in this thread -- can't be the monitor's own task.
-        is_self_task = False
-    if _stats_monitor_task and not _stats_monitor_task.done() and not is_self_task:
-        logging.info("Cancelling stats monitor due to disconnect")
-        _stats_monitor_task.cancel()
+        current = None  # no running event loop in this thread
+
+    # Cancel any running watchdog tasks, skipping self-cancellation: cancelling
+    # a task from inside its own currently-running step still marks it
+    # cancelled() even after it exits cleanly via `break`, which is misleading
+    # -- that task is already unwinding on its own, no cancellation needed.
+    for name, task in (("stats monitor", _stats_monitor_task), ("idle watchdog", _idle_watchdog_task)):
+        if task and not task.done() and task is not current:
+            logging.info(f"Cancelling {name} due to disconnect")
+            task.cancel()
 
 
 def _handle_signal_shutdown(signum, frame):
