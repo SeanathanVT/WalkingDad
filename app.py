@@ -1109,26 +1109,28 @@ def _sse_broadcast_loop():
     """Daemon thread: push a stats snapshot to all subscribers every second.
 
     Runs unconditionally (unlike _stats_monitor, which only runs while
-    belt_running) so idle/paused screens stay live too.
+    belt_running) so idle/paused screens stay live too. This is the only
+    broadcaster thread in the process — an unhandled exception here would
+    silently and permanently stop all SSE delivery, so every tick runs
+    under a broad except that logs and keeps the loop alive.
     """
     while True:
         time.sleep(_SSE_BROADCAST_INTERVAL_SECONDS)
-        payload = _build_stats_payload()
-        with _sse_subscribers_lock:
-            subscribers = list(_sse_subscribers)
-        for q in subscribers:
-            try:
-                q.put_nowait(payload)
-            except queue.Full:
-                # Slow consumer: only the latest snapshot matters, drop the stale one.
+        try:
+            payload = _build_stats_payload()
+            with _sse_subscribers_lock:
+                subscribers = list(_sse_subscribers)
+            for q in subscribers:
+                # This thread is the sole writer to each per-subscriber queue,
+                # so only the latest snapshot matters: drop any stale pending
+                # item before pushing, unconditionally.
                 try:
                     q.get_nowait()
                 except queue.Empty:
                     pass
-                try:
-                    q.put_nowait(payload)
-                except queue.Full:
-                    pass
+                q.put_nowait(payload)
+        except Exception as exc:
+            logging.error(f"SSE broadcast tick failed (continuing): {exc}")
 
 
 def _start_sse_broadcaster():
