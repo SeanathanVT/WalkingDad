@@ -99,7 +99,7 @@ Forked and expanded from the original [walkingpad](https://github.com/CodeJawn/w
 
 ## Roadmap
 
-See [ROADMAP.md](ROADMAP.md) for completed features and planned improvements across four phases.
+See [ROADMAP.md](ROADMAP.md) for completed features and planned improvements across six phases.
 
 ## Changelog
 

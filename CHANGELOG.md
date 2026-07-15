@@ -2,6 +2,14 @@
 
 All notable changes to WalkingDad will be documented in this file.
 
+## [1.5.1] — 2026-07-15
+
+### Added
+
+- **Eleven new roadmap items, including two new phases** — `ROADMAP.md` now tracks: Auto-End Stale Paused Session (1.5), QR Code for LAN Access (2.6), Touch/Swipe Gesture Speed Controls (2.7), Self-Hosted Static Assets (3.4), and Interval/Programmed Speed Sequences (4.4) in existing phases, plus two new phases — **Phase 5: Stats & Motivation** (Personal Records, Daily/Weekly Goals, Trend Summaries, Per-User Profiles) and **Phase 6: Data Export & Integrations** (Apple Health export via Shortcuts, generic GPX/TCX export). All Planned, no code changes yet.
+
+---
+
 ## [1.5.0] — 2026-07-15
 
 ### Added
