@@ -194,6 +194,26 @@
     </style>
 </head>
 <body>
+    <script>
+    // Defined before the page's main content block so child templates can
+    // call this synchronously the moment their own inline <script> runs,
+    // instead of waiting for scripts later in the document (e.g.
+    // showShutdownOverlay below) to have executed first.
+    function startStatsStream(onMessage) {
+        var shutdownShown = false;
+        var es = new EventSource("{{ url_for('stats_stream') }}");
+        es.onmessage = function(event) {
+            var data = JSON.parse(event.data);
+            if (data.stopping === true && !shutdownShown) {
+                shutdownShown = true;
+                showShutdownOverlay();
+                es.close();
+                return;
+            }
+            onMessage(data);
+        };
+    }
+    </script>
     <header class="app-header sticky-top">
         <nav class="container-xl d-flex align-items-center justify-content-between py-3 px-4">
             <a class="navbar-brand d-flex align-items-center gap-2" href="{{ url_for('root') }}">
@@ -243,22 +263,6 @@
         document.body.style.justifyContent = 'center';
         document.body.style.alignItems = 'center';
         document.body.innerHTML = '<div class="container text-center"><h2>Server is shutting down. You may close this window.</h2></div>';
-    }
-    </script>
-    <script>
-    function startStatsStream(onMessage) {
-        var shutdownShown = false;
-        var es = new EventSource("{{ url_for('stats_stream') }}");
-        es.onmessage = function(event) {
-            var data = JSON.parse(event.data);
-            if (data.stopping === true && !shutdownShown) {
-                shutdownShown = true;
-                showShutdownOverlay();
-                es.close();
-                return;
-            }
-            onMessage(data);
-        };
     }
     </script>
     <script>
