@@ -2,6 +2,20 @@
 
 All notable changes to WalkingDad will be documented in this file.
 
+## [1.6.0] — 2026-07-15
+
+### Added
+
+- **Real-time stats via Server-Sent Events** — Replaced the 1.5s/3s `setInterval(fetch('/stats'))` polling loops on the active, paused, and start screens with a single `/stats_stream` SSE endpoint, cutting HTTP overhead and update latency. A daemon thread broadcasts a stats snapshot once a second to all connected clients through thread-safe per-subscriber queues; the broadcaster runs regardless of belt state, so paused/idle screens stay live too, not just active sessions.
+
+### Internal
+
+- Extracted `_build_stats_payload()` — `/stats` and `/stats_stream` now share one function that maps global state to the wire payload, instead of duplicating the dict construction.
+- Extracted `startStatsStream()` into `base.html`, alongside the existing `showShutdownOverlay()`, so all three session templates share one `EventSource` wiring helper instead of duplicating polling boilerplate.
+- Bumped Waitress from its default 4 worker threads to `--threads=16` in `run.py` to give headroom for multiple concurrent long-lived SSE connections plus action POSTs.
+
+---
+
 ## [1.5.2] — 2026-07-15
 
 ### Fixed

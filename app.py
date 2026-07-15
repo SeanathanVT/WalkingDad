@@ -5,6 +5,7 @@ import io
 import json
 import logging
 import os
+import queue
 import signal
 import threading
 import time
@@ -12,7 +13,7 @@ from collections import deque
 from datetime import datetime
 
 from bleak import BleakScanner
-from flask import Flask, render_template, redirect, url_for, jsonify, make_response, request
+from flask import Flask, render_template, redirect, url_for, jsonify, make_response, request, Response
 from ph4_walkingpad.pad import Controller, WalkingPad
 
 import config
@@ -80,6 +81,11 @@ current_calories = 0.0
 current_session_active_seconds = 0
 
 _last_dev_dist = _last_dev_steps = 0
+
+# ── SSE broadcaster state ────────────────────────────────────────────────
+_sse_subscribers: list[queue.Queue] = []
+_sse_subscribers_lock = threading.Lock()  # Protect _sse_subscribers list mutations, mirrors _history_lock convention
+_SSE_BROADCAST_INTERVAL_SECONDS = 1
 
 
 # ── Session History Persistence ────────────────────────────────────────
@@ -1055,11 +1061,13 @@ def max_speed():
 
 
 # ── Live JSON endpoint ───────────────────────────────────────────────────
-@app.route("/stats", endpoint="get_stats")
-def stats_json():
-    formatted_time_active = format_seconds_to_hms(current_session_active_seconds)
+def _build_stats_payload() -> dict:
+    """Build the stats snapshot dict from current global state.
 
-    data = dict(
+    Single source of truth for the wire payload shape — shared by the
+    polling /stats endpoint and the SSE broadcaster.
+    """
+    return dict(
         is_connected=connected,
         is_running=belt_running,
         belt_transitioning=_belt_transitioning,
@@ -1067,12 +1075,70 @@ def stats_json():
         distance=round(current_distance_km * KM_TO_MI, 2),
         steps=current_steps,
         calories=round(current_calories),
-        time_active=formatted_time_active,
+        time_active=format_seconds_to_hms(current_session_active_seconds),
         stopping=_server_stopping,
     )
 
-    resp = make_response(jsonify(data))
+
+@app.route("/stats", endpoint="get_stats")
+def stats_json():
+    resp = make_response(jsonify(_build_stats_payload()))
     resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
+# ── SSE broadcaster ──────────────────────────────────────────────────────
+def _sse_broadcast_loop():
+    """Daemon thread: push a stats snapshot to all subscribers every second.
+
+    Runs unconditionally (unlike _stats_monitor, which only runs while
+    belt_running) so idle/paused screens stay live too.
+    """
+    while True:
+        time.sleep(_SSE_BROADCAST_INTERVAL_SECONDS)
+        payload = _build_stats_payload()
+        with _sse_subscribers_lock:
+            subscribers = list(_sse_subscribers)
+        for q in subscribers:
+            try:
+                q.put_nowait(payload)
+            except queue.Full:
+                # Slow consumer: only the latest snapshot matters, drop the stale one.
+                try:
+                    q.get_nowait()
+                except queue.Empty:
+                    pass
+                try:
+                    q.put_nowait(payload)
+                except queue.Full:
+                    pass
+
+
+def _start_sse_broadcaster():
+    threading.Thread(target=_sse_broadcast_loop, daemon=True).start()
+
+
+@app.route("/stats_stream")
+def stats_stream():
+    """SSE endpoint: pushes a stats snapshot roughly once a second."""
+    q: queue.Queue = queue.Queue(maxsize=1)
+    with _sse_subscribers_lock:
+        _sse_subscribers.append(q)
+
+    def _generate():
+        try:
+            # Immediate snapshot so first paint doesn't wait up to 1s for the next tick.
+            yield f"data: {json.dumps(_build_stats_payload())}\n\n"
+            while True:
+                payload = q.get()
+                yield f"data: {json.dumps(payload)}\n\n"
+        finally:
+            with _sse_subscribers_lock:
+                if q in _sse_subscribers:
+                    _sse_subscribers.remove(q)
+
+    resp = Response(_generate(), mimetype="text/event-stream")
+    resp.headers["Cache-Control"] = "no-cache"
     return resp
 
 
@@ -1143,3 +1209,4 @@ atexit.register(_atexit_cleanup)
 # ── Kick off BLE thread ──────────────────────────────────────────────────
 # The server is no longer started here. This just pre-starts the BLE thread.
 _start_ble_thread()
+_start_sse_broadcaster()

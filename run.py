@@ -48,7 +48,12 @@ if __name__ == "__main__":
         popen_kwargs = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
 
     server_process = subprocess.Popen(
-        ["waitress-serve", f"--host={HOST}", f"--port={PORT}", "app:app"],
+        # --threads: each open SSE connection (/stats_stream) holds a worker
+        # thread for its entire lifetime, unlike the old short-lived polling
+        # requests. Bumped well above the Waitress default of 4 so several
+        # concurrent devices can each hold a stream open alongside action
+        # POSTs (start/pause/speed) without stalling.
+        ["waitress-serve", f"--host={HOST}", f"--port={PORT}", "--threads=16", "app:app"],
         **popen_kwargs,
     )
 

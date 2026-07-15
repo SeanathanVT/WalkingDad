@@ -95,14 +95,11 @@ Three-state theme toggle (Light → Dark → System) with `localStorage` persist
 
 ---
 
-### 2.2 Server-Sent Events for Real-Time Updates
-- **Status:** Planned
-- **Problem:** The client polls `/stats` every 1.5 seconds, which adds unnecessary HTTP overhead and introduces latency between stat updates on the server and display in the browser.
-- **Solution:** Replace polling with Server-Sent Events (SSE) for pushing stat updates from server to client in real time.
-- **Implementation:**
-    - Add `/stats_stream` endpoint that returns `text/event-stream`
-    - Use a thread-safe queue to push stat snapshots from the BLE thread to the SSE endpoint
-    - Update frontend JavaScript to consume the SSE stream instead of `setInterval(fetch(...))`
+### ✅ 2.2 Server-Sent Events for Real-Time Updates
+**Status:** ✅ Complete
+**Files Modified:** `app.py`, `run.py`, `templates/base.html`, `templates/active_session.html`, `templates/paused_session.html`, `templates/start_session.html`
+
+Replaced the three templates' `setInterval(fetch('/stats'))` polling loops (1.5s / 3s cadences) with a single `/stats_stream` Server-Sent Events endpoint. A daemon thread broadcasts a stats snapshot to all subscribers once a second via thread-safe per-client queues, independent of whether the belt is running — so active, paused, and start screens all get uniform live updates. `/stats` is kept unchanged for compatibility; both routes now share one `_build_stats_payload()` helper.
 
 ---
 

@@ -104,22 +104,11 @@
 {% endif %}
 
 <script>
-  var _shutdownShown = false;
-  setInterval(function(){
-      fetch("{{ url_for('get_stats') }}")
-          .then(response => response.json())
-          .then(data => {
-              if (data.stopping === true && !_shutdownShown) {
-                  _shutdownShown = true;
-                  showShutdownOverlay();
-                  return;
-              }
-
-              if (data.is_connected === false) {
-                  window.location.reload();
-              }
-          });
-  }, 3000);
+  startStatsStream(function(data) {
+      if (data.is_connected === false) {
+          window.location.reload();
+      }
+  });
 
   // Clear history button
   var clearBtn = document.getElementById('clear-history-btn');

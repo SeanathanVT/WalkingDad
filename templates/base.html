@@ -246,6 +246,22 @@
     }
     </script>
     <script>
+    function startStatsStream(onMessage) {
+        var shutdownShown = false;
+        var es = new EventSource("{{ url_for('stats_stream') }}");
+        es.onmessage = function(event) {
+            var data = JSON.parse(event.data);
+            if (data.stopping === true && !shutdownShown) {
+                shutdownShown = true;
+                showShutdownOverlay();
+                es.close();
+                return;
+            }
+            onMessage(data);
+        };
+    }
+    </script>
+    <script>
     // Dark Mode logic — three states: light, dark, system
     (function() {
         const root = document.documentElement;

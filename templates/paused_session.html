@@ -76,29 +76,13 @@
     });
   });
 
-  var _shutdownShown = false;
-
-  function pollStats() {
-    fetch("{{ url_for('get_stats') }}")
-      .then(response => response.json())
-      .then(data => {
-        if (data.stopping === true && !_shutdownShown) {
-          _shutdownShown = true;
-          showShutdownOverlay();
-          return;
-        }
-        if (data.is_connected === false) {
-          window.location.reload();
-          return;
-        }
-        setTransitioning(data.belt_transitioning === true);
-      });
-  }
-
-  // Check immediately on page load so Resume is disabled if the pause
-  // sequence is still in flight when the browser lands here.
-  pollStats();
-  setInterval(pollStats, 1500);
+  startStatsStream(function(data) {
+    if (data.is_connected === false) {
+      window.location.reload();
+      return;
+    }
+    setTransitioning(data.belt_transitioning === true);
+  });
 </script>
 
 {% endblock %}
