@@ -371,8 +371,6 @@ def process_status_packet(dev_dist: float, dev_steps: int, dev_speed: float):
     global current_speed_kmh, current_distance_km, current_steps, current_calories
     global _last_dev_dist, _last_dev_steps, _last_status_update_monotonic
 
-    _last_status_update_monotonic = time.monotonic()
-
     new_reported_speed_kmh = dev_speed / 10.0
     just_auto_paused = False
 
@@ -408,6 +406,12 @@ def process_status_packet(dev_dist: float, dev_steps: int, dev_speed: float):
 
     current_speed_kmh = new_reported_speed_kmh
     current_calories = kcal_estimate(current_distance_km * KM_TO_MI)
+
+    # Stamped last, after all accumulation above has succeeded, so a
+    # mid-function exception (e.g. malformed packet data) can't mark the
+    # connection falsely "alive" and mask a real failure from the staleness
+    # watchdog in _stats_monitor().
+    _last_status_update_monotonic = time.monotonic()
 
     # Persist immediately on auto-pause, same guarantee as the manual /pause route.
     if just_auto_paused:
