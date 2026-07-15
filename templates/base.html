@@ -212,6 +212,12 @@
             }
             onMessage(data);
         };
+        es.onerror = function() {
+            // The browser retries automatically on a transient drop; this is
+            // just for visibility so a stuck/failing stream isn't silently
+            // invisible in the console while debugging a "not updating" report.
+            console.warn('Stats stream connection error (browser will auto-retry).');
+        };
     }
     </script>
     <header class="app-header sticky-top">

@@ -101,6 +101,12 @@ _last_dev_dist = _last_dev_steps = 0
 _sse_subscribers: list[queue.Queue] = []
 _sse_subscribers_lock = threading.Lock()  # Protect _sse_subscribers list mutations, mirrors _history_lock convention
 _SSE_BROADCAST_INTERVAL_SECONDS = 1
+# Bounds how long a subscriber's generator can block on q.get() with nothing
+# to send. Well above the normal ~1s broadcast cadence, so this only ever
+# fires if a tick is genuinely missed -- at which point sending a comment
+# line forces a real write attempt on the socket, surfacing a dead/blackholed
+# connection sooner than blocking indefinitely would.
+_SSE_KEEPALIVE_TIMEOUT_SECONDS = 20
 
 
 # ── Session History Persistence ────────────────────────────────────────
@@ -1220,7 +1226,11 @@ def stats_stream():
             # Immediate snapshot so first paint doesn't wait up to 1s for the next tick.
             yield f"data: {json.dumps(_build_stats_payload())}\n\n"
             while True:
-                payload = q.get()
+                try:
+                    payload = q.get(timeout=_SSE_KEEPALIVE_TIMEOUT_SECONDS)
+                except queue.Empty:
+                    yield ": keepalive\n\n"
+                    continue
                 yield f"data: {json.dumps(payload)}\n\n"
         finally:
             with _sse_subscribers_lock:
