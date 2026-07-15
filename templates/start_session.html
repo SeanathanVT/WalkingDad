@@ -1,5 +1,24 @@
 {% extends "base.html" %}
 {% block content %}
+{% if pending_restore %}
+<div class="stat-card mb-4 text-center" style="border:1px solid var(--primary-blue);">
+    <p class="mb-2" style="font-weight:500;">
+        A previous session was interrupted before it could be saved —
+        {{ "%.2f"|format(pending_restore.distance_mi) }} mi &middot;
+        {{ "{:,}".format(pending_restore.steps|int) }} steps &middot;
+        {{ pending_restore.calories }} cal &middot;
+        {{ pending_restore.time_active }}
+    </p>
+    <div class="d-flex justify-content-center gap-2">
+        <form method="post" action="{{ url_for('restore_session') }}" style="display:contents">
+            <button type="submit" class="btn btn-custom-primary">Restore Session</button>
+        </form>
+        <form method="post" action="{{ url_for('discard_session') }}" style="display:contents">
+            <button type="submit" class="btn btn-custom-danger">Discard</button>
+        </form>
+    </div>
+</div>
+{% endif %}
 <div class="text-center">
     <h1 class="content-title mb-4">Start New Session</h1>
 

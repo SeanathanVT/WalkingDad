@@ -60,6 +60,11 @@ _history_lock = threading.Lock()  # Protect session_history.json reads/writes
 HISTORY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "session_history.json")
 _CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
 
+_session_state_file_lock = threading.Lock()  # Protect session_state.json reads/writes
+SESSION_STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "session_state.json")
+_SESSION_STATE_SAVE_INTERVAL_SECONDS = 5
+_pending_restore: dict | None = None  # Loaded at startup; cleared once restored or discarded
+
 session_active = belt_running = False
 _session_start_time: datetime | None = None
 _session_state_lock = threading.Lock()  # Protect session_active/belt_running check-then-set transitions
@@ -158,6 +163,64 @@ def _clear_session_history():
             logging.error(f"Failed to clear session history: {exc}")
 
 
+# ── Session State Persistence (crash/restart recovery) ──────────────────
+
+def _build_session_state_snapshot() -> dict:
+    """Build a dict of the in-progress session's live state for crash recovery."""
+    return {
+        "session_active": session_active,
+        "session_start_time": _session_start_time.isoformat() if _session_start_time else None,
+        "current_distance_km": current_distance_km,
+        "current_steps": current_steps,
+        "current_calories": current_calories,
+        "current_session_active_seconds": current_session_active_seconds,
+        "resume_speed_kmh": resume_speed_kmh,
+        "last_dev_dist": _last_dev_dist,
+        "last_dev_steps": _last_dev_steps,
+    }
+
+
+def _save_session_state():
+    """Write the current in-progress session to session_state.json (thread-safe, atomic)."""
+    if not session_active:
+        return
+    snapshot = _build_session_state_snapshot()
+    with _session_state_file_lock:
+        tmp_path = f"{SESSION_STATE_FILE}.tmp"
+        try:
+            with open(tmp_path, "w") as f:
+                json.dump(snapshot, f, indent=2)
+            os.replace(tmp_path, SESSION_STATE_FILE)
+        except IOError as exc:
+            logging.error(f"Failed to write session state: {exc}")
+
+
+def _load_session_state() -> dict | None:
+    """Load a saved in-progress session, if any (thread-safe). Returns None if absent/invalid."""
+    with _session_state_file_lock:
+        if not os.path.exists(SESSION_STATE_FILE):
+            return None
+        try:
+            with open(SESSION_STATE_FILE, "r") as f:
+                state = json.load(f)
+            if not isinstance(state, dict) or not state.get("session_active"):
+                return None
+            return state
+        except (json.JSONDecodeError, IOError) as exc:
+            logging.warning(f"Failed to read session state, ignoring: {exc}")
+            return None
+
+
+def _clear_session_state():
+    """Remove session_state.json once a session ends cleanly or is resolved (thread-safe)."""
+    with _session_state_file_lock:
+        try:
+            if os.path.exists(SESSION_STATE_FILE):
+                os.remove(SESSION_STATE_FILE)
+        except IOError as exc:
+            logging.error(f"Failed to clear session state: {exc}")
+
+
 def _write_config(updates: dict) -> None:
     """Merge updates into config.json, creating the file if it doesn't exist."""
     existing = {}
@@ -167,6 +230,9 @@ def _write_config(updates: dict) -> None:
     existing.update(updates)
     with open(_CONFIG_FILE, "w") as f:
         json.dump(existing, f, indent=2)
+
+
+_pending_restore = _load_session_state()  # Check for an interrupted session at startup
 
 
 # ── Context processor so templates always know flags ────────────────────
@@ -288,6 +354,7 @@ def process_status_packet(dev_dist: float, dev_steps: int, dev_speed: float):
     global _last_dev_dist, _last_dev_steps
 
     new_reported_speed_kmh = dev_speed / 10.0
+    just_auto_paused = False
 
     # Continuously populate the speed history with stable, non-zero speeds.
     if belt_running and new_reported_speed_kmh > MIN_SPEED_KMH:
@@ -306,6 +373,7 @@ def process_status_packet(dev_dist: float, dev_steps: int, dev_speed: float):
                 resume_speed_kmh = MIN_SPEED_KMH
 
             belt_running = False
+            just_auto_paused = True
 
     # Cumulative stats accumulation
     if dev_dist < _last_dev_dist:
@@ -321,6 +389,10 @@ def process_status_packet(dev_dist: float, dev_steps: int, dev_speed: float):
     current_speed_kmh = new_reported_speed_kmh
     current_calories = kcal_estimate(current_distance_km * KM_TO_MI)
 
+    # Persist immediately on auto-pause, same guarantee as the manual /pause route.
+    if just_auto_paused:
+        _save_session_state()
+
 
 async def _graceful_shutdown():
     """Safely stop the treadmill, cancel monitors, and disconnect BLE before exit."""
@@ -329,6 +401,7 @@ async def _graceful_shutdown():
         # Step 0.5: Save in-progress session to history before cleanup
         if session_active:
             _save_session()
+            _clear_session_state()
 
         # Step 1: Stop belt if running
         if belt_running and controller:
@@ -370,6 +443,7 @@ async def _stats_monitor():
 
     _base_seconds = current_session_active_seconds
     _monitor_start = time.monotonic()
+    _ticks_since_save = 0
 
     try:
         while belt_running:
@@ -385,6 +459,11 @@ async def _stats_monitor():
                 logging.warning("Status poll timeout")
             except Exception as exc:
                 logging.warning(f"ask_stats error: {exc}")
+
+            _ticks_since_save += 1
+            if _ticks_since_save >= _SESSION_STATE_SAVE_INTERVAL_SECONDS:
+                _ticks_since_save = 0
+                _save_session_state()
 
             try:
                 await asyncio.sleep(1)
@@ -559,7 +638,19 @@ def root():
     if not session_active:
         # For start_session, show history (last N sessions)
         history = _load_session_history(limit=HISTORY_DISPLAY_LIMIT)
-        return render_template("start_session.html", time_active="0:00:00", history=history)
+
+        pending_restore = None
+        if _pending_restore:
+            pending_restore = {
+                "distance_mi": round(_pending_restore.get("current_distance_km", 0.0) * KM_TO_MI, 2),
+                "steps": _pending_restore.get("current_steps", 0),
+                "calories": round(_pending_restore.get("current_calories", 0.0)),
+                "time_active": format_seconds_to_hms(_pending_restore.get("current_session_active_seconds", 0)),
+            }
+
+        return render_template(
+            "start_session.html", time_active="0:00:00", history=history, pending_restore=pending_restore,
+        )
 
     template = "active_session.html" if belt_running else "paused_session.html"
 
@@ -603,6 +694,7 @@ def end_session():
 
         # Save session to history
         _save_session()
+        _clear_session_state()
         logging.info("Session ended by user, saved to history")
 
         # Reset all counters
@@ -697,12 +789,65 @@ def reconnect():
     return redirect(url_for("root"))
 
 
+# ── Restore / Discard interrupted session ───────────────────────────────
+@app.route("/restore_session", methods=["POST"])
+def restore_session():
+    """Restore a session that was interrupted by a crash/restart, in paused state."""
+    global session_active, belt_running, current_distance_km, current_steps, current_calories
+    global current_session_active_seconds, resume_speed_kmh, _session_start_time
+    global _last_dev_dist, _last_dev_steps, _pending_restore
+
+    if not connected:
+        return redirect(url_for("root"))
+
+    with _session_state_lock:
+        if session_active or not _pending_restore:
+            return redirect(url_for("root"))
+
+        state = _pending_restore
+        _pending_restore = None
+
+        current_distance_km = state.get("current_distance_km", 0.0)
+        current_steps = state.get("current_steps", 0)
+        current_calories = state.get("current_calories", 0.0)
+        current_session_active_seconds = state.get("current_session_active_seconds", 0)
+        resume_speed_kmh = state.get("resume_speed_kmh", 2.0)
+        _last_dev_dist = state.get("last_dev_dist", 0)
+        _last_dev_steps = state.get("last_dev_steps", 0)
+        start_str = state.get("session_start_time")
+        _session_start_time = datetime.fromisoformat(start_str) if start_str else datetime.now()
+        speed_history.clear()
+
+        # Restored in paused state — the belt isn't actually running; user hits
+        # Resume to reconnect the belt sequence and stats monitor.
+        session_active = True
+        belt_running = False
+        _save_session_state()
+        logging.info("Restored interrupted session from session_state.json")
+
+    return redirect(url_for("root"))
+
+
+@app.route("/discard_session", methods=["POST"])
+def discard_session():
+    """Discard a pending crash-recovery session prompt."""
+    global _pending_restore
+    with _session_state_lock:
+        if session_active:
+            # A restore (or a fresh start) already claimed this session; don't
+            # delete its live state file out from under it.
+            return redirect(url_for("root"))
+        _pending_restore = None
+        _clear_session_state()
+    return redirect(url_for("root"))
+
+
 @app.route("/start", methods=["POST"])
 def start_session():
     """Begin a new session: reset counters, start belt, launch stats monitor."""
     global session_active, belt_running, current_distance_km, current_steps, current_calories, resume_speed_kmh
     global current_session_active_seconds, _stats_monitor_task, _session_start_time, current_speed_kmh
-    global _resume_grace_deadline
+    global _resume_grace_deadline, _pending_restore
 
     if not connected:
         return redirect(url_for("root"))
@@ -722,6 +867,8 @@ def start_session():
 
         session_active = True
         belt_running = True
+        _pending_restore = None  # A fresh session supersedes any unresolved restore prompt
+        _save_session_state()
 
         async def _start_belt_sequence():
             global belt_running, _stats_monitor_task, _belt_sequence_task, _belt_transitioning
@@ -769,6 +916,7 @@ def pause_session():
             resume_speed_kmh = speed_history[-1]
 
         belt_running = False
+        _save_session_state()
 
         # Single ordered sequence on ble_loop: cancel monitor before stop_belt()
         # so an immediate resume can't interleave with the monitor's in-flight polls.
@@ -807,6 +955,7 @@ def resume_session():
         logging.info("Resume button clicked. Setting app state to active.")
         belt_running = True
         _resume_grace_deadline = time.time() + RESUME_GRACE_PERIOD_SECONDS
+        _save_session_state()
 
         async def _resume_belt_sequence():
             global belt_running, _stats_monitor_task, _belt_sequence_task, _belt_transitioning
