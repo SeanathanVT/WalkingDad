@@ -17,6 +17,7 @@ The official WalkingPad experience is a bloated mobile app that wants your email
 - **Smart pause & resume** — Auto-detects when you step off; remembers your speed; configurable grace period prevents re-triggering on restart
 - **Speed presets** — Max, slow walk, and incremental increase/decrease buttons
 - **Session history** — Completed sessions saved to `session_history.json` with full stats; last 10 shown on the start screen. Includes CSV export and history clearing.
+- **Crash recovery** — If the server crashes or restarts mid-session, your stats aren't lost. The start screen offers to restore the interrupted session (paused, ready to resume) or discard it.
 - **Settings page** — Gear icon in the header lets you change any setting (device name, speed limits, port, and more) from the browser without editing files
 - **Dark mode** — Three-state toggle (Light → Dark → System) with localStorage persistence
 - **Cross-platform BLE** — Tested on Windows, macOS, and Linux with retry logic and event loop cleanup

@@ -2,6 +2,14 @@
 
 All notable changes to WalkingDad will be documented in this file.
 
+## [1.5.0] — 2026-07-15
+
+### Added
+
+- **Session state persistence** — Cumulative session stats (time, distance, steps, calories) now survive a server crash or restart instead of being silently lost. In-progress state is snapshotted to `session_state.json` every 5 seconds, on every start/pause/resume transition, and immediately on auto-pause. On next launch, a leftover state file is offered back as a **Restore Session** / **Discard** prompt on the start screen; restoring lands the session in paused state so a device reconnect is required before belt motion resumes. The file is atomically written (temp file + rename) and automatically cleaned up on any clean exit (`End Session`, Ctrl+C, `/shutdown`), so a normal exit never shows a stale restore prompt.
+
+---
+
 ## [1.4.0] — 2026-07-08
 
 ### Added
