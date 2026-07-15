@@ -77,6 +77,14 @@ Cumulative session stats now survive a server crash or restart. In-progress sess
 
 ---
 
+### 1.5 Auto-End Stale Paused Session
+- **Status:** Planned
+- **Problem:** A paused session (manual or auto-pause) has no timeout — if the user forgets to resume or end it, it sits in `paused_session.html` indefinitely. `session_state.json` is written once at the pause transition and never refreshed again until resume/end, so the file also goes stale the longer it sits.
+- **Solution:** If a session stays paused longer than a configurable timeout (e.g. 30 minutes), automatically run the same path as `/end_session` — save to history, clear state, return to the start screen.
+- **Implementation:** Track a pause-started timestamp when `belt_running` flips to `False`; check it on a lightweight timer even while the belt sequence is idle; add `stale_pause_timeout_minutes` to `config.json`/Settings.
+
+---
+
 ## Phase 2: User Experience (Medium Priority)
 
 ### ✅ 2.1 Dark Mode
@@ -142,6 +150,22 @@ Stores completed sessions in a local JSON file (`session_history.json`) and disp
 
 ---
 
+### 2.6 QR Code for LAN Access
+- **Status:** Planned
+- **Problem:** The app's pitch is controlling the treadmill "from any browser on your network," but there's no way to get from the desktop console to a phone except typing the LAN IP by hand.
+- **Solution:** Render a QR code pointing at `http://<lan-ip>:<port>` so a phone can scan-and-go instead.
+- **Implementation:** Resolve the LAN IP at startup (`socket`), generate a QR code (small dependency, or an inline SVG generator to avoid one), show it in `run.py`'s console output and/or a corner of `connecting.html`.
+
+---
+
+### 2.7 Touch / Swipe Gesture Speed Controls
+- **Status:** Planned
+- **Problem:** The primary interaction is a desktop/laptop browser at the desk the WalkingPad sits under, which 2.3 (Keyboard Shortcuts) already serves well. On the occasions the control page is pulled up on a phone or tablet as a secondary device, though, every speed change is still a full button tap.
+- **Solution:** Add swipe-up/swipe-down gestures over the stat cards on `active_session.html` as a touch-friendly alternative to button taps whenever a touchscreen is in use.
+- **Implementation:** `touchstart`/`touchend` delta listeners on the stats grid, calling the same `/increase_speed` and `/decrease_speed` routes as the buttons.
+
+---
+
 ## Phase 3: Code Quality (Medium Priority)
 
 ### ✅ 3.1 External Configuration File
@@ -168,6 +192,14 @@ All user-tunable settings are now loaded from an optional `config.json` file, wi
 - **Problem:** `logging.basicConfig(level=logging.INFO)` is hardcoded. Users cannot enable verbose DEBUG output without editing code.
 - **Solution:** Allow setting log level via environment variable (`LOG_LEVEL=DEBUG`) or command-line argument.
 - **Implementation:** Read `LOG_LEVEL` from `os.environ` with a default of `INFO`, pass to `logging.basicConfig(level=...)`.
+
+---
+
+### 3.4 Self-Hosted Static Assets
+- **Status:** Planned
+- **Problem:** Bootstrap, Bootstrap Icons, and Google Fonts all load from CDNs in `base.html`, so the UI visibly breaks without internet access (already called out in the README's "Icons missing" troubleshooting entry) — at odds with the "runs locally, no cloud" pitch.
+- **Solution:** Vendor Bootstrap CSS/JS, Bootstrap Icons, and the two Google Fonts (Noto Sans and Space Grotesk, all weights currently loaded) into a local `static/` directory and reference them relatively instead of via CDN.
+- **Implementation:** Download and pin the exact versions currently used, serve via Flask's default `static` route, update `base.html`'s `<link>`/`<script>` tags. Pure dependency removal, no functional change.
 
 ---
 
@@ -200,8 +232,69 @@ All user-tunable settings are now loaded from an optional `config.json` file, wi
 
 ---
 
+### 4.4 Interval / Programmed Speed Sequences
+- **Status:** Planned
+- **Problem:** Speed changes are entirely manual (buttons/presets); there's no way to set up a warm-up → intervals → cool-down pattern and have the belt drive itself.
+- **Solution:** Let the user define a sequence of (speed, duration) steps before starting; the app advances through the sequence automatically, calling `controller.change_speed()` at each transition.
+- **Implementation:** A small program list (stored client-side or as a new config block); a `_program_task` coroutine running alongside `_stats_monitor` that fires speed changes on schedule; UI to build/save/select a program on the start screen.
+
+---
+
+## Phase 5: Stats & Motivation (Medium Priority)
+
+### 5.1 Personal Records
+- **Status:** Planned
+- **Problem:** `session_history.json` already has everything needed to highlight records, but nothing surfaces them — every session looks the same as the last.
+- **Solution:** Compute and display "bests" on the start screen: longest session, farthest distance, most steps in a day, fastest avg speed.
+- **Implementation:** A `_compute_records()` helper over `_load_session_history(limit=None)`, rendered as a small stat row near the history table.
+
+---
+
+### 5.2 Daily / Weekly Goals with Progress Bar
+- **Status:** Planned
+- **Problem:** There's no way to set a target and see progress toward it beyond a single session — distinct from 4.2's live per-session ETA, this is about tracking progress across multiple sessions over time.
+- **Solution:** Let the user set a daily or weekly step/distance goal in Settings; show a progress bar on the start screen summing today's/this week's sessions from history.
+- **Implementation:** New config keys (`goal_type`, `goal_target`, `goal_period`); an aggregation function filtering `session_history.json` by date range; progress bar on `start_session.html`.
+
+---
+
+### 5.3 Weekly / Monthly Trend Summary
+- **Status:** Planned
+- **Problem:** History is a flat list of individual sessions — there's no sense of trend (more or less active than last week/month).
+- **Solution:** Add a compact summary comparing this week's/month's totals (distance, steps, sessions) against the previous period.
+- **Implementation:** Aggregate `session_history.json` by ISO week/month; render as text deltas or a minimal inline sparkline — no new charting dependency needed for a first pass.
+
+---
+
+### 5.4 Per-User Profiles
+- **Status:** Planned
+- **Problem:** WalkingDad is built for a household to share, but `session_history.json` mixes everyone's sessions together — history, records (5.1), and goals (5.2) can't be attributed to a person.
+- **Solution:** A lightweight profile selector (name only, no accounts/auth) that tags each session with a `profile` field; history, CSV export, personal records (5.1), and goals (5.2) all filter by the active profile.
+- **Implementation:** Add `profile` to the session record schema (`_build_session_record()`); update 5.1's `_compute_records()` and 5.2's date-range aggregation to filter by the active profile; a profile switcher in the header or start screen; default to a single "default" profile so existing history isn't invalidated.
+
+---
+
+## Phase 6: Data Export & Integrations (Low Priority)
+
+### 6.1 Apple Health Export via Shortcuts
+- **Status:** Planned
+- **Problem:** Completed sessions have nowhere to go besides `session_history.json`/CSV. A native HealthKit integration would require an Apple Developer Program membership and an actual iOS app — out of scope.
+- **Solution:** Expose a small JSON export endpoint for a session's stats, and document an Apple Shortcuts recipe (`Get Contents of URL` → `Log Workout`) that reads it and logs the session to Apple Health. No app, no developer account — the Shortcut runs entirely on the user's own device.
+- **Implementation:** A route returning duration/distance/steps/calories for the most recently completed session (no id needed — reads the last entry in `session_history.json`); a documented Shortcuts recipe in the README. Exporting an arbitrary past session by id is a follow-on, gated on the identifier prerequisite noted in 6.2.
+
+---
+
+### 6.2 Generic GPX/TCX Export
+- **Status:** Planned
+- **Problem:** CSV covers spreadsheets, but most fitness platforms and importers (Strava, RunGap, Health Connect-integrated apps) expect a GPX or TCX file.
+- **Solution:** Add a per-session GPX/TCX export alongside the existing CSV export, so users on any platform can hand the file to whatever importer they already use — no direct API integration on WalkingDad's side.
+- **Implementation:** Requires first adding a stable identifier to the session record schema — `_build_session_record()`/`session_history.json` have none today (an index or ISO timestamp key would work). Then an `/export_gpx/<session_id>`-style route generating a minimal GPX/TCX document (timestamp, distance, duration; no GPS track since the treadmill doesn't produce one).
+
+---
+
 ## Notes
 
 - Items within each phase can be implemented in any order unless dependencies exist.
 - New features or bug fixes discovered during development may be added to this roadmap.
+- **Google Fit / Health Connect native sync was considered and declined** — the only free path requires a native companion app using the platform SDK (Health Connect has no web/API route in), which is out of scope while WalkingDad stays a pure web app. Revisit only if that constraint changes; 6.2 (GPX/TCX export) is the current cross-platform fallback.
 - For questions or feature requests, open an issue on the project repository.
