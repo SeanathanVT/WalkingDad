@@ -872,6 +872,7 @@ def settings_page():
             "history_display_limit":       int(request.form.get("history_display_limit", HISTORY_DISPLAY_LIMIT)),
             "host":                        request.form.get("host", config.HOST).strip() or config.HOST,
             "port":                        int(request.form.get("port", config.PORT)),
+            "waitress_threads":            int(request.form.get("waitress_threads", config.WAITRESS_THREADS)),
         }
         _write_config(updates)
         BLE_DEVICE_NAME             = config.BLE_DEVICE_NAME             = updates["ble_device_name"]
@@ -895,6 +896,7 @@ def settings_page():
         history_display_limit=HISTORY_DISPLAY_LIMIT,
         host=config.HOST,
         port=config.PORT,
+        waitress_threads=config.WAITRESS_THREADS,
     )
 
 

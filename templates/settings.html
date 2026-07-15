@@ -67,7 +67,7 @@
 
         <div class="stat-card mb-4">
             <h2 style="font-size:1.1rem;font-weight:700;margin-bottom:0.5rem;">Server</h2>
-            <p class="text-muted mb-3" style="font-size:0.875rem;">Changes to Host and Port require restarting the app to take effect.</p>
+            <p class="text-muted mb-3" style="font-size:0.875rem;">Changes to Host, Port, and Waitress Threads require restarting the app to take effect.</p>
             <div class="mb-3">
                 <label class="form-label fw-medium" style="display:block;margin-bottom:0.25rem;">Server Host</label>
                 <input type="text" name="host" value="{{ host }}"
@@ -79,6 +79,12 @@
                 <input type="number" name="port" value="{{ port }}" step="1" min="1" max="65535"
                        class="form-control" style="background-color:var(--background-color);color:var(--text-color);border-color:var(--border-color);">
                 <small class="text-muted" style="font-family:monospace;">port</small>
+            </div>
+            <div class="mb-3">
+                <label class="form-label fw-medium" style="display:block;margin-bottom:0.25rem;">Waitress Threads</label>
+                <input type="number" name="waitress_threads" value="{{ waitress_threads }}" step="1" min="1"
+                       class="form-control" style="background-color:var(--background-color);color:var(--text-color);border-color:var(--border-color);">
+                <small class="text-muted" style="font-family:monospace;">waitress_threads</small>
             </div>
         </div>
 
