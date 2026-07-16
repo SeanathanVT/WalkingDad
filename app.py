@@ -504,6 +504,18 @@ async def _idle_connection_watchdog():
         if belt_running:
             continue  # _stats_monitor() owns liveness now; keep waiting for it to finish
 
+        # Cheap, no-wire-traffic check first: bleak caches the transport's own
+        # connection state, so if it already knows the link is dead we don't
+        # need to wait for the staleness timeout to catch up, and we skip a
+        # real ask_stats() write into a connection that's already gone.
+        try:
+            if hasattr(controller, "client") and controller.client and not controller.client.is_connected:
+                logging.error("BLE client reports disconnected while idle/paused; treating connection as dead.")
+                _handle_disconnect(None)
+                break
+        except Exception as exc:
+            logging.debug(f"Idle watchdog is_connected check error (falling back to ping): {exc}")
+
         if time.monotonic() - _last_status_update_monotonic > _STALE_STATUS_TIMEOUT_SECONDS:
             logging.error(
                 f"No status update in over {_STALE_STATUS_TIMEOUT_SECONDS}s while idle/paused; "
