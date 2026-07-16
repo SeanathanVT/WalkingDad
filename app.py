@@ -487,6 +487,22 @@ async def _graceful_shutdown():
         logging.info("Device cleanup complete")
 
 
+def _check_staleness_and_disconnect(context: str) -> bool:
+    """Shared by _stats_monitor() and _idle_connection_watchdog(): compare
+    _last_status_update_monotonic against _STALE_STATUS_TIMEOUT_SECONDS, and
+    if stale, log and disconnect. Returns True if it disconnected (the caller
+    should stop its loop), False otherwise.
+    """
+    if time.monotonic() - _last_status_update_monotonic <= _STALE_STATUS_TIMEOUT_SECONDS:
+        return False
+    logging.error(
+        f"No status update in over {_STALE_STATUS_TIMEOUT_SECONDS}s {context}; "
+        "treating connection as dead."
+    )
+    _handle_disconnect(None)
+    return True
+
+
 async def _idle_connection_watchdog():
     """Keep _last_status_update_monotonic fresh whenever _stats_monitor() isn't
     running (paused session or idle/no session), so a dead BLE link is caught
@@ -516,12 +532,7 @@ async def _idle_connection_watchdog():
         except Exception as exc:
             logging.debug(f"Idle watchdog is_connected check error (falling back to ping): {exc}")
 
-        if time.monotonic() - _last_status_update_monotonic > _STALE_STATUS_TIMEOUT_SECONDS:
-            logging.error(
-                f"No status update in over {_STALE_STATUS_TIMEOUT_SECONDS}s while idle/paused; "
-                "treating connection as dead."
-            )
-            _handle_disconnect(None)
+        if _check_staleness_and_disconnect("while idle/paused"):
             break
 
         try:
@@ -566,12 +577,7 @@ async def _stats_monitor():
             except Exception as exc:
                 logging.warning(f"ask_stats error: {exc}")
 
-            if time.monotonic() - _last_status_update_monotonic > _STALE_STATUS_TIMEOUT_SECONDS:
-                logging.error(
-                    f"No status update (active or passive) in over {_STALE_STATUS_TIMEOUT_SECONDS}s; "
-                    "treating connection as dead."
-                )
-                _handle_disconnect(None)
+            if _check_staleness_and_disconnect("(active or passive)"):
                 break
 
             _ticks_since_save += 1
