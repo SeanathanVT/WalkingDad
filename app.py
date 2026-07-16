@@ -462,8 +462,8 @@ async def _graceful_shutdown():
 
         # Step 2: Cancel stats monitor and idle watchdog tasks
         logging.info("Cancelling stats monitor for shutdown")
-        await _cancel_stats_monitor()
-        await _cancel_idle_watchdog()
+        await _cancel_task(_stats_monitor_task)
+        await _cancel_task(_idle_watchdog_task)
 
         # Step 3: Switch device to standby mode
         if controller:
@@ -596,33 +596,19 @@ async def _stats_monitor():
         logging.info("Stats monitor stopped")
 
 
-async def _cancel_stats_monitor():
-    """Cancel the running stats monitor and wait for it to fully unwind."""
-    if _stats_monitor_task and not _stats_monitor_task.done():
-        _stats_monitor_task.cancel()
+async def _cancel_task(task: asyncio.Task | None) -> None:
+    """Cancel a task if it's still running and wait for it to fully unwind.
+
+    Shared by every module-level task this app tracks (stats monitor, idle
+    watchdog, in-flight belt sequence) -- callers pass their own task
+    variable; this never reassigns it, matching the previous per-task
+    helpers' behavior (the global gets overwritten next time a new task is
+    created, same as before).
+    """
+    if task and not task.done():
+        task.cancel()
         try:
-            await _stats_monitor_task
-        except asyncio.CancelledError:
-            pass
-
-
-async def _cancel_idle_watchdog():
-    """Cancel the running idle connection watchdog and wait for it to unwind."""
-    if _idle_watchdog_task and not _idle_watchdog_task.done():
-        _idle_watchdog_task.cancel()
-        try:
-            await _idle_watchdog_task
-        except asyncio.CancelledError:
-            pass
-
-
-async def _cancel_belt_sequence():
-    """Cancel any in-flight belt sequence; call before self-registering to prevent concurrent BLE commands."""
-    global _belt_sequence_task
-    if _belt_sequence_task and not _belt_sequence_task.done():
-        _belt_sequence_task.cancel()
-        try:
-            await _belt_sequence_task
+            await task
         except asyncio.CancelledError:
             pass
 
@@ -826,8 +812,8 @@ def end_session():
         # Without cancelling, an in-flight resume sequence could keep running
         # after end_session returns, recreating a monitor for a dead session.
         async def _end_belt_sequence():
-            await _cancel_belt_sequence()
-            await _cancel_stats_monitor()
+            await _cancel_task(_belt_sequence_task)
+            await _cancel_task(_stats_monitor_task)
             if was_running and controller:
                 try:
                     async with _ble_command_lock:
@@ -1019,12 +1005,12 @@ def start_session():
 
         async def _start_belt_sequence():
             global belt_running, _stats_monitor_task, _belt_sequence_task, _belt_transitioning
-            await _cancel_belt_sequence()
+            await _cancel_task(_belt_sequence_task)
             _belt_sequence_task = asyncio.current_task()
             _belt_transitioning = True
             try:
                 logging.info("Starting belt...")
-                await _cancel_stats_monitor()
+                await _cancel_task(_stats_monitor_task)
                 await _wake_and_start_belt()
                 logging.info("Starting stats monitor...")
                 _stats_monitor_task = asyncio.create_task(_stats_monitor())
@@ -1070,11 +1056,11 @@ def pause_session():
         async def _pause_belt_sequence():
             global _belt_sequence_task, _belt_transitioning
             # Cancel any prior belt sequence before self-registering.
-            await _cancel_belt_sequence()
+            await _cancel_task(_belt_sequence_task)
             _belt_sequence_task = asyncio.current_task()
             _belt_transitioning = True
             try:
-                await _cancel_stats_monitor()
+                await _cancel_task(_stats_monitor_task)
                 async with _ble_command_lock:
                     await controller.stop_belt()
             finally:
@@ -1109,12 +1095,12 @@ def resume_session():
             global belt_running, _stats_monitor_task, _belt_sequence_task, _belt_transitioning
             # Cancel any prior in-flight sequence (e.g. pause) before sending
             # commands; concurrent coroutines on ble_loop interleave BLE writes.
-            await _cancel_belt_sequence()
+            await _cancel_task(_belt_sequence_task)
             _belt_sequence_task = asyncio.current_task()
             _belt_transitioning = True
             try:
                 logging.info("Attempting resume: Sending wake-up and start sequence to device...")
-                await _cancel_stats_monitor()
+                await _cancel_task(_stats_monitor_task)
                 await _wake_and_start_belt(resume_speed_kmh)
                 logging.info("Starting stats monitor...")
                 _stats_monitor_task = asyncio.create_task(_stats_monitor())
