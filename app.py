@@ -80,6 +80,15 @@ _last_status_update_monotonic = 0.0
 # whenever connected but no active stats monitor is running, purely to catch a
 # dead link before the user notices only when they try to Resume.
 _IDLE_WATCHDOG_PING_INTERVAL_SECONDS = 10
+# _stats_monitor() pairs the 15s threshold above with a 1s poll interval, so a
+# genuinely dead connection still gets ~15 chances to respond before it trips
+# -- one missed/delayed reply barely matters. The idle watchdog's 10s interval
+# would give the SAME 15s threshold only one chance, so a single slow reply
+# would force-disconnect an otherwise healthy paused session. Detection speed
+# matters far less while idle/paused (nobody's watching live stats), so this
+# gets its own, much more forgiving threshold instead of sharing the active
+# one -- roughly 4-5 missed pings before disconnecting.
+_IDLE_STALE_STATUS_TIMEOUT_SECONDS = 45
 # Serializes BLE writes between the idle watchdog's ask_stats() ping and belt
 # sequences' start_belt()/stop_belt()/change_speed() commands, all of which run
 # as separate coroutines on the same ble_loop and would otherwise be free to
@@ -502,16 +511,17 @@ async def _graceful_shutdown():
         logging.info("Device cleanup complete")
 
 
-def _check_staleness_and_disconnect(context: str) -> bool:
+def _check_staleness_and_disconnect(context: str, threshold: float = _STALE_STATUS_TIMEOUT_SECONDS) -> bool:
     """Shared by _stats_monitor() and _idle_connection_watchdog(): compare
-    _last_status_update_monotonic against _STALE_STATUS_TIMEOUT_SECONDS, and
-    if stale, log and disconnect. Returns True if it disconnected (the caller
-    should stop its loop), False otherwise.
+    _last_status_update_monotonic against a staleness threshold (defaulting
+    to _STALE_STATUS_TIMEOUT_SECONDS; the idle watchdog passes its own, wider
+    one), and if stale, log and disconnect. Returns True if it disconnected
+    (the caller should stop its loop), False otherwise.
     """
-    if time.monotonic() - _last_status_update_monotonic <= _STALE_STATUS_TIMEOUT_SECONDS:
+    if time.monotonic() - _last_status_update_monotonic <= threshold:
         return False
     logging.error(
-        f"No status update in over {_STALE_STATUS_TIMEOUT_SECONDS}s {context}; "
+        f"No status update in over {threshold}s {context}; "
         "treating connection as dead."
     )
     _handle_disconnect(None)
@@ -547,7 +557,7 @@ async def _idle_connection_watchdog():
         except Exception as exc:
             logging.debug(f"Idle watchdog is_connected check error (falling back to ping): {exc}")
 
-        if _check_staleness_and_disconnect("while idle/paused"):
+        if _check_staleness_and_disconnect("while idle/paused", threshold=_IDLE_STALE_STATUS_TIMEOUT_SECONDS):
             break
 
         # Bound the lock acquisition itself, not just the ping: a stuck belt
