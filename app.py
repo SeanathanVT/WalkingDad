@@ -86,7 +86,14 @@ _IDLE_WATCHDOG_PING_INTERVAL_SECONDS = 10
 # interleave mid-write. Cheaper and more robust than cancelling/recreating the
 # watchdog task around every belt sequence (which only runs once, at connect
 # time, and has no restart path once cancelled).
-_ble_command_lock = asyncio.Lock()
+#
+# Recreated fresh in _ble_thread() for every connection attempt, NOT created
+# once here at import time: asyncio.Lock() permanently binds to whichever
+# event loop first contends it, and _ble_thread() creates a brand-new event
+# loop on every connection/reconnect. Reusing one Lock instance across a
+# reconnect's new loop raises "RuntimeError: <Lock> is bound to a different
+# event loop" the next time it's actually contended.
+_ble_command_lock: asyncio.Lock | None = None
 _pending_restore: dict | None = None  # Loaded at startup; cleared once restored or discarded
 
 session_active = belt_running = False
@@ -630,7 +637,7 @@ async def _wake_and_start_belt(target_speed_kmh: float | None = None):
 
 
 def _ble_thread():
-    global connected, connecting, connection_failed, ble_loop
+    global connected, connecting, connection_failed, ble_loop, _ble_command_lock
 
     # Create new event loop for BLE thread (works on Linux, MacOS, and Windows)
     try:
@@ -643,6 +650,9 @@ def _ble_thread():
         return
 
     ble_loop = loop
+    # Fresh lock per connection attempt -- see the module-level comment on
+    # _ble_command_lock for why this can't just be created once at import time.
+    _ble_command_lock = asyncio.Lock()
 
     try:
         try:
