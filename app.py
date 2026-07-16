@@ -1195,6 +1195,11 @@ def stats_json():
 
 
 # ── SSE broadcaster ──────────────────────────────────────────────────────
+def _sse_frame(payload: dict) -> str:
+    """Format a stats payload as one SSE 'data:' frame."""
+    return f"data: {json.dumps(payload)}\n\n"
+
+
 def _sse_broadcast_loop():
     """Daemon thread: push a stats snapshot to all subscribers every second.
 
@@ -1207,7 +1212,9 @@ def _sse_broadcast_loop():
     while True:
         time.sleep(_SSE_BROADCAST_INTERVAL_SECONDS)
         try:
-            payload = _build_stats_payload()
+            # Serialize once here rather than in each subscriber's own generator,
+            # since every subscriber gets the identical frame this tick.
+            frame = _sse_frame(_build_stats_payload())
             with _sse_subscribers_lock:
                 subscribers = list(_sse_subscribers)
             for q in subscribers:
@@ -1218,7 +1225,7 @@ def _sse_broadcast_loop():
                     q.get_nowait()
                 except queue.Empty:
                     pass
-                q.put_nowait(payload)
+                q.put_nowait(frame)
         except Exception as exc:
             logging.error(f"SSE broadcast tick failed (continuing): {exc}")
 
@@ -1237,14 +1244,14 @@ def stats_stream():
     def _generate():
         try:
             # Immediate snapshot so first paint doesn't wait up to 1s for the next tick.
-            yield f"data: {json.dumps(_build_stats_payload())}\n\n"
+            yield _sse_frame(_build_stats_payload())
             while True:
                 try:
-                    payload = q.get(timeout=_SSE_KEEPALIVE_TIMEOUT_SECONDS)
+                    frame = q.get(timeout=_SSE_KEEPALIVE_TIMEOUT_SECONDS)
                 except queue.Empty:
                     yield ": keepalive\n\n"
                     continue
-                yield f"data: {json.dumps(payload)}\n\n"
+                yield frame
         finally:
             with _sse_subscribers_lock:
                 if q in _sse_subscribers:
