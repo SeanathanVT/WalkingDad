@@ -97,9 +97,11 @@ Three-state theme toggle (Light → Dark → System) with `localStorage` persist
 
 ### ✅ 2.2 Server-Sent Events for Real-Time Updates
 **Status:** ✅ Complete
-**Files Modified:** `app.py`, `run.py`, `templates/base.html`, `templates/active_session.html`, `templates/paused_session.html`, `templates/start_session.html`
+**Files Modified:** `app.py`, `run.py`, `config.py`, `config.json.example`, `templates/base.html`, `templates/active_session.html`, `templates/paused_session.html`, `templates/start_session.html`, `templates/settings.html`
 
 Replaced the three templates' `setInterval(fetch('/stats'))` polling loops (1.5s / 3s cadences) with a single `/stats_stream` Server-Sent Events endpoint. A daemon thread broadcasts a stats snapshot to all subscribers once a second via thread-safe per-client queues, independent of whether the belt is running — so active, paused, and start screens all get uniform live updates. `/stats` is kept unchanged for compatibility; both routes now share one `_build_stats_payload()` helper.
+
+Shipping this surfaced a real gap it needed to close first: a dead BLE connection while paused or idle went undetected entirely, since nothing was polling for liveness outside an active session. That's now covered by a dedicated idle/paused connection watchdog with its own staleness threshold, serialized against belt commands via a lock recreated per connection attempt. See `CHANGELOG.md` `[1.7.0]` for details.
 
 ---
 

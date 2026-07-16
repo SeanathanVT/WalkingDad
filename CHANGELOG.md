@@ -2,6 +2,24 @@
 
 All notable changes to WalkingDad will be documented in this file.
 
+## [1.7.0] — 2026-07-16
+
+### Added
+
+- **Connection watchdog while paused or idle** — The app now detects a lost Bluetooth connection even when a session is paused or no session is running, not just while actively walking. A dropped connection now always shows **Connection Failed — Try Again** instead of a stats display that's quietly stopped updating.
+- **Configurable server thread count** — The `waitress_threads` setting (Settings page or `config.json`) controls how many concurrent connections the server can handle; previously hardcoded.
+
+### Fixed
+
+- Live stats could occasionally fail to start updating until a manual page refresh.
+- Rare cases where reconnecting to the treadmill left the app unresponsive to Start/Pause/Resume.
+
+### Internal
+
+- Consolidated repeated settings-page and connection-monitoring code into shared helpers.
+
+---
+
 ## [1.6.0] — 2026-07-15
 
 ### Added

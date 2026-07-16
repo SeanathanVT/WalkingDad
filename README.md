@@ -83,14 +83,15 @@ All settings can be changed from the **Settings page** (gear icon in the header)
 | `history_display_limit` | `10` | Sessions shown on the start screen |
 | `host` | `"0.0.0.0"` | Network interface to bind |
 | `port` | `5001` | Server port |
+| `waitress_threads` | `16` | Server worker thread count (minimum 4) |
 
-Changes to most settings take effect immediately via the Settings page. `host` and `port` require restarting the app.
+Changes to most settings take effect immediately via the Settings page. `host`, `port`, and `waitress_threads` require restarting the app.
 
 ## Troubleshooting
 
 - **Won't connect:** Make sure your WalkingPad is powered on and not paired to another device (like your phone). Check the console for log details.
 - **Icons missing:** Bootstrap Icons load from a CDN — make sure your browser has internet access.
-- **Stats stuck after resume:** Rare, but can happen. Restart the app and check the console for `ask_stats error` messages.
+- **Stats stop updating:** The app detects a dead BLE connection automatically (during an active session and while paused/idle) and shows **Connection Failed — Try Again** rather than freezing silently. If stats stay stuck without that screen appearing, check the console for `ask_stats` errors and restart the app.
 - **macOS BLE quirks:** See [ROADMAP.md](ROADMAP.md) Phase 1.1 for the full list of cross-platform reliability fixes.
 
 ## Credits
