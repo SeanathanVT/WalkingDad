@@ -870,48 +870,43 @@ def clear_history():
     return jsonify({"status": "cleared"})
 
 
+# (form field name, config.py attr name, cast(raw_str, current_value) -> value,
+#  also update the live app.py module global immediately vs. only take effect
+#  on next restart)
+_SETTINGS_SCHEMA = [
+    ("ble_device_name", "BLE_DEVICE_NAME", lambda v, cur: v.strip(), True),
+    ("max_speed_kmh", "MAX_SPEED_KMH", lambda v, cur: float(v), True),
+    ("min_speed_kmh", "MIN_SPEED_KMH", lambda v, cur: float(v), True),
+    ("speed_step", "SPEED_STEP", lambda v, cur: float(v), True),
+    ("slow_walk_speed_kmh", "SLOW_WALK_SPEED_KMH", lambda v, cur: float(v), True),
+    ("kcal_per_mile", "KCAL_PER_MILE", lambda v, cur: int(v), True),
+    ("resume_grace_period_seconds", "RESUME_GRACE_PERIOD_SECONDS", lambda v, cur: int(v), True),
+    ("history_display_limit", "HISTORY_DISPLAY_LIMIT", lambda v, cur: int(v), True),
+    ("host", "HOST", lambda v, cur: v.strip() or cur, False),
+    ("port", "PORT", lambda v, cur: int(v), False),
+    ("waitress_threads", "WAITRESS_THREADS", lambda v, cur: int(v), False),
+]
+
+
 @app.route("/settings", methods=["GET", "POST"])
 def settings_page():
-    global BLE_DEVICE_NAME, MAX_SPEED_KMH, MIN_SPEED_KMH, SPEED_STEP
-    global SLOW_WALK_SPEED_KMH, KCAL_PER_MILE, RESUME_GRACE_PERIOD_SECONDS
-    global HISTORY_DISPLAY_LIMIT
     if request.method == "POST":
-        updates = {
-            "ble_device_name":             request.form.get("ble_device_name", BLE_DEVICE_NAME).strip(),
-            "max_speed_kmh":               float(request.form.get("max_speed_kmh", MAX_SPEED_KMH)),
-            "min_speed_kmh":               float(request.form.get("min_speed_kmh", MIN_SPEED_KMH)),
-            "speed_step":                  float(request.form.get("speed_step", SPEED_STEP)),
-            "slow_walk_speed_kmh":         float(request.form.get("slow_walk_speed_kmh", SLOW_WALK_SPEED_KMH)),
-            "kcal_per_mile":               int(request.form.get("kcal_per_mile", KCAL_PER_MILE)),
-            "resume_grace_period_seconds": int(request.form.get("resume_grace_period_seconds", RESUME_GRACE_PERIOD_SECONDS)),
-            "history_display_limit":       int(request.form.get("history_display_limit", HISTORY_DISPLAY_LIMIT)),
-            "host":                        request.form.get("host", config.HOST).strip() or config.HOST,
-            "port":                        int(request.form.get("port", config.PORT)),
-            "waitress_threads":            int(request.form.get("waitress_threads", config.WAITRESS_THREADS)),
-        }
+        updates = {}
+        for form_key, const_name, cast, _live in _SETTINGS_SCHEMA:
+            current = getattr(config, const_name)
+            raw = request.form.get(form_key, str(current))
+            updates[form_key] = cast(raw, current)
+
         _write_config(updates)
-        BLE_DEVICE_NAME             = config.BLE_DEVICE_NAME             = updates["ble_device_name"]
-        MAX_SPEED_KMH               = config.MAX_SPEED_KMH               = updates["max_speed_kmh"]
-        MIN_SPEED_KMH               = config.MIN_SPEED_KMH               = updates["min_speed_kmh"]
-        SPEED_STEP                  = config.SPEED_STEP                  = updates["speed_step"]
-        SLOW_WALK_SPEED_KMH         = config.SLOW_WALK_SPEED_KMH         = updates["slow_walk_speed_kmh"]
-        KCAL_PER_MILE               = config.KCAL_PER_MILE               = updates["kcal_per_mile"]
-        RESUME_GRACE_PERIOD_SECONDS = config.RESUME_GRACE_PERIOD_SECONDS = updates["resume_grace_period_seconds"]
-        HISTORY_DISPLAY_LIMIT       = config.HISTORY_DISPLAY_LIMIT       = updates["history_display_limit"]
+        for form_key, const_name, _cast, live in _SETTINGS_SCHEMA:
+            setattr(config, const_name, updates[form_key])
+            if live:
+                globals()[const_name] = updates[form_key]
         return redirect(url_for("root", saved=1))
+
     return render_template(
         "settings.html",
-        ble_device_name=BLE_DEVICE_NAME,
-        max_speed_kmh=MAX_SPEED_KMH,
-        min_speed_kmh=MIN_SPEED_KMH,
-        speed_step=SPEED_STEP,
-        slow_walk_speed_kmh=SLOW_WALK_SPEED_KMH,
-        kcal_per_mile=KCAL_PER_MILE,
-        resume_grace_period_seconds=RESUME_GRACE_PERIOD_SECONDS,
-        history_display_limit=HISTORY_DISPLAY_LIMIT,
-        host=config.HOST,
-        port=config.PORT,
-        waitress_threads=config.WAITRESS_THREADS,
+        **{form_key: getattr(config, const_name) for form_key, const_name, _, _ in _SETTINGS_SCHEMA},
     )
 
 
