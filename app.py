@@ -94,6 +94,14 @@ _IDLE_WATCHDOG_PING_INTERVAL_SECONDS = 10
 # reconnect's new loop raises "RuntimeError: <Lock> is bound to a different
 # event loop" the next time it's actually contended.
 _ble_command_lock: asyncio.Lock | None = None
+# Bounds how long the idle watchdog will wait to acquire _ble_command_lock.
+# Without this, a belt sequence's BLE write hanging forever (e.g. a GATT
+# write that never acks) would hold the lock forever, permanently blocking
+# the watchdog from ever reaching its next cycle's staleness check -- the
+# one mechanism meant to detect a dead link would itself be neutralized by
+# that same dead link. Well above a belt sequence's normal duration (a
+# handful of 0.5s sleeps, a few seconds total).
+_BLE_COMMAND_LOCK_TIMEOUT_SECONDS = 5
 _pending_restore: dict | None = None  # Loaded at startup; cleared once restored or discarded
 
 session_active = belt_running = False
@@ -542,11 +550,20 @@ async def _idle_connection_watchdog():
         if _check_staleness_and_disconnect("while idle/paused"):
             break
 
+        # Bound the lock acquisition itself, not just the ping: a stuck belt
+        # sequence holding the lock must not prevent this loop from reaching
+        # its next iteration, where the staleness check above (which doesn't
+        # need the lock) can still run and eventually catch a truly dead link.
+        acquired = False
         try:
-            async with _ble_command_lock:
-                await asyncio.wait_for(controller.ask_stats(), timeout=2.0)
+            await asyncio.wait_for(_ble_command_lock.acquire(), timeout=_BLE_COMMAND_LOCK_TIMEOUT_SECONDS)
+            acquired = True
+            await asyncio.wait_for(controller.ask_stats(), timeout=2.0)
         except Exception as exc:
             logging.debug(f"Idle watchdog ping error (will retry next cycle): {exc}")
+        finally:
+            if acquired:
+                _ble_command_lock.release()
 
 
 async def _stats_monitor():
