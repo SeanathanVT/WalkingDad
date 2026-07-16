@@ -80,6 +80,13 @@ _last_status_update_monotonic = 0.0
 # whenever connected but no active stats monitor is running, purely to catch a
 # dead link before the user notices only when they try to Resume.
 _IDLE_WATCHDOG_PING_INTERVAL_SECONDS = 10
+# Serializes BLE writes between the idle watchdog's ask_stats() ping and belt
+# sequences' start_belt()/stop_belt()/change_speed() commands, all of which run
+# as separate coroutines on the same ble_loop and would otherwise be free to
+# interleave mid-write. Cheaper and more robust than cancelling/recreating the
+# watchdog task around every belt sequence (which only runs once, at connect
+# time, and has no restart path once cancelled).
+_ble_command_lock = asyncio.Lock()
 _pending_restore: dict | None = None  # Loaded at startup; cleared once restored or discarded
 
 session_active = belt_running = False
@@ -448,7 +455,8 @@ async def _graceful_shutdown():
         # Step 1: Stop belt if running
         if belt_running and controller:
             logging.info("Stopping belt for graceful shutdown...")
-            await controller.stop_belt()
+            async with _ble_command_lock:
+                await controller.stop_belt()
             belt_running = False
             await asyncio.sleep(0.5)
 
@@ -505,7 +513,8 @@ async def _idle_connection_watchdog():
             break
 
         try:
-            await asyncio.wait_for(controller.ask_stats(), timeout=2.0)
+            async with _ble_command_lock:
+                await asyncio.wait_for(controller.ask_stats(), timeout=2.0)
         except Exception as exc:
             logging.debug(f"Idle watchdog ping error (will retry next cycle): {exc}")
 
@@ -602,17 +611,18 @@ async def _cancel_belt_sequence():
 
 async def _wake_and_start_belt(target_speed_kmh: float | None = None):
     """STANDBY→MANUAL toggle required: stop_belt() leaves device in STANDBY (commit 5cbb8ba)."""
-    await controller.switch_mode(WalkingPad.MODE_STANDBY)
-    await asyncio.sleep(0.5)
-    await controller.switch_mode(WalkingPad.MODE_MANUAL)
-    await asyncio.sleep(0.5)
-    await controller.start_belt()
-    await asyncio.sleep(0.5)
-
-    if target_speed_kmh is not None:
-        logging.info(f"Setting speed to {target_speed_kmh:.1f} km/h.")
-        await controller.change_speed(int(target_speed_kmh * 10))
+    async with _ble_command_lock:
+        await controller.switch_mode(WalkingPad.MODE_STANDBY)
         await asyncio.sleep(0.5)
+        await controller.switch_mode(WalkingPad.MODE_MANUAL)
+        await asyncio.sleep(0.5)
+        await controller.start_belt()
+        await asyncio.sleep(0.5)
+
+        if target_speed_kmh is not None:
+            logging.info(f"Setting speed to {target_speed_kmh:.1f} km/h.")
+            await controller.change_speed(int(target_speed_kmh * 10))
+            await asyncio.sleep(0.5)
 
 
 def _ble_thread():
@@ -802,7 +812,8 @@ def end_session():
             await _cancel_stats_monitor()
             if was_running and controller:
                 try:
-                    await controller.stop_belt()
+                    async with _ble_command_lock:
+                        await controller.stop_belt()
                 except Exception as exc:
                     logging.error(f"Error stopping belt on end_session: {exc}")
 
@@ -1046,7 +1057,8 @@ def pause_session():
             _belt_transitioning = True
             try:
                 await _cancel_stats_monitor()
-                await controller.stop_belt()
+                async with _ble_command_lock:
+                    await controller.stop_belt()
             finally:
                 _belt_sequence_task = None
                 _belt_transitioning = False
