@@ -49,6 +49,12 @@ def format_seconds_to_hms(total_seconds: int) -> str:
 app = Flask(__name__)
 
 connected = connecting = connection_failed = False
+# Protects _start_ble_thread()'s connected/connecting check-then-set: without
+# it, two near-simultaneous callers (e.g. a double /reconnect) can both pass
+# the guard before either sets connecting=True, spawning two overlapping
+# _ble_thread() invocations that silently clobber ble_loop/controller/
+# _ble_command_lock out from under each other's in-flight coroutines.
+_start_ble_thread_lock = threading.Lock()
 ble_loop: asyncio.AbstractEventLoop | None = None
 controller: Controller | None = None
 _device_ble_address: str | None = None
@@ -731,10 +737,11 @@ def _ble_thread():
 
 def _start_ble_thread():
     global connecting, connection_failed
-    if connected or connecting:
-        return
-    connecting = True
-    connection_failed = False
+    with _start_ble_thread_lock:
+        if connected or connecting:
+            return
+        connecting = True
+        connection_failed = False
     threading.Thread(target=_ble_thread, daemon=True).start()
 
 
