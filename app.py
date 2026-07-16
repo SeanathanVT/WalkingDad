@@ -907,6 +907,22 @@ def clear_history():
     return jsonify({"status": "cleared"})
 
 
+# Waitress won't necessarily start (or will be unusably starved) with too
+# few threads -- unlike the other numeric settings, a bad value here doesn't
+# just misbehave one subsystem, it can take down the whole app on next
+# restart. Clamped rather than rejected outright since there's no user-facing
+# form-validation/error-message path for this settings page.
+_MIN_WAITRESS_THREADS = 4  # Waitress's own long-standing default
+
+
+def _clamp_waitress_threads(v, cur):
+    n = int(v)
+    if n < _MIN_WAITRESS_THREADS:
+        logging.warning(f"waitress_threads={n} is below the safe minimum; clamping to {_MIN_WAITRESS_THREADS}")
+        return _MIN_WAITRESS_THREADS
+    return n
+
+
 # (form field name, config.py attr name, cast(raw_str, current_value) -> value,
 #  also update the live app.py module global immediately vs. only take effect
 #  on next restart)
@@ -921,7 +937,7 @@ _SETTINGS_SCHEMA = [
     ("history_display_limit", "HISTORY_DISPLAY_LIMIT", lambda v, cur: int(v), True),
     ("host", "HOST", lambda v, cur: v.strip() or cur, False),
     ("port", "PORT", lambda v, cur: int(v), False),
-    ("waitress_threads", "WAITRESS_THREADS", lambda v, cur: int(v), False),
+    ("waitress_threads", "WAITRESS_THREADS", _clamp_waitress_threads, False),
 ]
 
 
