@@ -13,17 +13,20 @@ All notable changes to WalkingDad will be documented in this file.
 ### Fixed
 
 - Stats could silently freeze mid-session — speed/distance/steps/calories could stay stuck at zero with no error shown if the connection stopped delivering real updates.
-- Rare cases where reconnecting to the treadmill left the app unresponsive to Start/Pause/Resume.
+- Rare cases where reconnecting to the treadmill, or a stuck Bluetooth command while connecting, starting, or resuming, could leave the app unresponsive with no way to recover except restarting it.
 - Changing speed during an active session could occasionally interfere with the live stats connection.
 - Entering an invalid value on the Settings page could show an error instead of being handled gracefully.
 - Resuming a paused session reset the treadmill's own onboard display/counters in the common case — Resume now tries a lighter wake-up first and only falls back to the display-resetting sequence if the belt genuinely needs it (e.g. after a long pause).
 - The active-session screen's controls were clickable for a moment right after Start or Resume, before the belt had actually finished responding — they're now disabled (matching the paused screen's existing behavior) until the belt command in flight completes.
+- A resumed session's grace period (which avoids mistaking a normal restart for an unexpected stop) could be cut short by a slow reconnection, or set low enough in Settings to defeat it entirely.
+- Session history could be left corrupted if the app crashed while saving it.
+- Reconnecting to the treadmill left the previous connection's background thread running indefinitely instead of closing it — harmless but wasteful over a long-running instance with several reconnects.
 
 ### Internal
 
 - Consolidated repeated settings-page and connection-monitoring code into shared helpers.
 - Extracted shared code for building the stats payload and wiring up the client-side live connection.
-- Auto-pause detection now also stands down while a belt sequence is in flight, not just during the fixed post-resume grace period, so a slow-but-recovering connection can't be misread as an unexpected stop mid-resume.
+- Hardened Bluetooth disconnect handling for correctness on platforms where the disconnect notification can arrive on a different thread than expected.
 
 ---
 
