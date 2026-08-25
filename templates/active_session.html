@@ -35,6 +35,11 @@
       </div>
   </div>
 
+    <p id="transitioning-hint" class="text-muted mb-2" style="display:none;font-size:0.9rem;">
+        <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+        Getting the belt moving&hellip;
+    </p>
+
     <div class="d-flex justify-content-center gap-2 mb-3">
         <form method="post" action="{{ url_for('slow_speed') }}" style="display:contents">
             <button type="submit" class="btn btn-custom-primary d-flex align-items-center gap-2">
@@ -81,7 +86,24 @@
     });
   });
 
+  // Mirrors paused_session.html's setTransitioning(): a fresh Start or a
+  // Resume both redirect here the instant belt_running flips true, which can
+  // be well before the backend's wake-up sequence actually finishes (up to
+  // several seconds on a slow connection) -- without this, the buttons are
+  // live and clickable during that window even though a belt command is
+  // already in flight. Reuses the same generic button selector as the
+  // reactive disable-on-submit handler above, rather than per-button ids.
+  function setTransitioning(on) {
+    var hint = document.getElementById('transitioning-hint');
+    hint.style.display = on ? '' : 'none';
+    document.querySelectorAll('button[type="submit"]').forEach(function(b) {
+      b.disabled = on;
+      b.style.opacity = on ? '0.5' : '';
+    });
+  }
+
   startStatsStream(function(data) {
+    setTransitioning(data.belt_transitioning === true);
     // Check if the server has auto-paused the session
     if (data.is_running === false) {
       window.location.reload();

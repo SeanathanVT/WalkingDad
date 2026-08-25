@@ -17,6 +17,7 @@ All notable changes to WalkingDad will be documented in this file.
 - Changing speed during an active session could occasionally interfere with the live stats connection.
 - Entering an invalid value on the Settings page could show an error instead of being handled gracefully.
 - Resuming a paused session reset the treadmill's own onboard display/counters in the common case — Resume now tries a lighter wake-up first and only falls back to the display-resetting sequence if the belt genuinely needs it (e.g. after a long pause).
+- The active-session screen's controls were clickable for a moment right after Start or Resume, before the belt had actually finished responding — they're now disabled (matching the paused screen's existing behavior) until the belt command in flight completes.
 
 ### Internal
 
