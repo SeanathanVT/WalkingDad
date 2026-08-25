@@ -202,7 +202,7 @@ def _build_session_record() -> dict:
 
 
 def _save_session():
-    """Append the current session to session_history.json (thread-safe)."""
+    """Append the current session to session_history.json (thread-safe, atomic)."""
     if not session_active:
         return
 
@@ -222,9 +222,14 @@ def _save_session():
 
         history.append(record)
 
+        # Atomic (temp file + rename), matching _save_session_state(): a
+        # crash mid-write must never leave session_history.json truncated or
+        # otherwise corrupted -- that history is otherwise unrecoverable.
+        tmp_path = f"{HISTORY_FILE}.tmp"
         try:
-            with open(HISTORY_FILE, "w") as f:
+            with open(tmp_path, "w") as f:
                 json.dump(history, f, indent=2)
+            os.replace(tmp_path, HISTORY_FILE)
             logging.info(f"Session saved to {HISTORY_FILE} ({len(history)} total sessions)")
         except IOError as exc:
             logging.error(f"Failed to write session history: {exc}")
@@ -248,11 +253,13 @@ def _load_session_history(limit: int | None = None) -> list:
 
 
 def _clear_session_history():
-    """Delete or truncate the session history file (thread-safe)."""
+    """Delete or truncate the session history file (thread-safe, atomic)."""
     with _history_lock:
+        tmp_path = f"{HISTORY_FILE}.tmp"
         try:
-            with open(HISTORY_FILE, "w") as f:
+            with open(tmp_path, "w") as f:
                 json.dump([], f)
+            os.replace(tmp_path, HISTORY_FILE)
             logging.info("Session history cleared")
         except IOError as exc:
             logging.error(f"Failed to clear session history: {exc}")
