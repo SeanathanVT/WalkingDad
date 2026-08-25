@@ -20,7 +20,7 @@ A comprehensive set of reliability improvements for Bluetooth Low Energy communi
 | **Bleak API Version Compatibility** | Supports both `set_disconn_callback()` (newer) and `set_disconnected_callback()` (older) — works across Bleak versions |
 | **Stats Monitor Lifecycle Fix** | Global `_stats_monitor_task` tracks active monitor; old tasks cancelled before new ones on resume; cleaned up on disconnect. Fixes metrics-not-updating-after-pause/resume bug |
 
-**Compatibility:** macOS 12+, Windows, Linux · Bleak 0.19+ · Python 3.8+
+**Compatibility:** macOS 12+, Windows, Linux · Bleak 0.19+ · Python 3.10+
 
 ---
 
