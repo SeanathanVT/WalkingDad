@@ -194,6 +194,36 @@
     </style>
 </head>
 <body>
+    <script>
+    // Defined before the page's main content block so child templates can
+    // call this synchronously the moment their own inline <script> runs,
+    // instead of waiting for scripts later in the document (e.g.
+    // showShutdownOverlay below) to have executed first.
+    function startStatsStream(onMessage) {
+        var shutdownShown = false;
+        var es = new EventSource("{{ url_for('stats_stream') }}");
+        es.onmessage = function(event) {
+            var data = JSON.parse(event.data);
+            if (data.stopping === true && !shutdownShown) {
+                shutdownShown = true;
+                showShutdownOverlay();
+                es.close();
+                return;
+            }
+            if (data.is_connected === false) {
+                window.location.reload();
+                return;
+            }
+            onMessage(data);
+        };
+        es.onerror = function() {
+            // The browser retries automatically on a transient drop; this is
+            // just for visibility so a stuck/failing stream isn't silently
+            // invisible in the console while debugging a "not updating" report.
+            console.warn('Stats stream connection error (browser will auto-retry).');
+        };
+    }
+    </script>
     <header class="app-header sticky-top">
         <nav class="container-xl d-flex align-items-center justify-content-between py-3 px-4">
             <a class="navbar-brand d-flex align-items-center gap-2" href="{{ url_for('root') }}">

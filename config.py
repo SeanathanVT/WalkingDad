@@ -12,6 +12,7 @@ _DEFAULTS = {
     "history_display_limit": 10,
     "host": "0.0.0.0",
     "port": 5001,
+    "waitress_threads": 16,
 }
 
 _path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
@@ -35,3 +36,4 @@ RESUME_GRACE_PERIOD_SECONDS: int  = _get("resume_grace_period_seconds")
 HISTORY_DISPLAY_LIMIT: int        = _get("history_display_limit")
 HOST: str                         = _get("host")
 PORT: int                         = _get("port")
+WAITRESS_THREADS: int             = _get("waitress_threads")

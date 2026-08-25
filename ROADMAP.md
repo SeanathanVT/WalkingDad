@@ -20,7 +20,7 @@ A comprehensive set of reliability improvements for Bluetooth Low Energy communi
 | **Bleak API Version Compatibility** | Supports both `set_disconn_callback()` (newer) and `set_disconnected_callback()` (older) — works across Bleak versions |
 | **Stats Monitor Lifecycle Fix** | Global `_stats_monitor_task` tracks active monitor; old tasks cancelled before new ones on resume; cleaned up on disconnect. Fixes metrics-not-updating-after-pause/resume bug |
 
-**Compatibility:** macOS 12+, Windows, Linux · Bleak 0.19+ · Python 3.8+
+**Compatibility:** macOS 12+, Windows, Linux · Bleak 0.19+ · Python 3.10+
 
 ---
 
@@ -38,14 +38,14 @@ Multi-layer graceful shutdown ensuring the treadmill belt always stops and BLE d
 
 Shutdown coroutine (`_graceful_shutdown()`) steps:
 1. **Stop Belt** — If `belt_running`, call `controller.stop_belt()` and wait 0.5s
-2. **Cancel Monitor** — Cancel `_stats_monitor_task` and await its `CancelledError`
+2. **Cancel Monitors** — Cancel `_stats_monitor_task` and `_idle_watchdog_task`, awaiting each `CancelledError`
 3. **Standby Mode** — Switch device to `WalkingPad.MODE_STANDBY`
 4. **BLE Disconnect** — Call `controller.client.disconnect()` to close the connection cleanly
 
 Additional fixes:
 - Duplicate shutdown requests are ignored via thread-safe `_shutting_down` flag protected by `threading.Lock()`
 - Uses `os._exit(0)` (not `sys.exit(0)`) for reliable Waitress termination — Waitress catches and suppresses `SystemExit` from `sys.exit()`
-- **UI shutdown notification** — all session templates check `/stats` for `stopping: true` and display "Server is shutting down" message
+- **UI shutdown notification** — all session templates watch the `/stats_stream` SSE connection for `stopping: true` and display "Server is shutting down" message
 - **Process-isolated subprocess** — `run.py` launches Waitress via `os.setsid()` so Ctrl+C only hits the wrapper, not Waitress directly; gives the HTTP shutdown path time to complete
 - Edge case handling when `ble_loop` or `controller` is None (skip BLE cleanup, exit directly)
 
@@ -95,14 +95,13 @@ Three-state theme toggle (Light → Dark → System) with `localStorage` persist
 
 ---
 
-### 2.2 Server-Sent Events for Real-Time Updates
-- **Status:** Planned
-- **Problem:** The client polls `/stats` every 1.5 seconds, which adds unnecessary HTTP overhead and introduces latency between stat updates on the server and display in the browser.
-- **Solution:** Replace polling with Server-Sent Events (SSE) for pushing stat updates from server to client in real time.
-- **Implementation:**
-    - Add `/stats_stream` endpoint that returns `text/event-stream`
-    - Use a thread-safe queue to push stat snapshots from the BLE thread to the SSE endpoint
-    - Update frontend JavaScript to consume the SSE stream instead of `setInterval(fetch(...))`
+### ✅ 2.2 Server-Sent Events for Real-Time Updates
+**Status:** ✅ Complete
+**Files Modified:** `app.py`, `run.py`, `config.py`, `config.json.example`, `templates/base.html`, `templates/active_session.html`, `templates/paused_session.html`, `templates/start_session.html`, `templates/settings.html`
+
+Replaced the three templates' `setInterval(fetch('/stats'))` polling loops (1.5s / 3s cadences) with a single `/stats_stream` Server-Sent Events endpoint. A daemon thread broadcasts a stats snapshot to all subscribers once a second via thread-safe per-client queues, independent of whether the belt is running — so active, paused, and start screens all get uniform live updates. `/stats` is kept unchanged for compatibility; both routes now share one `_build_stats_payload()` helper.
+
+Shipping this surfaced a real gap it needed to close first: a dead BLE connection while paused or idle went undetected entirely, since nothing was polling for liveness outside an active session. That's now covered by a dedicated idle/paused connection watchdog with its own staleness threshold, serialized against belt commands, the active stats poll, and speed changes via a lock recreated per connection attempt. See `CHANGELOG.md` `[1.6.0]` for details.
 
 ---
 
@@ -172,7 +171,7 @@ Stores completed sessions in a local JSON file (`session_history.json`) and disp
 **Status:** ✅ Complete
 **Files Modified:** `config.py`, `config.json.example`, `app.py`, `run.py`, `.gitignore`, `README.md`, `templates/base.html`, `templates/settings.html`
 
-All user-tunable settings are now loaded from an optional `config.json` file, with `config.py` providing defaults. A Settings page (gear icon in the header) allows changing any setting from the browser without editing files. Most settings take effect immediately; host and port require a restart.
+All user-tunable settings are now loaded from an optional `config.json` file, with `config.py` providing defaults. A Settings page (gear icon in the header) allows changing any setting from the browser without editing files. Most settings take effect immediately; host, port, and waitress_threads require a restart.
 
 ---
 

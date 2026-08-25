@@ -104,22 +104,10 @@
 {% endif %}
 
 <script>
-  var _shutdownShown = false;
-  setInterval(function(){
-      fetch("{{ url_for('get_stats') }}")
-          .then(response => response.json())
-          .then(data => {
-              if (data.stopping === true && !_shutdownShown) {
-                  _shutdownShown = true;
-                  showShutdownOverlay();
-                  return;
-              }
-
-              if (data.is_connected === false) {
-                  window.location.reload();
-              }
-          });
-  }, 3000);
+  // No per-message UI update needed on this screen -- just keeps the
+  // connection/shutdown watchdog (handled centrally in startStatsStream)
+  // active while it's open.
+  startStatsStream(function(data) {});
 
   // Clear history button
   var clearBtn = document.getElementById('clear-history-btn');

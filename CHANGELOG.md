@@ -2,6 +2,35 @@
 
 All notable changes to WalkingDad will be documented in this file.
 
+## [1.6.0] — 2026-08-25
+
+### Added
+
+- **Real-time stats via Server-Sent Events** — Replaced the polling loops on the active, paused, and start screens with a single streaming connection, cutting update latency and HTTP overhead.
+- **Connection watchdog while paused or idle** — The app now detects a lost Bluetooth connection even when a session is paused or no session is running, not just while actively walking. A dropped connection now always shows **Connection Failed — Try Again** instead of a stats display that's quietly stopped updating.
+- **Configurable server thread count** — The `waitress_threads` setting (Settings page or `config.json`) controls how many concurrent connections the server can handle; previously hardcoded.
+
+### Fixed
+
+- Stats could silently freeze mid-session — speed/distance/steps/calories could stay stuck at zero with no error shown if the connection stopped delivering real updates.
+- Rare cases where reconnecting to the treadmill, or a stuck Bluetooth command while connecting, starting, or resuming, could leave the app unresponsive with no way to recover except restarting it.
+- Changing speed during an active session could occasionally interfere with the live stats connection.
+- Entering an invalid value on the Settings page could show an error instead of being handled gracefully.
+- Resuming a paused session reset the treadmill's own onboard display/counters in the common case — Resume now tries a lighter wake-up first and only falls back to the display-resetting sequence if the belt genuinely needs it (e.g. after a long pause).
+- The active-session screen's controls were clickable for a moment right after Start or Resume, before the belt had actually finished responding — they're now disabled (matching the paused screen's existing behavior) until the belt command in flight completes.
+- A resumed session's grace period (which avoids mistaking a normal restart for an unexpected stop) could be cut short by a slow reconnection, or set low enough in Settings to defeat it entirely.
+- Session history could be left corrupted if the app crashed while saving it.
+- Reconnecting to the treadmill left the previous connection's background thread running indefinitely instead of closing it — harmless but wasteful over a long-running instance with several reconnects.
+- The documented minimum Python version (3.8+) was wrong — the app actually requires 3.10+ and would fail to start on older versions. Corrected in the README and ROADMAP.
+
+### Internal
+
+- Consolidated repeated settings-page and connection-monitoring code into shared helpers.
+- Extracted shared code for building the stats payload and wiring up the client-side live connection.
+- Hardened Bluetooth disconnect handling for correctness on platforms where the disconnect notification can arrive on a different thread than expected.
+
+---
+
 ## [1.5.1] — 2026-07-15
 
 ### Added

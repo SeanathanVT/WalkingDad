@@ -37,7 +37,7 @@ The official WalkingPad experience is a bloated mobile app that wants your email
 
 ## Quick Start
 
-**Requirements:** Python 3.8+, Bluetooth adapter, compatible WalkingPad (confirmed: C2 / `KS-BLC2`).
+**Requirements:** Python 3.10+, Bluetooth adapter, compatible WalkingPad (confirmed: C2 / `KS-BLC2`).
 
 ```bash
 # Clone and enter the project
@@ -79,18 +79,19 @@ All settings can be changed from the **Settings page** (gear icon in the header)
 | `speed_step` | `0.6` | Increment per button press |
 | `slow_walk_speed_kmh` | `4.5` | Slow Walk preset (~2.8 mph) |
 | `kcal_per_mile` | `95` | Calorie estimate constant |
-| `resume_grace_period_seconds` | `7` | Seconds before auto-pause can trigger after start/resume |
+| `resume_grace_period_seconds` | `7` | Seconds before auto-pause can trigger after start/resume (minimum 3) |
 | `history_display_limit` | `10` | Sessions shown on the start screen |
 | `host` | `"0.0.0.0"` | Network interface to bind |
 | `port` | `5001` | Server port |
+| `waitress_threads` | `16` | Server worker thread count (4-128) |
 
-Changes to most settings take effect immediately via the Settings page. `host` and `port` require restarting the app.
+Changes to most settings take effect immediately via the Settings page. `host`, `port`, and `waitress_threads` require restarting the app.
 
 ## Troubleshooting
 
 - **Won't connect:** Make sure your WalkingPad is powered on and not paired to another device (like your phone). Check the console for log details.
 - **Icons missing:** Bootstrap Icons load from a CDN — make sure your browser has internet access.
-- **Stats stuck after resume:** Rare, but can happen. Restart the app and check the console for `ask_stats error` messages.
+- **Stats stop updating:** The app detects a dead BLE connection automatically (during an active session and while paused/idle) and shows **Connection Failed — Try Again** rather than freezing silently. If stats stay stuck without that screen appearing, check the console for `ask_stats` errors and restart the app.
 - **macOS BLE quirks:** See [ROADMAP.md](ROADMAP.md) Phase 1.1 for the full list of cross-platform reliability fixes.
 
 ## Credits

@@ -4,7 +4,7 @@ import time
 import urllib.request
 import webbrowser
 
-from config import HOST, PORT
+from config import HOST, PORT, WAITRESS_THREADS
 
 SHUTDOWN_URL = f"http://127.0.0.1:{PORT}/shutdown"
 
@@ -31,8 +31,8 @@ def http_shutdown():
         print(f"/shutdown requested (server may have exited before response): {exc}")
 
     # Wait for the server's deferred exit thread (~5s) to complete so the
-    # browser has time to receive a /stats poll with stopping:true and display
-    # the shutdown message.
+    # browser has time to receive stopping:true over the /stats_stream SSE
+    # connection and display the shutdown message.
     time.sleep(6)
 
 
@@ -48,7 +48,13 @@ if __name__ == "__main__":
         popen_kwargs = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
 
     server_process = subprocess.Popen(
-        ["waitress-serve", f"--host={HOST}", f"--port={PORT}", "app:app"],
+        # --threads: each open SSE connection (/stats_stream) holds a worker
+        # thread for its entire lifetime, unlike the old short-lived polling
+        # requests. Defaults well above the Waitress default of 4 (see
+        # config.py's waitress_threads) so several concurrent devices can
+        # each hold a stream open alongside action POSTs (start/pause/speed)
+        # without stalling; tunable via config.json like every other setting.
+        ["waitress-serve", f"--host={HOST}", f"--port={PORT}", f"--threads={WAITRESS_THREADS}", "app:app"],
         **popen_kwargs,
     )
 
