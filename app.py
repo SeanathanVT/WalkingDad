@@ -146,19 +146,29 @@ _BLE_SEQUENCE_LOCK_TIMEOUT_SECONDS = 40
 # start_belt() with no mode toggle, poll ask_stats() up to this many times,
 # this far apart, checking for a status update confirming nonzero speed
 # before giving up and falling back to the full STANDBY/MANUAL toggle.
-# _LIGHT_WAKE_PROBE_TIMEOUT_SECONDS is deliberately shorter than the
-# general _BLE_READ_TIMEOUT_SECONDS/_BLE_WRITE_TIMEOUT_SECONDS: worst case
-# (every attempt times out, including the initial start_belt() -- also
-# bounded by this same shorter timeout, not the general write one) must
-# stay comfortably under RESUME_GRACE_PERIOD_SECONDS (default 7s,
-# config.py), since that's the window during which process_status_packet()
-# suppresses auto-pause -- if the probe ran long enough to outlast it, a
-# stray speed=0 reading during a still-in-progress wake could be misread
-# as an unexpected stop. Worst case: 1s (start_belt) + 0.5s (sleep) +
-# 3 x (1s timeout + 0.5s interval) = 6.0s total, under the 7s default.
-_LIGHT_WAKE_PROBE_ATTEMPTS = 3
-_LIGHT_WAKE_PROBE_INTERVAL_SECONDS = 0.5
-_LIGHT_WAKE_PROBE_TIMEOUT_SECONDS = 1
+#
+# These values do NOT need to stay under RESUME_GRACE_PERIOD_SECONDS --
+# that was true before _belt_transitioning existed, but auto-pause is now
+# suppressed for the entire span of any belt sequence regardless of how
+# long it runs (see process_status_packet()'s AUTO-PAUSE LOGIC comment), so
+# a long probe carries no false-auto-pause risk. Sized instead from real
+# on-device measurement: one logged trial showed the device's own `speed`
+# field lagging ~4.1s behind an accepted start_belt() (its `state` field
+# reacted within ~100ms, `speed` did not catch up until several status
+# packets later) -- the previous 3-attempt/0.5s-interval/1s-timeout probe
+# (6.0s worst case) gave up at 3.5s, calling it unconfirmed 0.6s before the
+# next reply would have confirmed it, and the STANDBY-first fallback then
+# stopped a belt that had already started moving before restarting it.
+# Retuned with real margin over that one data point rather than just
+# raising the ceiling slightly -- if these prove excessively generous
+# once more trials come in, they can be tightened later; erring long here
+# only costs a longer spinner, where erring short costs a visible stop/
+# restart. Also widened the interval to 1.0s to better match the ~1s
+# status-reporting cadence observed in that log (0.5s meant some attempts
+# were checking before new data could plausibly have arrived).
+_LIGHT_WAKE_PROBE_ATTEMPTS = 6
+_LIGHT_WAKE_PROBE_INTERVAL_SECONDS = 1.0
+_LIGHT_WAKE_PROBE_TIMEOUT_SECONDS = 1.5
 _pending_restore: dict | None = None  # Loaded at startup; cleared once restored or discarded
 
 session_active = belt_running = False
