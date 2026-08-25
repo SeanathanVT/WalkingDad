@@ -135,14 +135,15 @@ _BLE_COMMAND_LOCK_TIMEOUT_SECONDS = 5
 # this far apart, checking for a status update confirming nonzero speed
 # before giving up and falling back to the full STANDBY/MANUAL toggle.
 # _LIGHT_WAKE_PROBE_TIMEOUT_SECONDS is deliberately shorter than the
-# general _BLE_READ_TIMEOUT_SECONDS: worst case (every attempt times out)
-# must stay comfortably under RESUME_GRACE_PERIOD_SECONDS (default 7s,
+# general _BLE_READ_TIMEOUT_SECONDS/_BLE_WRITE_TIMEOUT_SECONDS: worst case
+# (every attempt times out, including the initial start_belt() -- also
+# bounded by this same shorter timeout, not the general write one) must
+# stay comfortably under RESUME_GRACE_PERIOD_SECONDS (default 7s,
 # config.py), since that's the window during which process_status_packet()
 # suppresses auto-pause -- if the probe ran long enough to outlast it, a
 # stray speed=0 reading during a still-in-progress wake could be misread
-# as an unexpected stop. 3 attempts x (1s timeout + 0.5s interval) = 4.5s
-# worst case, plus the initial 0.5s post-start_belt() sleep = 5s total,
-# safely under the 7s default with margin.
+# as an unexpected stop. Worst case: 1s (start_belt) + 0.5s (sleep) +
+# 3 x (1s timeout + 0.5s interval) = 6.0s total, under the 7s default.
 _LIGHT_WAKE_PROBE_ATTEMPTS = 3
 _LIGHT_WAKE_PROBE_INTERVAL_SECONDS = 0.5
 _LIGHT_WAKE_PROBE_TIMEOUT_SECONDS = 1
@@ -744,7 +745,16 @@ async def _try_light_wake() -> bool:
     before Pause's stop_belt() reply landed could false-positive the probe.
     """
     baseline = time.monotonic()
-    await asyncio.wait_for(controller.start_belt(), timeout=_BLE_WRITE_TIMEOUT_SECONDS)
+    try:
+        await asyncio.wait_for(controller.start_belt(), timeout=_LIGHT_WAKE_PROBE_TIMEOUT_SECONDS)
+    except Exception as exc:
+        # Deliberately not fatal, matching each probe attempt below: even if
+        # this write itself failed/timed out, the polling loop is still the
+        # correct way to find out whether the belt is moving -- if it never
+        # confirms, the caller falls back to _full_wake_sequence() same as
+        # any other unconfirmed probe. Letting this raise uncaught would
+        # abort the whole resume sequence and skip that fallback entirely.
+        logging.debug(f"Light wake start_belt() error (still probing): {exc}")
     await asyncio.sleep(0.5)
 
     for attempt in range(1, _LIGHT_WAKE_PROBE_ATTEMPTS + 1):
