@@ -79,11 +79,11 @@ All settings can be changed from the **Settings page** (gear icon in the header)
 | `speed_step` | `0.6` | Increment per button press |
 | `slow_walk_speed_kmh` | `4.5` | Slow Walk preset (~2.8 mph) |
 | `kcal_per_mile` | `95` | Calorie estimate constant |
-| `resume_grace_period_seconds` | `7` | Seconds before auto-pause can trigger after start/resume |
+| `resume_grace_period_seconds` | `7` | Seconds before auto-pause can trigger after start/resume (minimum 3) |
 | `history_display_limit` | `10` | Sessions shown on the start screen |
 | `host` | `"0.0.0.0"` | Network interface to bind |
 | `port` | `5001` | Server port |
-| `waitress_threads` | `16` | Server worker thread count (minimum 4) |
+| `waitress_threads` | `16` | Server worker thread count (4-128) |
 
 Changes to most settings take effect immediately via the Settings page. `host`, `port`, and `waitress_threads` require restarting the app.
 

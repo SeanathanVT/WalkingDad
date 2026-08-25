@@ -38,14 +38,14 @@ Multi-layer graceful shutdown ensuring the treadmill belt always stops and BLE d
 
 Shutdown coroutine (`_graceful_shutdown()`) steps:
 1. **Stop Belt** — If `belt_running`, call `controller.stop_belt()` and wait 0.5s
-2. **Cancel Monitor** — Cancel `_stats_monitor_task` and await its `CancelledError`
+2. **Cancel Monitors** — Cancel `_stats_monitor_task` and `_idle_watchdog_task`, awaiting each `CancelledError`
 3. **Standby Mode** — Switch device to `WalkingPad.MODE_STANDBY`
 4. **BLE Disconnect** — Call `controller.client.disconnect()` to close the connection cleanly
 
 Additional fixes:
 - Duplicate shutdown requests are ignored via thread-safe `_shutting_down` flag protected by `threading.Lock()`
 - Uses `os._exit(0)` (not `sys.exit(0)`) for reliable Waitress termination — Waitress catches and suppresses `SystemExit` from `sys.exit()`
-- **UI shutdown notification** — all session templates check `/stats` for `stopping: true` and display "Server is shutting down" message
+- **UI shutdown notification** — all session templates watch the `/stats_stream` SSE connection for `stopping: true` and display "Server is shutting down" message
 - **Process-isolated subprocess** — `run.py` launches Waitress via `os.setsid()` so Ctrl+C only hits the wrapper, not Waitress directly; gives the HTTP shutdown path time to complete
 - Edge case handling when `ble_loop` or `controller` is None (skip BLE cleanup, exit directly)
 
@@ -171,7 +171,7 @@ Stores completed sessions in a local JSON file (`session_history.json`) and disp
 **Status:** ✅ Complete
 **Files Modified:** `config.py`, `config.json.example`, `app.py`, `run.py`, `.gitignore`, `README.md`, `templates/base.html`, `templates/settings.html`
 
-All user-tunable settings are now loaded from an optional `config.json` file, with `config.py` providing defaults. A Settings page (gear icon in the header) allows changing any setting from the browser without editing files. Most settings take effect immediately; host and port require a restart.
+All user-tunable settings are now loaded from an optional `config.json` file, with `config.py` providing defaults. A Settings page (gear icon in the header) allows changing any setting from the browser without editing files. Most settings take effect immediately; host, port, and waitress_threads require a restart.
 
 ---
 
