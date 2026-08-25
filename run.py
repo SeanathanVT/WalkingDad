@@ -31,8 +31,8 @@ def http_shutdown():
         print(f"/shutdown requested (server may have exited before response): {exc}")
 
     # Wait for the server's deferred exit thread (~5s) to complete so the
-    # browser has time to receive a /stats poll with stopping:true and display
-    # the shutdown message.
+    # browser has time to receive stopping:true over the /stats_stream SSE
+    # connection and display the shutdown message.
     time.sleep(6)
 
 

@@ -1491,6 +1491,11 @@ def _build_stats_payload() -> dict:
 
 @app.route("/stats", endpoint="get_stats")
 def stats_json():
+    """One-shot JSON snapshot. No template or app.py code polls this anymore
+    -- every screen uses /stats_stream (SSE) instead -- kept only as a
+    stable single-request endpoint for external scripting/tooling against
+    a running instance.
+    """
     resp = make_response(jsonify(_build_stats_payload()))
     resp.headers["Cache-Control"] = "no-store"
     return resp
