@@ -128,8 +128,20 @@ _BLE_WRITE_TIMEOUT_SECONDS = 5  # everything else: connect, mode/speed/belt comm
 # write-side timeouts above: even though no write can hang forever, one can
 # still legitimately take up to _BLE_WRITE_TIMEOUT_SECONDS, and without this
 # bound a caller waiting on the lock during that window would stall its own
-# staleness check too. Same order of magnitude as a write timeout.
+# staleness check too. Same order of magnitude as a write timeout. Giving up
+# here is cheap for these two callers -- they just skip one cycle and retry.
 _BLE_COMMAND_LOCK_TIMEOUT_SECONDS = 5
+# _run_locked()'s acquisition bound for everything that ISN'T a background
+# read loop: belt sequences, speed changes, graceful shutdown. Deliberately
+# much larger than _BLE_COMMAND_LOCK_TIMEOUT_SECONDS above -- giving up here
+# is NOT cheap (it means declaring the connection dead via _handle_disconnect()
+# and disrupting the user's session), so it must not fire just because some
+# OTHER legitimate sequence is still using the link. Sized comfortably above
+# the worst case any single sequence can take: Resume's light-wake probe
+# (6.0s) falling back to the full wake sequence (3 x 5.5s = 16.5s) plus a
+# final speed-set (5.5s) is ~28s in the worst case if every step lands near
+# its own timeout.
+_BLE_SEQUENCE_LOCK_TIMEOUT_SECONDS = 40
 # Light-wake probe (Resume only, see _try_light_wake()): after a bare
 # start_belt() with no mode toggle, poll ask_stats() up to this many times,
 # this far apart, checking for a status update confirming nonzero speed
@@ -533,8 +545,10 @@ async def _graceful_shutdown():
         # Step 1: Stop belt if running
         if belt_running and controller:
             logging.info("Stopping belt for graceful shutdown...")
-            async with _ble_command_lock:
-                await asyncio.wait_for(controller.stop_belt(), timeout=_BLE_WRITE_TIMEOUT_SECONDS)
+            await _run_locked(
+                lambda: asyncio.wait_for(controller.stop_belt(), timeout=_BLE_WRITE_TIMEOUT_SECONDS),
+                timeout=_BLE_SEQUENCE_LOCK_TIMEOUT_SECONDS,
+            )
             belt_running = False
             await asyncio.sleep(0.5)
 
@@ -546,8 +560,10 @@ async def _graceful_shutdown():
         # Step 3: Switch device to standby mode
         if controller:
             logging.info("Switching device to standby mode...")
-            async with _ble_command_lock:
-                await asyncio.wait_for(controller.switch_mode(WalkingPad.MODE_STANDBY), timeout=_BLE_WRITE_TIMEOUT_SECONDS)
+            await _run_locked(
+                lambda: asyncio.wait_for(controller.switch_mode(WalkingPad.MODE_STANDBY), timeout=_BLE_WRITE_TIMEOUT_SECONDS),
+                timeout=_BLE_SEQUENCE_LOCK_TIMEOUT_SECONDS,
+            )
             await asyncio.sleep(0.5)
 
         # Step 4: Disconnect BLE client gracefully
@@ -583,14 +599,24 @@ def _check_staleness_and_disconnect(context: str, threshold: float = _STALE_STAT
     return True
 
 
-async def _run_locked(make_coro):
+async def _run_locked(make_coro, timeout: float = _BLE_COMMAND_LOCK_TIMEOUT_SECONDS):
     """Call `make_coro()` and await the result under _ble_command_lock, with
     a bounded acquisition.
 
-    Shared by _stats_monitor() and _idle_connection_watchdog(): a stuck BLE
-    write (e.g. a GATT write that never acks) must not hold the lock forever
-    and starve either caller's own staleness detection, which is the one
-    mechanism meant to catch that exact kind of dead link.
+    The sole way anything in this file touches _ble_command_lock -- every
+    controller.*() call site uses this, not a bare `async with`. That's only
+    safe to do uniformly because every controller.*() call is itself
+    individually timeout-bounded (see _BLE_READ_TIMEOUT_SECONDS/
+    _BLE_WRITE_TIMEOUT_SECONDS's module comment): no lock holder can hold it
+    forever, so bounding acquisition here never risks giving up on a
+    genuinely-still-working connection, only ever on one that's actually
+    stuck. `timeout` defaults to _BLE_COMMAND_LOCK_TIMEOUT_SECONDS for the
+    background read loops (_stats_monitor(), _idle_connection_watchdog())
+    where giving up is cheap -- skip this cycle, retry next one. Belt
+    sequences and speed changes pass _BLE_SEQUENCE_LOCK_TIMEOUT_SECONDS
+    instead: for them, giving up means declaring the connection dead and
+    disrupting the user's session, so it must not fire just because some
+    other legitimate sequence is still using the link.
 
     Takes a zero-arg factory rather than an already-built coroutine: a bare
     coroutine argument (e.g. controller.ask_stats()) is constructed the
@@ -599,7 +625,9 @@ async def _run_locked(make_coro):
     awaited, which logs a "coroutine was never awaited" RuntimeWarning right
     when the lock is already contended and clean diagnostic signal matters
     most. Deferring construction to make_coro() means nothing is created
-    until the lock is actually held.
+    until the lock is actually held. For a multi-statement body, define a
+    local `async def` and pass the function itself (not a call to it) --
+    it's already a valid zero-arg coroutine factory.
 
     Snapshots the lock into a local before acquiring, and releases that same
     local afterward -- never re-reads the bare global at release time.
@@ -612,7 +640,7 @@ async def _run_locked(make_coro):
     lock = _ble_command_lock
     acquired = False
     try:
-        await asyncio.wait_for(lock.acquire(), timeout=_BLE_COMMAND_LOCK_TIMEOUT_SECONDS)
+        await asyncio.wait_for(lock.acquire(), timeout=timeout)
         acquired = True
         return await make_coro()
     finally:
@@ -806,7 +834,7 @@ async def _wake_and_start_belt(target_speed_kmh: float | None = None, try_light_
     is never worse than before this change, only sometimes gentler on the
     WalkingPad's own display.
     """
-    async with _ble_command_lock:
+    async def _body():
         if not (try_light_wake and await _try_light_wake()):
             await _full_wake_sequence()
 
@@ -814,6 +842,8 @@ async def _wake_and_start_belt(target_speed_kmh: float | None = None, try_light_
             logging.info(f"Setting speed to {target_speed_kmh:.1f} km/h.")
             await asyncio.wait_for(controller.change_speed(int(target_speed_kmh * 10)), timeout=_BLE_WRITE_TIMEOUT_SECONDS)
             await asyncio.sleep(0.5)
+
+    await _run_locked(_body, timeout=_BLE_SEQUENCE_LOCK_TIMEOUT_SECONDS)
 
 
 async def _locked_change_speed(dev_speed: int):
@@ -830,8 +860,10 @@ async def _locked_change_speed(dev_speed: int):
     silently swallowed.
     """
     try:
-        async with _ble_command_lock:
-            await asyncio.wait_for(controller.change_speed(dev_speed), timeout=_BLE_WRITE_TIMEOUT_SECONDS)
+        await _run_locked(
+            lambda: asyncio.wait_for(controller.change_speed(dev_speed), timeout=_BLE_WRITE_TIMEOUT_SECONDS),
+            timeout=_BLE_SEQUENCE_LOCK_TIMEOUT_SECONDS,
+        )
     except Exception as exc:
         logging.error(f"change_speed failed: {exc}")
         _handle_disconnect(None)
@@ -1033,8 +1065,10 @@ def end_session():
             await _cancel_task(_stats_monitor_task)
             if was_running and controller:
                 try:
-                    async with _ble_command_lock:
-                        await asyncio.wait_for(controller.stop_belt(), timeout=_BLE_WRITE_TIMEOUT_SECONDS)
+                    await _run_locked(
+                        lambda: asyncio.wait_for(controller.stop_belt(), timeout=_BLE_WRITE_TIMEOUT_SECONDS),
+                        timeout=_BLE_SEQUENCE_LOCK_TIMEOUT_SECONDS,
+                    )
                 except Exception as exc:
                     # The belt may still be physically moving even though the
                     # session was already ended in the UI -- treat this the
@@ -1338,8 +1372,10 @@ def pause_session():
             _belt_transitioning = True
             try:
                 await _cancel_task(_stats_monitor_task)
-                async with _ble_command_lock:
-                    await asyncio.wait_for(controller.stop_belt(), timeout=_BLE_WRITE_TIMEOUT_SECONDS)
+                await _run_locked(
+                    lambda: asyncio.wait_for(controller.stop_belt(), timeout=_BLE_WRITE_TIMEOUT_SECONDS),
+                    timeout=_BLE_SEQUENCE_LOCK_TIMEOUT_SECONDS,
+                )
             except asyncio.CancelledError:
                 logging.info("Pause sequence cancelled")
             except Exception as exc:
