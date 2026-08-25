@@ -95,10 +95,12 @@ _IDLE_WATCHDOG_PING_INTERVAL_SECONDS = 10
 # gets its own, much more forgiving threshold instead of sharing the active
 # one -- roughly 4-5 missed pings before disconnecting.
 _IDLE_STALE_STATUS_TIMEOUT_SECONDS = 45
-# Serializes BLE writes between the idle watchdog's ask_stats() ping and belt
-# sequences' start_belt()/stop_belt()/change_speed() commands, all of which run
-# as separate coroutines on the same ble_loop and would otherwise be free to
-# interleave mid-write. Cheaper and more robust than cancelling/recreating the
+# Serializes every controller read/write -- the idle watchdog's ask_stats()
+# ping, belt sequences' start_belt()/stop_belt()/change_speed() commands, the
+# active stats monitor's ask_stats() poll, and the manual speed-adjustment
+# routes' change_speed() calls -- since each of these runs as a separate
+# coroutine/task on the same ble_loop and would otherwise be free to
+# interleave mid-write/read on the same BLE link. Cheaper and more robust than cancelling/recreating the
 # watchdog task around every belt sequence (which only runs once, at connect
 # time, and has no restart path once cancelled).
 #
@@ -614,7 +616,8 @@ async def _stats_monitor():
             current_session_active_seconds = _base_seconds + int(time.monotonic() - _monitor_start)
 
             try:
-                status = await asyncio.wait_for(controller.ask_stats(), timeout=2.0)
+                async with _ble_command_lock:
+                    status = await asyncio.wait_for(controller.ask_stats(), timeout=2.0)
                 if status:
                     dist, steps, speed = _extract_status_fields(status)
                     process_status_packet(dist, steps, speed)
@@ -676,6 +679,14 @@ async def _wake_and_start_belt(target_speed_kmh: float | None = None):
             logging.info(f"Setting speed to {target_speed_kmh:.1f} km/h.")
             await controller.change_speed(int(target_speed_kmh * 10))
             await asyncio.sleep(0.5)
+
+
+async def _locked_change_speed(dev_speed: int):
+    """change_speed(), serialized via _ble_command_lock so a manual speed
+    adjustment can't interleave mid-write with the active stats monitor's
+    concurrent ask_stats() poll on the same ble_loop."""
+    async with _ble_command_lock:
+        await controller.change_speed(dev_speed)
 
 
 def _ble_thread():
@@ -1198,7 +1209,7 @@ def decrease_speed():
 
     new_speed_kmh = max(MIN_SPEED_KMH, current_speed_kmh - SPEED_STEP)
     dev_speed = int(new_speed_kmh * 10)
-    asyncio.run_coroutine_threadsafe(controller.change_speed(dev_speed), ble_loop)
+    asyncio.run_coroutine_threadsafe(_locked_change_speed(dev_speed), ble_loop)
     return redirect(url_for("root"))
 
 
@@ -1209,7 +1220,7 @@ def slow_speed():
         return redirect(url_for("root"))
 
     dev_speed = int(SLOW_WALK_SPEED_KMH * 10)
-    asyncio.run_coroutine_threadsafe(controller.change_speed(dev_speed), ble_loop)
+    asyncio.run_coroutine_threadsafe(_locked_change_speed(dev_speed), ble_loop)
     return redirect(url_for("root"))
 
 
@@ -1221,7 +1232,7 @@ def increase_speed():
 
     new_speed_kmh = min(MAX_SPEED_KMH, current_speed_kmh + SPEED_STEP)
     dev_speed = int(new_speed_kmh * 10)
-    asyncio.run_coroutine_threadsafe(controller.change_speed(dev_speed), ble_loop)
+    asyncio.run_coroutine_threadsafe(_locked_change_speed(dev_speed), ble_loop)
     return redirect(url_for("root"))
 
 
@@ -1232,7 +1243,7 @@ def max_speed():
         return redirect(url_for("root"))
 
     dev_speed = int(MAX_SPEED_KMH * 10)
-    asyncio.run_coroutine_threadsafe(controller.change_speed(dev_speed), ble_loop)
+    asyncio.run_coroutine_threadsafe(_locked_change_speed(dev_speed), ble_loop)
     return redirect(url_for("root"))
 
 
