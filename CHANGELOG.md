@@ -16,6 +16,7 @@ All notable changes to WalkingDad will be documented in this file.
 - Rare cases where reconnecting to the treadmill left the app unresponsive to Start/Pause/Resume.
 - Changing speed during an active session could occasionally interfere with the live stats connection.
 - Entering an invalid value on the Settings page could show an error instead of being handled gracefully.
+- Resuming a paused session reset the treadmill's own onboard display/counters in the common case — Resume now tries a lighter wake-up first and only falls back to the display-resetting sequence if the belt genuinely needs it (e.g. after a long pause).
 
 ### Internal
 

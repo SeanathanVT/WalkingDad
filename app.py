@@ -130,6 +130,22 @@ _BLE_WRITE_TIMEOUT_SECONDS = 5  # everything else: connect, mode/speed/belt comm
 # bound a caller waiting on the lock during that window would stall its own
 # staleness check too. Same order of magnitude as a write timeout.
 _BLE_COMMAND_LOCK_TIMEOUT_SECONDS = 5
+# Light-wake probe (Resume only, see _try_light_wake()): after a bare
+# start_belt() with no mode toggle, poll ask_stats() up to this many times,
+# this far apart, checking for a status update confirming nonzero speed
+# before giving up and falling back to the full STANDBY/MANUAL toggle.
+# _LIGHT_WAKE_PROBE_TIMEOUT_SECONDS is deliberately shorter than the
+# general _BLE_READ_TIMEOUT_SECONDS: worst case (every attempt times out)
+# must stay comfortably under RESUME_GRACE_PERIOD_SECONDS (default 7s,
+# config.py), since that's the window during which process_status_packet()
+# suppresses auto-pause -- if the probe ran long enough to outlast it, a
+# stray speed=0 reading during a still-in-progress wake could be misread
+# as an unexpected stop. 3 attempts x (1s timeout + 0.5s interval) = 4.5s
+# worst case, plus the initial 0.5s post-start_belt() sleep = 5s total,
+# safely under the 7s default with margin.
+_LIGHT_WAKE_PROBE_ATTEMPTS = 3
+_LIGHT_WAKE_PROBE_INTERVAL_SECONDS = 0.5
+_LIGHT_WAKE_PROBE_TIMEOUT_SECONDS = 1
 _pending_restore: dict | None = None  # Loaded at startup; cleared once restored or discarded
 
 session_active = belt_running = False
@@ -698,15 +714,73 @@ async def _cancel_task(task: asyncio.Task | None) -> None:
             pass
 
 
-async def _wake_and_start_belt(target_speed_kmh: float | None = None):
-    """STANDBY→MANUAL toggle required: stop_belt() leaves device in STANDBY (commit 5cbb8ba)."""
+async def _full_wake_sequence():
+    """The always-safe STANDBY→MANUAL→start_belt() toggle (commit 83724a7):
+    a plain start_belt() alone silently no-ops (no exception) if the device
+    has gone to sleep. Caller must already hold _ble_command_lock.
+    """
+    await asyncio.wait_for(controller.switch_mode(WalkingPad.MODE_STANDBY), timeout=_BLE_WRITE_TIMEOUT_SECONDS)
+    await asyncio.sleep(0.5)
+    await asyncio.wait_for(controller.switch_mode(WalkingPad.MODE_MANUAL), timeout=_BLE_WRITE_TIMEOUT_SECONDS)
+    await asyncio.sleep(0.5)
+    await asyncio.wait_for(controller.start_belt(), timeout=_BLE_WRITE_TIMEOUT_SECONDS)
+    await asyncio.sleep(0.5)
+
+
+async def _try_light_wake() -> bool:
+    """Bare start_belt() -- no mode toggle -- then poll ask_stats() looking
+    for a status update confirming nonzero speed. Returns True if confirmed
+    within the probe window, False otherwise. Caller must already hold
+    _ble_command_lock.
+
+    switch_mode(STANDBY) is what resets the WalkingPad's own onboard
+    display/session counters; this lets Resume skip that toggle whenever
+    the device is still awake, which is the common case shortly after our
+    own stop_belt() (Pause).
+
+    Checks freshness via _last_status_update_monotonic against a baseline
+    taken before start_belt() is even sent, not just current_speed_kmh > 0
+    alone: without that, a stale nonzero current_speed_kmh left over from
+    before Pause's stop_belt() reply landed could false-positive the probe.
+    """
+    baseline = time.monotonic()
+    await asyncio.wait_for(controller.start_belt(), timeout=_BLE_WRITE_TIMEOUT_SECONDS)
+    await asyncio.sleep(0.5)
+
+    for attempt in range(1, _LIGHT_WAKE_PROBE_ATTEMPTS + 1):
+        try:
+            await asyncio.wait_for(controller.ask_stats(), timeout=_LIGHT_WAKE_PROBE_TIMEOUT_SECONDS)
+        except Exception as exc:
+            logging.debug(f"Light wake probe {attempt}/{_LIGHT_WAKE_PROBE_ATTEMPTS} ask_stats error: {exc}")
+
+        await asyncio.sleep(_LIGHT_WAKE_PROBE_INTERVAL_SECONDS)
+
+        if _last_status_update_monotonic > baseline and current_speed_kmh > 0:
+            logging.info(
+                f"Light wake confirmed belt moving on probe {attempt}/{_LIGHT_WAKE_PROBE_ATTEMPTS} "
+                f"({time.monotonic() - baseline:.1f}s) -- skipped STANDBY/MANUAL mode toggle."
+            )
+            return True
+
+    logging.warning(
+        f"Light wake unconfirmed after {_LIGHT_WAKE_PROBE_ATTEMPTS} probes "
+        f"({time.monotonic() - baseline:.1f}s); falling back to full STANDBY/MANUAL wake sequence."
+    )
+    return False
+
+
+async def _wake_and_start_belt(target_speed_kmh: float | None = None, try_light_wake: bool = False):
+    """Get the belt moving, optionally at a specific speed.
+
+    try_light_wake=True (Resume only) first attempts _try_light_wake().
+    Falls back to _full_wake_sequence() -- identical to the
+    try_light_wake=False path -- if that can't be confirmed, so reliability
+    is never worse than before this change, only sometimes gentler on the
+    WalkingPad's own display.
+    """
     async with _ble_command_lock:
-        await asyncio.wait_for(controller.switch_mode(WalkingPad.MODE_STANDBY), timeout=_BLE_WRITE_TIMEOUT_SECONDS)
-        await asyncio.sleep(0.5)
-        await asyncio.wait_for(controller.switch_mode(WalkingPad.MODE_MANUAL), timeout=_BLE_WRITE_TIMEOUT_SECONDS)
-        await asyncio.sleep(0.5)
-        await asyncio.wait_for(controller.start_belt(), timeout=_BLE_WRITE_TIMEOUT_SECONDS)
-        await asyncio.sleep(0.5)
+        if not (try_light_wake and await _try_light_wake()):
+            await _full_wake_sequence()
 
         if target_speed_kmh is not None:
             logging.info(f"Setting speed to {target_speed_kmh:.1f} km/h.")
@@ -1150,6 +1224,12 @@ def start_session():
             try:
                 logging.info("Starting belt...")
                 await _cancel_task(_stats_monitor_task)
+                # Always the full STANDBY/MANUAL toggle here, never light-wake:
+                # a fresh Start has no recent-activity context to justify
+                # skipping it (the device could have been idle for hours), and
+                # resetting the WalkingPad's own display/counters is expected
+                # for a brand-new session anyway -- our own counters were just
+                # reset above too.
                 await _wake_and_start_belt()
                 logging.info("Starting stats monitor...")
                 _stats_monitor_task = asyncio.create_task(_stats_monitor())
@@ -1250,7 +1330,12 @@ def resume_session():
             try:
                 logging.info("Attempting resume: Sending wake-up and start sequence to device...")
                 await _cancel_task(_stats_monitor_task)
-                await _wake_and_start_belt(resume_speed_kmh)
+                # try_light_wake=True: Resume typically follows our own recent
+                # stop_belt() (Pause) by seconds, not long enough for the device
+                # to have gone back to sleep on its own -- see _try_light_wake()'s
+                # docstring. Falls back automatically to the same guaranteed-safe
+                # toggle Start always uses if that assumption doesn't hold.
+                await _wake_and_start_belt(resume_speed_kmh, try_light_wake=True)
                 logging.info("Starting stats monitor...")
                 _stats_monitor_task = asyncio.create_task(_stats_monitor())
                 logging.info("Resume sequence commands sent, monitor ensured.")
