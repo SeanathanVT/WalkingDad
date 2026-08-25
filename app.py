@@ -545,9 +545,18 @@ async def _graceful_shutdown():
         # Step 1: Stop belt if running
         if belt_running and controller:
             logging.info("Stopping belt for graceful shutdown...")
+            # Deliberately NOT _BLE_SEQUENCE_LOCK_TIMEOUT_SECONDS here, despite
+            # this being a belt-affecting call like the others that use it:
+            # every caller of _graceful_shutdown() (signal handler, /shutdown,
+            # atexit) wraps it in its own external timeout (5-10s) and treats
+            # a timeout as "log and continue exiting" rather than "wait it
+            # out" -- the process force-exits shortly after regardless. Using
+            # the long sequence timeout here would just mean losing gracefully
+            # to the *external* timeout instead, without actually getting more
+            # cleanup done. _run_locked()'s cheap-to-give-up default fits this
+            # best-effort context, same as the background read loops.
             await _run_locked(
-                lambda: asyncio.wait_for(controller.stop_belt(), timeout=_BLE_WRITE_TIMEOUT_SECONDS),
-                timeout=_BLE_SEQUENCE_LOCK_TIMEOUT_SECONDS,
+                lambda: asyncio.wait_for(controller.stop_belt(), timeout=_BLE_WRITE_TIMEOUT_SECONDS)
             )
             belt_running = False
             await asyncio.sleep(0.5)
@@ -560,9 +569,9 @@ async def _graceful_shutdown():
         # Step 3: Switch device to standby mode
         if controller:
             logging.info("Switching device to standby mode...")
+            # See step 1's comment -- same reasoning applies here.
             await _run_locked(
-                lambda: asyncio.wait_for(controller.switch_mode(WalkingPad.MODE_STANDBY), timeout=_BLE_WRITE_TIMEOUT_SECONDS),
-                timeout=_BLE_SEQUENCE_LOCK_TIMEOUT_SECONDS,
+                lambda: asyncio.wait_for(controller.switch_mode(WalkingPad.MODE_STANDBY), timeout=_BLE_WRITE_TIMEOUT_SECONDS)
             )
             await asyncio.sleep(0.5)
 
@@ -917,7 +926,15 @@ def _ble_thread():
         except Exception as e:
             logging.error(f"Event loop error: {e}")
     finally:
-        connected = False
+        # Only clear the global if this thread's loop is still the current
+        # one: if a newer connection attempt has already superseded this one
+        # (ble_loop reassigned), this thread's cleanup is for a stale
+        # connection and must not clobber the newer one's state. In practice
+        # this thread's stop-to-cleanup is near-instant (milliseconds) versus
+        # a new connection's multi-second BLE scan, so the ordering this
+        # guards against is unlikely, but cheap enough to close outright.
+        if ble_loop is loop:
+            connected = False
         logging.info("Closing BLE event loop")
         try:
             # Cancel all remaining tasks
@@ -938,13 +955,23 @@ def _start_ble_thread():
             return
         connecting = True
         connection_failed = False
+    # Stop the previous connection's event loop, if any, before starting a
+    # new one. Nothing else ever does this on a plain disconnect (only a full
+    # app shutdown stops a loop) -- without it, every reconnect leaves the
+    # prior _ble_thread() idling in run_forever() forever, since it has
+    # nothing left to do but nothing ever tells it to stop: one leaked daemon
+    # thread per reconnect for the life of the process.
+    if ble_loop and not ble_loop.is_closed() and ble_loop.is_running():
+        ble_loop.call_soon_threadsafe(ble_loop.stop)
     threading.Thread(target=_ble_thread, daemon=True).start()
 
 
 def _handle_disconnect(client):
     """Callback function to handle unexpected disconnections. Safe to call
-    from any thread -- both the stats monitor and the idle watchdog can call
-    this on themselves when they detect a dead link.
+    from any thread -- both the stats monitor and the idle watchdog call this
+    on themselves when they detect a dead link (same-thread, on ble_loop),
+    and bleak's own disconnect callback may call it from a different thread
+    depending on platform/backend.
     """
     global connected, belt_running, connecting, connection_failed
     global _stats_monitor_task, _idle_watchdog_task
@@ -964,10 +991,20 @@ def _handle_disconnect(client):
     # a task from inside its own currently-running step still marks it
     # cancelled() even after it exits cleanly via `break`, which is misleading
     # -- that task is already unwinding on its own, no cancellation needed.
+    #
+    # task.cancel() itself is only safe to call from the thread running the
+    # task's own event loop -- routed through call_soon_threadsafe() so this
+    # is correct regardless of which thread actually called _handle_disconnect
+    # (per the docstring above, that's not guaranteed to be ble_loop's own
+    # thread). Falls back to a direct call only if ble_loop is already gone,
+    # in which case there's no loop left to schedule onto anyway.
     for name, task in (("stats monitor", _stats_monitor_task), ("idle watchdog", _idle_watchdog_task)):
         if task and not task.done() and task is not current:
             logging.info(f"Cancelling {name} due to disconnect")
-            task.cancel()
+            if ble_loop and not ble_loop.is_closed():
+                ble_loop.call_soon_threadsafe(task.cancel)
+            else:
+                task.cancel()
 
 
 def _handle_signal_shutdown(signum, frame):
@@ -1061,21 +1098,33 @@ def end_session():
         # Without cancelling, an in-flight resume sequence could keep running
         # after end_session returns, recreating a monitor for a dead session.
         async def _end_belt_sequence():
+            global _belt_sequence_task, _belt_transitioning
+            # Registers itself as _belt_sequence_task and sets
+            # _belt_transitioning like its three siblings (start/pause/resume)
+            # -- previously it did neither, the one belt sequence that didn't
+            # follow the pattern, so nothing else could observe or cancel an
+            # in-flight End Session the way it can for the others.
             await _cancel_task(_belt_sequence_task)
-            await _cancel_task(_stats_monitor_task)
-            if was_running and controller:
-                try:
-                    await _run_locked(
-                        lambda: asyncio.wait_for(controller.stop_belt(), timeout=_BLE_WRITE_TIMEOUT_SECONDS),
-                        timeout=_BLE_SEQUENCE_LOCK_TIMEOUT_SECONDS,
-                    )
-                except Exception as exc:
-                    # The belt may still be physically moving even though the
-                    # session was already ended in the UI -- treat this the
-                    # same as any other failed BLE write and surface it as a
-                    # dead connection instead of swallowing it silently.
-                    logging.error(f"Error stopping belt on end_session: {exc}")
-                    _handle_disconnect(None)
+            _belt_sequence_task = asyncio.current_task()
+            _belt_transitioning = True
+            try:
+                await _cancel_task(_stats_monitor_task)
+                if was_running and controller:
+                    try:
+                        await _run_locked(
+                            lambda: asyncio.wait_for(controller.stop_belt(), timeout=_BLE_WRITE_TIMEOUT_SECONDS),
+                            timeout=_BLE_SEQUENCE_LOCK_TIMEOUT_SECONDS,
+                        )
+                    except Exception as exc:
+                        # The belt may still be physically moving even though the
+                        # session was already ended in the UI -- treat this the
+                        # same as any other failed BLE write and surface it as a
+                        # dead connection instead of swallowing it silently.
+                        logging.error(f"Error stopping belt on end_session: {exc}")
+                        _handle_disconnect(None)
+            finally:
+                _belt_sequence_task = None
+                _belt_transitioning = False
 
         asyncio.run_coroutine_threadsafe(_end_belt_sequence(), ble_loop)
 
