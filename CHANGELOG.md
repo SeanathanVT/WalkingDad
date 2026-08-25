@@ -21,6 +21,7 @@ All notable changes to WalkingDad will be documented in this file.
 - A resumed session's grace period (which avoids mistaking a normal restart for an unexpected stop) could be cut short by a slow reconnection, or set low enough in Settings to defeat it entirely.
 - Session history could be left corrupted if the app crashed while saving it.
 - Reconnecting to the treadmill left the previous connection's background thread running indefinitely instead of closing it — harmless but wasteful over a long-running instance with several reconnects.
+- The documented minimum Python version (3.8+) was wrong — the app actually requires 3.10+ and would fail to start on older versions. Corrected in the README and ROADMAP.
 
 ### Internal
 
