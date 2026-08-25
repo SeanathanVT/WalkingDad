@@ -940,6 +940,7 @@ def clear_history():
 # restart. Clamped rather than rejected outright since there's no user-facing
 # form-validation/error-message path for this settings page.
 _MIN_WAITRESS_THREADS = 4  # Waitress's own long-standing default
+_MAX_WAITRESS_THREADS = 128  # Generous ceiling; guards against a typo starving the OS thread pool
 
 
 def _clamp_waitress_threads(v, cur):
@@ -947,6 +948,9 @@ def _clamp_waitress_threads(v, cur):
     if n < _MIN_WAITRESS_THREADS:
         logging.warning(f"waitress_threads={n} is below the safe minimum; clamping to {_MIN_WAITRESS_THREADS}")
         return _MIN_WAITRESS_THREADS
+    if n > _MAX_WAITRESS_THREADS:
+        logging.warning(f"waitress_threads={n} exceeds the safe maximum; clamping to {_MAX_WAITRESS_THREADS}")
+        return _MAX_WAITRESS_THREADS
     return n
 
 
@@ -975,7 +979,11 @@ def settings_page():
         for form_key, const_name, cast, _live in _SETTINGS_SCHEMA:
             current = getattr(config, const_name)
             raw = request.form.get(form_key, str(current))
-            updates[form_key] = cast(raw, current)
+            try:
+                updates[form_key] = cast(raw, current)
+            except (ValueError, TypeError):
+                logging.warning(f"Invalid value for {form_key} ({raw!r}); keeping current value.")
+                updates[form_key] = current
 
         _write_config(updates)
         for form_key, const_name, _cast, live in _SETTINGS_SCHEMA:
