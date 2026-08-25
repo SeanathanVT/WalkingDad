@@ -112,13 +112,23 @@ _IDLE_STALE_STATUS_TIMEOUT_SECONDS = 45
 # reconnect's new loop raises "RuntimeError: <Lock> is bound to a different
 # event loop" the next time it's actually contended.
 _ble_command_lock: asyncio.Lock | None = None
-# Bounds how long the idle watchdog will wait to acquire _ble_command_lock.
-# Without this, a belt sequence's BLE write hanging forever (e.g. a GATT
-# write that never acks) would hold the lock forever, permanently blocking
-# the watchdog from ever reaching its next cycle's staleness check -- the
-# one mechanism meant to detect a dead link would itself be neutralized by
-# that same dead link. Well above a belt sequence's normal duration (a
-# handful of 0.5s sleeps, a few seconds total).
+# Every controller.*() call in this file is bounded by one of the two
+# timeouts below -- there is no unbounded await on the BLE link anywhere.
+# That's what actually guarantees _ble_command_lock can never be held
+# forever: two of its consumers (_locked_change_speed(), _end_belt_sequence())
+# are fire-and-forget coroutines with no task variable anything else could
+# cancel, so a stuck GATT operation in either would otherwise wedge the lock
+# permanently with no recovery path. Values are generous above a healthy
+# device's normal response time (a handful of 0.5s sleeps between steps),
+# not tuned for snappiness.
+_BLE_READ_TIMEOUT_SECONDS = 2  # ask_stats() -- a request/reply round trip
+_BLE_WRITE_TIMEOUT_SECONDS = 5  # everything else: connect, mode/speed/belt commands
+# Bounds how long the idle watchdog / stats monitor will wait to *acquire*
+# _ble_command_lock (see _run_locked()). Belt-and-suspenders on top of the
+# write-side timeouts above: even though no write can hang forever, one can
+# still legitimately take up to _BLE_WRITE_TIMEOUT_SECONDS, and without this
+# bound a caller waiting on the lock during that window would stall its own
+# staleness check too. Same order of magnitude as a write timeout.
 _BLE_COMMAND_LOCK_TIMEOUT_SECONDS = 5
 _pending_restore: dict | None = None  # Loaded at startup; cleared once restored or discarded
 
@@ -369,7 +379,7 @@ async def _connect_to_pad() -> bool:
     logging.info(f"Device found! Address: {_device_ble_address}")
 
     controller = Controller()
-    await controller.run(dev.address)
+    await asyncio.wait_for(controller.run(dev.address), timeout=_BLE_WRITE_TIMEOUT_SECONDS)
 
     # Try to set disconnect callback (API varies by Bleak version)
     if hasattr(controller, "client") and controller.client:
@@ -388,7 +398,7 @@ async def _connect_to_pad() -> bool:
         else:
             logging.debug("Disconnect callback not available in this Bleak version")
 
-    await controller.switch_mode(WalkingPad.MODE_MANUAL)
+    await asyncio.wait_for(controller.switch_mode(WalkingPad.MODE_MANUAL), timeout=_BLE_WRITE_TIMEOUT_SECONDS)
 
     def _handle_status_update(_sender, status):
         try:
@@ -402,7 +412,7 @@ async def _connect_to_pad() -> bool:
 
     if hasattr(controller, "enable_notifications"):
         try:
-            await controller.enable_notifications()
+            await asyncio.wait_for(controller.enable_notifications(), timeout=_BLE_WRITE_TIMEOUT_SECONDS)
         except Exception as exc:
             logging.warning(f"enable_notifications failed: {exc}")
 
@@ -489,7 +499,7 @@ async def _graceful_shutdown():
         if belt_running and controller:
             logging.info("Stopping belt for graceful shutdown...")
             async with _ble_command_lock:
-                await controller.stop_belt()
+                await asyncio.wait_for(controller.stop_belt(), timeout=_BLE_WRITE_TIMEOUT_SECONDS)
             belt_running = False
             await asyncio.sleep(0.5)
 
@@ -501,14 +511,15 @@ async def _graceful_shutdown():
         # Step 3: Switch device to standby mode
         if controller:
             logging.info("Switching device to standby mode...")
-            await controller.switch_mode(WalkingPad.MODE_STANDBY)
+            async with _ble_command_lock:
+                await asyncio.wait_for(controller.switch_mode(WalkingPad.MODE_STANDBY), timeout=_BLE_WRITE_TIMEOUT_SECONDS)
             await asyncio.sleep(0.5)
 
         # Step 4: Disconnect BLE client gracefully
         if controller and hasattr(controller, 'client') and controller.client:
             logging.info("Disconnecting BLE client...")
             try:
-                await controller.client.disconnect()
+                await asyncio.wait_for(controller.client.disconnect(), timeout=_BLE_WRITE_TIMEOUT_SECONDS)
             except Exception as exc:
                 logging.warning(f"BLE disconnect error (non-fatal): {exc}")
     except Exception as exc:
@@ -537,13 +548,23 @@ def _check_staleness_and_disconnect(context: str, threshold: float = _STALE_STAT
     return True
 
 
-async def _run_locked(coro):
-    """Await `coro` under _ble_command_lock, with a bounded acquisition.
+async def _run_locked(make_coro):
+    """Call `make_coro()` and await the result under _ble_command_lock, with
+    a bounded acquisition.
 
     Shared by _stats_monitor() and _idle_connection_watchdog(): a stuck BLE
     write (e.g. a GATT write that never acks) must not hold the lock forever
     and starve either caller's own staleness detection, which is the one
     mechanism meant to catch that exact kind of dead link.
+
+    Takes a zero-arg factory rather than an already-built coroutine: a bare
+    coroutine argument (e.g. controller.ask_stats()) is constructed the
+    moment the caller writes the call, before _run_locked ever runs -- so if
+    lock acquisition times out, that coroutine was created but never
+    awaited, which logs a "coroutine was never awaited" RuntimeWarning right
+    when the lock is already contended and clean diagnostic signal matters
+    most. Deferring construction to make_coro() means nothing is created
+    until the lock is actually held.
 
     Snapshots the lock into a local before acquiring, and releases that same
     local afterward -- never re-reads the bare global at release time.
@@ -558,7 +579,7 @@ async def _run_locked(coro):
     try:
         await asyncio.wait_for(lock.acquire(), timeout=_BLE_COMMAND_LOCK_TIMEOUT_SECONDS)
         acquired = True
-        return await coro
+        return await make_coro()
     finally:
         if acquired:
             lock.release()
@@ -601,7 +622,7 @@ async def _idle_connection_watchdog():
         # iteration, where the staleness check above (which doesn't need the
         # lock) can still run and eventually catch a truly dead link.
         try:
-            await _run_locked(asyncio.wait_for(controller.ask_stats(), timeout=2.0))
+            await _run_locked(lambda: asyncio.wait_for(controller.ask_stats(), timeout=_BLE_READ_TIMEOUT_SECONDS))
         except Exception as exc:
             logging.debug(f"Idle watchdog ping error (will retry next cycle): {exc}")
 
@@ -629,7 +650,7 @@ async def _stats_monitor():
             current_session_active_seconds = _base_seconds + int(time.monotonic() - _monitor_start)
 
             try:
-                status = await _run_locked(asyncio.wait_for(controller.ask_stats(), timeout=2.0))
+                status = await _run_locked(lambda: asyncio.wait_for(controller.ask_stats(), timeout=_BLE_READ_TIMEOUT_SECONDS))
                 if status:
                     dist, steps, speed = _extract_status_fields(status)
                     process_status_packet(dist, steps, speed)
@@ -680,25 +701,38 @@ async def _cancel_task(task: asyncio.Task | None) -> None:
 async def _wake_and_start_belt(target_speed_kmh: float | None = None):
     """STANDBY→MANUAL toggle required: stop_belt() leaves device in STANDBY (commit 5cbb8ba)."""
     async with _ble_command_lock:
-        await controller.switch_mode(WalkingPad.MODE_STANDBY)
+        await asyncio.wait_for(controller.switch_mode(WalkingPad.MODE_STANDBY), timeout=_BLE_WRITE_TIMEOUT_SECONDS)
         await asyncio.sleep(0.5)
-        await controller.switch_mode(WalkingPad.MODE_MANUAL)
+        await asyncio.wait_for(controller.switch_mode(WalkingPad.MODE_MANUAL), timeout=_BLE_WRITE_TIMEOUT_SECONDS)
         await asyncio.sleep(0.5)
-        await controller.start_belt()
+        await asyncio.wait_for(controller.start_belt(), timeout=_BLE_WRITE_TIMEOUT_SECONDS)
         await asyncio.sleep(0.5)
 
         if target_speed_kmh is not None:
             logging.info(f"Setting speed to {target_speed_kmh:.1f} km/h.")
-            await controller.change_speed(int(target_speed_kmh * 10))
+            await asyncio.wait_for(controller.change_speed(int(target_speed_kmh * 10)), timeout=_BLE_WRITE_TIMEOUT_SECONDS)
             await asyncio.sleep(0.5)
 
 
 async def _locked_change_speed(dev_speed: int):
     """change_speed(), serialized via _ble_command_lock so a manual speed
     adjustment can't interleave mid-write with the active stats monitor's
-    concurrent ask_stats() poll on the same ble_loop."""
-    async with _ble_command_lock:
-        await controller.change_speed(dev_speed)
+    concurrent ask_stats() poll on the same ble_loop.
+
+    Fire-and-forget from the caller's side (scheduled via
+    run_coroutine_threadsafe() with the returned Future discarded, not
+    tracked in any task variable) -- so unlike the belt sequences, nothing
+    else will ever observe or retry a failure here. Handle it the same way
+    _start_belt_sequence()/_resume_belt_sequence() treat any failed BLE
+    write: log it and declare the connection dead rather than leaving it
+    silently swallowed.
+    """
+    try:
+        async with _ble_command_lock:
+            await asyncio.wait_for(controller.change_speed(dev_speed), timeout=_BLE_WRITE_TIMEOUT_SECONDS)
+    except Exception as exc:
+        logging.error(f"change_speed failed: {exc}")
+        _handle_disconnect(None)
 
 
 def _ble_thread():
@@ -722,10 +756,15 @@ def _ble_thread():
     try:
         try:
             connected_result = loop.run_until_complete(_connect_to_pad())
-        except RuntimeError:
-            # Event loop stopped during connection attempt (e.g., graceful shutdown
-            # while scanning is still in progress). This is expected and harmless.
-            logging.info("BLE connection interrupted by shutdown")
+        except Exception as exc:
+            # Any failure during connect must still fall through to the
+            # connection_failed path below -- a BLE transport error, our own
+            # _BLE_WRITE_TIMEOUT_SECONDS timeout on a stuck GATT call, or the
+            # loop being stopped out from under us by a shutdown mid-scan
+            # (RuntimeError) all need the same handling. Without this,
+            # `connecting` never resets and _start_ble_thread()'s guard
+            # permanently blocks every future reconnect attempt.
+            logging.warning(f"BLE connection attempt failed: {exc}")
             connected_result = False
 
         if not connected_result:
@@ -893,9 +932,14 @@ def end_session():
             if was_running and controller:
                 try:
                     async with _ble_command_lock:
-                        await controller.stop_belt()
+                        await asyncio.wait_for(controller.stop_belt(), timeout=_BLE_WRITE_TIMEOUT_SECONDS)
                 except Exception as exc:
+                    # The belt may still be physically moving even though the
+                    # session was already ended in the UI -- treat this the
+                    # same as any other failed BLE write and surface it as a
+                    # dead connection instead of swallowing it silently.
                     logging.error(f"Error stopping belt on end_session: {exc}")
+                    _handle_disconnect(None)
 
         asyncio.run_coroutine_threadsafe(_end_belt_sequence(), ble_loop)
 
@@ -1157,7 +1201,17 @@ def pause_session():
             try:
                 await _cancel_task(_stats_monitor_task)
                 async with _ble_command_lock:
-                    await controller.stop_belt()
+                    await asyncio.wait_for(controller.stop_belt(), timeout=_BLE_WRITE_TIMEOUT_SECONDS)
+            except asyncio.CancelledError:
+                logging.info("Pause sequence cancelled")
+            except Exception as exc:
+                # belt_running was already set False in the UI the moment Pause
+                # was clicked -- if the belt didn't actually confirm stopping,
+                # that's a real safety gap (it may still be moving), so treat
+                # this the same as any other failed BLE write: surface it as a
+                # dead connection instead of leaving a silent success.
+                logging.error(f"Error stopping belt on pause: {exc}")
+                _handle_disconnect(None)
             finally:
                 _belt_sequence_task = None
                 _belt_transitioning = False
