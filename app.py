@@ -100,9 +100,10 @@ _IDLE_STALE_STATUS_TIMEOUT_SECONDS = 45
 # active stats monitor's ask_stats() poll, and the manual speed-adjustment
 # routes' change_speed() calls -- since each of these runs as a separate
 # coroutine/task on the same ble_loop and would otherwise be free to
-# interleave mid-write/read on the same BLE link. Cheaper and more robust than cancelling/recreating the
-# watchdog task around every belt sequence (which only runs once, at connect
-# time, and has no restart path once cancelled).
+# interleave mid-write/read on the same BLE link. Cheaper and more robust
+# than cancelling/recreating the watchdog task around every belt sequence
+# (which only runs once, at connect time, and has no restart path once
+# cancelled).
 #
 # Recreated fresh in _ble_thread() for every connection attempt, NOT created
 # once here at import time: asyncio.Lock() permanently binds to whichever
@@ -536,6 +537,33 @@ def _check_staleness_and_disconnect(context: str, threshold: float = _STALE_STAT
     return True
 
 
+async def _run_locked(coro):
+    """Await `coro` under _ble_command_lock, with a bounded acquisition.
+
+    Shared by _stats_monitor() and _idle_connection_watchdog(): a stuck BLE
+    write (e.g. a GATT write that never acks) must not hold the lock forever
+    and starve either caller's own staleness detection, which is the one
+    mechanism meant to catch that exact kind of dead link.
+
+    Snapshots the lock into a local before acquiring, and releases that same
+    local afterward -- never re-reads the bare global at release time.
+    _ble_command_lock is reassigned to a fresh Lock() on every reconnect (see
+    its module-level comment); a caller suspended here across a reconnect
+    must release the lock it actually acquired, not whatever the global has
+    since moved on to (which could belong to an unrelated, active
+    connection).
+    """
+    lock = _ble_command_lock
+    acquired = False
+    try:
+        await asyncio.wait_for(lock.acquire(), timeout=_BLE_COMMAND_LOCK_TIMEOUT_SECONDS)
+        acquired = True
+        return await coro
+    finally:
+        if acquired:
+            lock.release()
+
+
 async def _idle_connection_watchdog():
     """Keep _last_status_update_monotonic fresh whenever _stats_monitor() isn't
     running (paused session or idle/no session), so a dead BLE link is caught
@@ -568,29 +596,14 @@ async def _idle_connection_watchdog():
         if _check_staleness_and_disconnect("while idle/paused", threshold=_IDLE_STALE_STATUS_TIMEOUT_SECONDS):
             break
 
-        # Bound the lock acquisition itself, not just the ping: a stuck belt
-        # sequence holding the lock must not prevent this loop from reaching
-        # its next iteration, where the staleness check above (which doesn't
-        # need the lock) can still run and eventually catch a truly dead link.
-        #
-        # Snapshot the lock into a local BEFORE acquiring, and release that
-        # same local afterward -- never re-read the bare global at release
-        # time. _ble_command_lock is reassigned to a fresh Lock() on every
-        # reconnect (see its module-level comment); a stale task suspended
-        # here across a reconnect must release the lock it actually
-        # acquired, not whatever the global has since moved on to (which
-        # could belong to an unrelated, active connection).
-        lock = _ble_command_lock
-        acquired = False
+        # Bound acquisition, not just the ping: a stuck belt sequence holding
+        # the lock must not prevent this loop from reaching its next
+        # iteration, where the staleness check above (which doesn't need the
+        # lock) can still run and eventually catch a truly dead link.
         try:
-            await asyncio.wait_for(lock.acquire(), timeout=_BLE_COMMAND_LOCK_TIMEOUT_SECONDS)
-            acquired = True
-            await asyncio.wait_for(controller.ask_stats(), timeout=2.0)
+            await _run_locked(asyncio.wait_for(controller.ask_stats(), timeout=2.0))
         except Exception as exc:
             logging.debug(f"Idle watchdog ping error (will retry next cycle): {exc}")
-        finally:
-            if acquired:
-                lock.release()
 
 
 async def _stats_monitor():
@@ -616,8 +629,7 @@ async def _stats_monitor():
             current_session_active_seconds = _base_seconds + int(time.monotonic() - _monitor_start)
 
             try:
-                async with _ble_command_lock:
-                    status = await asyncio.wait_for(controller.ask_stats(), timeout=2.0)
+                status = await _run_locked(asyncio.wait_for(controller.ask_stats(), timeout=2.0))
                 if status:
                     dist, steps, speed = _extract_status_fields(status)
                     process_status_packet(dist, steps, speed)
@@ -625,7 +637,7 @@ async def _stats_monitor():
                 else:
                     logging.debug("ask_stats returned no reply (expected on this device/library)")
             except asyncio.TimeoutError:
-                logging.warning("Status poll timeout")
+                logging.warning("Status poll timed out (device unresponsive or BLE command lock busy)")
             except Exception as exc:
                 logging.warning(f"ask_stats error: {exc}")
 
