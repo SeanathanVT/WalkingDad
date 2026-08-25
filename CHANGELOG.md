@@ -22,6 +22,7 @@ All notable changes to WalkingDad will be documented in this file.
 
 - Consolidated repeated settings-page and connection-monitoring code into shared helpers.
 - Extracted shared code for building the stats payload and wiring up the client-side live connection.
+- Auto-pause detection now also stands down while a belt sequence is in flight, not just during the fixed post-resume grace period, so a slow-but-recovering connection can't be misread as an unexpected stop mid-resume.
 
 ---
 

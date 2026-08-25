@@ -464,7 +464,18 @@ def process_status_packet(dev_dist: float, dev_steps: int, dev_speed: float):
         speed_history.append(new_reported_speed_kmh)
 
     # AUTO-PAUSE LOGIC
-    if time.time() > _resume_grace_deadline:
+    # _resume_grace_deadline alone isn't a reliable bound on a belt
+    # sequence's duration: _full_wake_sequence()/_try_light_wake() are each
+    # built from asyncio.wait_for()-bounded steps, so a genuinely degraded
+    # connection can legitimately take longer than RESUME_GRACE_PERIOD_SECONDS
+    # to resolve without ever raising (each step just runs close to its own
+    # timeout). _belt_transitioning is True for the entire span of any belt
+    # sequence regardless of how long it takes, so ANDing it in here only
+    # ever narrows when auto-pause can fire relative to before -- it can't
+    # weaken real detection, since normal walking (the only time this needs
+    # to catch someone actually stepping off) always has
+    # _belt_transitioning=False.
+    if time.time() > _resume_grace_deadline and not _belt_transitioning:
         if belt_running and new_reported_speed_kmh == 0 and current_speed_kmh > 0:
             logging.info("Belt has stopped unexpectedly. Auto-pausing session.")
 
