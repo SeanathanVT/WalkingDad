@@ -1105,6 +1105,28 @@ def _clamp_waitress_threads(v, cur):
     return n
 
 
+# RESUME_GRACE_PERIOD_SECONDS gets re-stamped after every Start/Resume
+# sequence completes (see _start_belt_sequence()/_resume_belt_sequence()'s
+# finally blocks) specifically to give the belt a real window to physically
+# reach speed before process_status_packet()'s auto-pause logic starts
+# judging speed=0 readings as an unexpected stop. Set too low, that window
+# collapses to nothing and a normal post-start/resume ramp-up can trigger a
+# false auto-pause -- clamped rather than rejected outright, same convention
+# as waitress_threads above.
+_MIN_RESUME_GRACE_PERIOD_SECONDS = 3
+
+
+def _clamp_resume_grace_period(v, cur):
+    n = int(v)
+    if n < _MIN_RESUME_GRACE_PERIOD_SECONDS:
+        logging.warning(
+            f"resume_grace_period_seconds={n} is below the safe minimum; "
+            f"clamping to {_MIN_RESUME_GRACE_PERIOD_SECONDS}"
+        )
+        return _MIN_RESUME_GRACE_PERIOD_SECONDS
+    return n
+
+
 # (form field name, config.py attr name, cast(raw_str, current_value) -> value,
 #  also update the live app.py module global immediately vs. only take effect
 #  on next restart)
@@ -1115,7 +1137,7 @@ _SETTINGS_SCHEMA = [
     ("speed_step", "SPEED_STEP", lambda v, cur: float(v), True),
     ("slow_walk_speed_kmh", "SLOW_WALK_SPEED_KMH", lambda v, cur: float(v), True),
     ("kcal_per_mile", "KCAL_PER_MILE", lambda v, cur: int(v), True),
-    ("resume_grace_period_seconds", "RESUME_GRACE_PERIOD_SECONDS", lambda v, cur: int(v), True),
+    ("resume_grace_period_seconds", "RESUME_GRACE_PERIOD_SECONDS", _clamp_resume_grace_period, True),
     ("history_display_limit", "HISTORY_DISPLAY_LIMIT", lambda v, cur: int(v), True),
     ("host", "HOST", lambda v, cur: v.strip() or cur, False),
     ("port", "PORT", lambda v, cur: int(v), False),
@@ -1239,6 +1261,7 @@ def start_session():
 
         async def _start_belt_sequence():
             global belt_running, _stats_monitor_task, _belt_sequence_task, _belt_transitioning
+            global _resume_grace_deadline
             await _cancel_task(_belt_sequence_task)
             _belt_sequence_task = asyncio.current_task()
             _belt_transitioning = True
@@ -1264,6 +1287,13 @@ def start_session():
             finally:
                 _belt_sequence_task = None
                 _belt_transitioning = False
+                # Re-stamped here, not just once when the button was clicked:
+                # _wake_and_start_belt() can legitimately run long on a slow
+                # connection, which would otherwise eat into (or exhaust) the
+                # grace window this is meant to give the belt to physically
+                # reach speed *after* the sequence completes -- see
+                # process_status_packet()'s AUTO-PAUSE LOGIC comment.
+                _resume_grace_deadline = time.time() + RESUME_GRACE_PERIOD_SECONDS
 
         try:
             asyncio.run_coroutine_threadsafe(_start_belt_sequence(), ble_loop)
@@ -1343,6 +1373,7 @@ def resume_session():
 
         async def _resume_belt_sequence():
             global belt_running, _stats_monitor_task, _belt_sequence_task, _belt_transitioning
+            global _resume_grace_deadline
             # Cancel any prior in-flight sequence (e.g. pause) before sending
             # commands; concurrent coroutines on ble_loop interleave BLE writes.
             await _cancel_task(_belt_sequence_task)
@@ -1369,6 +1400,10 @@ def resume_session():
             finally:
                 _belt_sequence_task = None
                 _belt_transitioning = False
+                # See _start_belt_sequence()'s matching comment: re-stamped here
+                # so a slow wake-up sequence can't eat into the post-completion
+                # ramp-up protection this deadline is meant to provide.
+                _resume_grace_deadline = time.time() + RESUME_GRACE_PERIOD_SECONDS
 
         try:
             asyncio.run_coroutine_threadsafe(_resume_belt_sequence(), ble_loop)
