@@ -2,43 +2,25 @@
 
 All notable changes to WalkingDad will be documented in this file.
 
-## [1.7.0] — 2026-07-16
+## [1.6.0] — 2026-08-25
 
 ### Added
 
+- **Real-time stats via Server-Sent Events** — Replaced the polling loops on the active, paused, and start screens with a single streaming connection, cutting update latency and HTTP overhead.
 - **Connection watchdog while paused or idle** — The app now detects a lost Bluetooth connection even when a session is paused or no session is running, not just while actively walking. A dropped connection now always shows **Connection Failed — Try Again** instead of a stats display that's quietly stopped updating.
 - **Configurable server thread count** — The `waitress_threads` setting (Settings page or `config.json`) controls how many concurrent connections the server can handle; previously hardcoded.
 
 ### Fixed
 
-- Live stats could occasionally fail to start updating until a manual page refresh.
+- Stats could silently freeze mid-session — speed/distance/steps/calories could stay stuck at zero with no error shown if the connection stopped delivering real updates.
 - Rare cases where reconnecting to the treadmill left the app unresponsive to Start/Pause/Resume.
+- Changing speed during an active session could occasionally interfere with the live stats connection.
+- Entering an invalid value on the Settings page could show an error instead of being handled gracefully.
 
 ### Internal
 
 - Consolidated repeated settings-page and connection-monitoring code into shared helpers.
-
----
-
-## [1.6.0] — 2026-07-15
-
-### Added
-
-- **Real-time stats via Server-Sent Events** — Replaced the 1.5s/3s `setInterval(fetch('/stats'))` polling loops on the active, paused, and start screens with a single `/stats_stream` SSE endpoint, cutting HTTP overhead and update latency. A daemon thread broadcasts a stats snapshot once a second to all connected clients through thread-safe per-subscriber queues; the broadcaster runs regardless of belt state, so paused/idle screens stay live too, not just active sessions.
-
-### Internal
-
-- Extracted `_build_stats_payload()` — `/stats` and `/stats_stream` now share one function that maps global state to the wire payload, instead of duplicating the dict construction.
-- Extracted `startStatsStream()` into `base.html`, alongside the existing `showShutdownOverlay()`, so all three session templates share one `EventSource` wiring helper instead of duplicating polling boilerplate.
-- Bumped Waitress from its default 4 worker threads to `--threads=16` in `run.py` to give headroom for multiple concurrent long-lived SSE connections plus action POSTs.
-
----
-
-## [1.5.2] — 2026-07-15
-
-### Fixed
-
-- **Stats could silently freeze mid-session** — Speed/distance/steps/calories could stay frozen at zero indefinitely while Time kept ticking, with no error surfaced, if the connection stopped delivering real status updates. `_stats_monitor()` now tracks how recently *any* status update landed — whether from the active poll (`ask_stats()`) or the passive BLE notification callback that the `ph4_walkingpad` library actually uses to deliver data — and treats 15 seconds of silence from both as a dead connection, triggering the same disconnect/reconnect flow ("Connection Failed — Try Again") already used for other BLE disconnects. (Note: `ask_stats()` itself never returns the reply synchronously on this library — it only sends the request; the real data always arrives via the notification callback, so counting `ask_stats()`'s own return value alone is not a valid liveness signal.)
+- Extracted shared code for building the stats payload and wiring up the client-side live connection.
 
 ---
 
