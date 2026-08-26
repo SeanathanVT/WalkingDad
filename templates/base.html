@@ -914,12 +914,6 @@
         document.head.appendChild(meta);
     }
 
-    // Shared by both the mode toggle and the color-theme picker, since
-    // Harvest's effect depends on both (leaves in light mode, glowing eyes
-    // in dark mode — eyes are pure CSS, gated by the same two attributes, so
-    // only leaves need JS-generated particles here). Reads current state
-    // directly off <html> rather than taking params, so either caller can
-    // invoke it with no coordination needed.
     // Shared by Frost/Harvest/Bloom — all three are the same fall/drift/
     // rotate motion (the ".snow" class), differing only in glyphs/count/
     // size/duration.
@@ -939,6 +933,12 @@
         }
     }
 
+    // Shared by both the mode toggle and the color-theme picker, since
+    // Harvest's effect depends on both (leaves in light mode, glowing eyes
+    // in dark mode — eyes are pure CSS, gated by the same two attributes, so
+    // only leaves need JS-generated particles here). Reads current state
+    // directly off <html> rather than taking params, so either caller can
+    // invoke it with no coordination needed.
     function renderThemeFx() {
         var layer = document.getElementById('theme-fx-layer');
         if (!layer) return;
@@ -1117,22 +1117,17 @@
         const trigger = document.getElementById('color-theme-toggle');
         const popover = document.getElementById('color-theme-popover');
 
-        var loadedFontUrls = new Set();
         function ensureThemeFontsLoaded(themeId) {
             var theme = COLOR_THEMES.find(function(t) { return t.id === themeId; });
-            if (!theme || !theme.fontsUrl || loadedFontUrls.has(theme.fontsUrl)) return;
+            if (!theme || !theme.fontsUrl) return;
             // The head-of-document blocking script (see top of <head>) already
             // injects this link on initial page load to avoid a font flash;
             // don't fetch it twice.
-            if (document.querySelector('link[href="' + theme.fontsUrl + '"]')) {
-                loadedFontUrls.add(theme.fontsUrl);
-                return;
-            }
+            if (document.querySelector('link[href="' + theme.fontsUrl + '"]')) return;
             var link = document.createElement('link');
             link.rel = 'stylesheet';
             link.href = theme.fontsUrl;
             document.head.appendChild(link);
-            loadedFontUrls.add(theme.fontsUrl);
         }
 
         function applyColorTheme(themeId) {
