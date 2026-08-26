@@ -2,15 +2,50 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <script>
+    // THEME_FONT_URLS is the single source of truth for special-theme fonts —
+    // declared here, outside the IIFE below, so it's a true global that the
+    // fuller color-theme picker logic further down this file can reference
+    // too (its COLOR_THEMES entries set fontsUrl: THEME_FONT_URLS.<id>
+    // instead of repeating the URL), rather than keeping two copies in sync
+    // by convention.
+    var THEME_FONT_URLS = {
+        vt: 'https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;700;900&family=Crimson+Text:wght@400;600;700&display=swap',
+        harvest: 'https://fonts.googleapis.com/css2?family=Rye&family=Creepster&display=swap',
+        frost: 'https://fonts.googleapis.com/css2?family=Mountains+of+Christmas:wght@400;700&display=swap',
+        bloom: 'https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&display=swap',
+        tide: 'https://fonts.googleapis.com/css2?family=Pacifico&display=swap'
+    };
+    // Applies the stored theme (and any theme-specific font) before first
+    // paint, so navigating to a new page doesn't flash the :root (Blue/Light,
+    // default-font) state first. Intentionally standalone/duplicated from the
+    // fuller theme logic further down this file — must run synchronously,
+    // before anything else, with no dependency on DOM elements that don't
+    // exist yet.
+    (function() {
+        var root = document.documentElement;
+        var mode = localStorage.getItem('walkingpad-theme');
+        var isDark = mode === 'dark' || (mode !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        if (isDark) root.setAttribute('data-theme', 'dark');
+
+        var colorTheme = localStorage.getItem('walkingpad-color-theme');
+        if (colorTheme) {
+            root.setAttribute('data-color-theme', colorTheme);
+            if (THEME_FONT_URLS[colorTheme]) {
+                var link = document.createElement('link');
+                link.rel = 'stylesheet';
+                link.href = THEME_FONT_URLS[colorTheme];
+                document.head.appendChild(link);
+            }
+        }
+    })();
+    </script>
     <title>WalkingDad</title>
+    <meta name="theme-color" content="#ffffff">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
     <link rel="preconnect" href="https://fonts.gstatic.com/" crossorigin>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?display=swap&family=Noto+Sans:wght@400;500;700;900&family=Space+Grotesk:wght@400;500;700">
-
-    {% if connecting %}
-    <meta http-equiv="refresh" content="3">
-    {% endif %}
 
     <style>
         /* Custom properties from the design file */
@@ -18,12 +53,16 @@
             --background-color: #f8fafc; /* bg-slate-50 */
             --card-color: #e7edf4;
             --text-color: #0d141c;
-            --primary-blue: #0c7ff2;
             --border-color: #e7edf4;
             --header-bg: white;
             --button-hover-bg: #d8e0ea;
-            --primary-hover: #0a6bcf;
             --muted-color: #6c757d;
+
+            --accent-color: #0b73e2; /* darkened slightly from #0c7ff2 for AA contrast against white button text */
+            --accent-hover: #0a64c5;
+
+            --font-heading: "Space Grotesk", "Noto Sans", sans-serif;
+            --font-body: "Noto Sans", "Space Grotesk", sans-serif;
         }
 
         /* Dark mode overrides */
@@ -31,19 +70,428 @@
             --background-color: #0f172a; /* slate-900 */
             --card-color: #1e293b; /* slate-800 */
             --text-color: #f1f5f9; /* slate-100 */
-            --primary-blue: #0c7ff2;
             --border-color: #334155; /* slate-700 */
             --header-bg: #1e293b; /* slate-800 */
             --button-hover-bg: #334155; /* slate-700 */
-            --primary-hover: #3a94ff;
             --muted-color: #94a3b8; /* slate-400 */
+
+            --accent-color: #0b72da; /* darkened for AA contrast against white button text */
+            --accent-hover: #1a87f4;
         }
 
+        /* Color theme: Teal — tints the neutral surfaces too, not just the
+           accent, so the theme reads as distinct rather than "blue app with
+           a teal button" */
+        [data-color-theme="teal"] {
+            --background-color: #f4faf9;
+            --card-color: #e6f2f0;
+            --text-color: #0d1a17;
+            --border-color: #d4e8e4;
+            --header-bg: #f6fbfa;
+            --button-hover-bg: #d0e5e0;
+            --muted-color: #5f7873;
+
+            --accent-color: #0b8375;
+            --accent-hover: #09675c;
+        }
+        [data-theme="dark"][data-color-theme="teal"] {
+            --background-color: #0a1615;
+            --card-color: #132420;
+            --text-color: #eef7f5;
+            --border-color: #234039;
+            --header-bg: #132420;
+            --button-hover-bg: #234039;
+            --muted-color: #8fa9a3;
+
+            --accent-color: #1b8276;
+            --accent-hover: #1ea797;
+        }
+
+        /* Color theme: Indigo */
+        [data-color-theme="indigo"] {
+            --background-color: #f4f5fa;
+            --card-color: #e4e4f1;
+            --text-color: #0e0e1b;
+            --border-color: #d4d4e8;
+            --header-bg: #f4f5fa;
+            --button-hover-bg: #d1d1e6;
+            --muted-color: #5e5f78;
+
+            --accent-color: #0d0f96;
+            --accent-hover: #0f1175;
+        }
+        [data-theme="dark"][data-color-theme="indigo"] {
+            --background-color: #090a15;
+            --card-color: #131425;
+            --text-color: #eeeef7;
+            --border-color: #22233f;
+            --header-bg: #131425;
+            --button-hover-bg: #22233f;
+            --muted-color: #8f8fa8;
+
+            --accent-color: #2b2ed4;
+            --accent-hover: #5d5fea;
+        }
+
+        /* Color theme: Violet */
+        [data-color-theme="violet"] {
+            --background-color: #f7f4fa;
+            --card-color: #e9e4f1;
+            --text-color: #130e1b;
+            --border-color: #dbd4e8;
+            --header-bg: #f7f4fa;
+            --button-hover-bg: #d9d1e6;
+            --muted-color: #685e78;
+
+            --accent-color: #3f0d96;
+            --accent-hover: #350f75;
+        }
+        [data-theme="dark"][data-color-theme="violet"] {
+            --background-color: #0e0915;
+            --card-color: #1a1325;
+            --text-color: #f1eef7;
+            --border-color: #2d223f;
+            --header-bg: #1a1325;
+            --button-hover-bg: #2d223f;
+            --muted-color: #988fa8;
+
+            --accent-color: #692bd4;
+            --accent-hover: #905dea;
+        }
+
+        /* Color theme: Pink */
+        [data-color-theme="pink"] {
+            --background-color: #faf4f8;
+            --card-color: #f1e4ec;
+            --text-color: #1b0e16;
+            --border-color: #e8d4e1;
+            --header-bg: #faf4f8;
+            --button-hover-bg: #e6d1de;
+            --muted-color: #785e6f;
+
+            --accent-color: #960d64;
+            --accent-hover: #750f50;
+        }
+        [data-theme="dark"][data-color-theme="pink"] {
+            --background-color: #150911;
+            --card-color: #25131e;
+            --text-color: #f7eef3;
+            --border-color: #3f2234;
+            --header-bg: #25131e;
+            --button-hover-bg: #3f2234;
+            --muted-color: #a88f9f;
+
+            --accent-color: #d42b96;
+            --accent-hover: #ea5db6;
+        }
+
+        /* Color theme: Amber */
+        [data-color-theme="amber"] {
+            --background-color: #faf8f4;
+            --card-color: #f1ece4;
+            --text-color: #1b160e;
+            --border-color: #e8e1d4;
+            --header-bg: #faf8f4;
+            --button-hover-bg: #e6ded1;
+            --muted-color: #786f5e;
+
+            --accent-color: #96640d;
+            --accent-hover: #75500f;
+        }
+        [data-theme="dark"][data-color-theme="amber"] {
+            --background-color: #151109;
+            --card-color: #251e13;
+            --text-color: #f7f3ee;
+            --border-color: #3f3422;
+            --header-bg: #251e13;
+            --button-hover-bg: #3f3422;
+            --muted-color: #a89f8f;
+
+            --accent-color: #986b1f;
+            --accent-hover: #be8522;
+        }
+
+        /* Color theme: Forest */
+        [data-color-theme="forest"] {
+            --background-color: #f4faf7;
+            --card-color: #e4f1e9;
+            --text-color: #0e1b13;
+            --border-color: #d4e8db;
+            --header-bg: #f4faf7;
+            --button-hover-bg: #d1e6d9;
+            --muted-color: #5e7868;
+
+            --accent-color: #0c8839;
+            --accent-hover: #096b2d;
+        }
+        [data-theme="dark"][data-color-theme="forest"] {
+            --background-color: #09150e;
+            --card-color: #13251a;
+            --text-color: #eef7f1;
+            --border-color: #223f2d;
+            --header-bg: #13251a;
+            --button-hover-bg: #223f2d;
+            --muted-color: #8fa898;
+
+            --accent-color: #1b8442;
+            --accent-hover: #1eaa52;
+        }
+
+        /* Color theme: Lime */
+        [data-color-theme="lime"] {
+            --background-color: #f8faf4;
+            --card-color: #ecf1e4;
+            --text-color: #161b0e;
+            --border-color: #e0e8d4;
+            --header-bg: #f8faf4;
+            --button-hover-bg: #dde6d1;
+            --muted-color: #6e785e;
+
+            --accent-color: #53820b;
+            --accent-hover: #416609;
+        }
+        [data-theme="dark"][data-color-theme="lime"] {
+            --background-color: #101509;
+            --card-color: #1e2513;
+            --text-color: #f3f7ee;
+            --border-color: #333f22;
+            --header-bg: #1e2513;
+            --button-hover-bg: #333f22;
+            --muted-color: #9ea88f;
+
+            --accent-color: #577f1a;
+            --accent-hover: #6fa51d;
+        }
+
+        /* Color theme: Cyan */
+        [data-color-theme="cyan"] {
+            --background-color: #f4f9fa;
+            --card-color: #e4eff1;
+            --text-color: #0e181b;
+            --border-color: #d4e4e8;
+            --header-bg: #f4f9fa;
+            --button-hover-bg: #d1e2e6;
+            --muted-color: #5e7378;
+
+            --accent-color: #0d7b96;
+            --accent-hover: #0f6175;
+        }
+        [data-theme="dark"][data-color-theme="cyan"] {
+            --background-color: #091315;
+            --card-color: #132125;
+            --text-color: #eef5f7;
+            --border-color: #22393f;
+            --header-bg: #132125;
+            --button-hover-bg: #22393f;
+            --muted-color: #8fa3a8;
+
+            --accent-color: #1f7e95;
+            --accent-hover: #219dbc;
+        }
+
+        /* Color theme: Slate — grayscale/minimal, reuses the default neutral
+           slate surfaces (same as Blue) with a monochrome accent instead of
+           a hue */
+        [data-color-theme="slate"] {
+            --accent-color: #404040;
+            --accent-hover: #262626;
+        }
+        [data-theme="dark"][data-color-theme="slate"] {
+            --accent-color: #737373;
+            --accent-hover: #8d8d8d;
+        }
+
+        /* Special theme: Virginia Tech — official brand colors, sourced from
+           https://brand.vt.edu/identity/color.html (Chicago Maroon + Impact
+           Orange, the digital-accessible alternate to Burnt Orange). VT's own
+           guidelines forbid lightening/tinting Maroon or Burnt Orange (shading
+           only), so the accent is identical in light and dark mode; only the
+           neutral surfaces (built from their Hokie Stone scale) invert. */
+        [data-color-theme="vt"] {
+            --background-color: #fbfafa;
+            --card-color: #f1f1f2;
+            --text-color: #0c0c0c;
+            --border-color: #e3e4e5;
+            --header-bg: #ffffff;
+            --button-hover-bg: #d5d6d7;
+            --muted-color: #75787b;
+
+            --accent-color: #861f41;
+            --accent-hover: #ca4f00;
+
+            /* VT's primary typeface (Acherus Grotesque) and display face
+               (Gineso) are licensed and not freely distributable. VT's own
+               typography guide names Rubik as an acceptable substitute for
+               Acherus in headlines, and Crimson Text as their chosen Google
+               Font for body copy — both loaded from Google Fonts, same as
+               this app's default fonts. */
+            --font-heading: "Rubik", "Space Grotesk", "Noto Sans", sans-serif;
+            --font-body: "Crimson Text", Georgia, serif;
+        }
+        [data-theme="dark"][data-color-theme="vt"] {
+            --background-color: #171819;
+            --card-color: #232425;
+            --text-color: #f1f1f2;
+            --border-color: #3b3c3e;
+            --header-bg: #232425;
+            --button-hover-bg: #3b3c3e;
+            --muted-color: #9fa1a3;
+
+            --accent-color: #861f41;
+            --accent-hover: #ca4f00;
+
+            --font-heading: "Rubik", "Space Grotesk", "Noto Sans", sans-serif;
+            --font-body: "Crimson Text", Georgia, serif;
+        }
+
+        /* Seasonal themes, in calendar order: Bloom (spring) → Tide (summer)
+           → Harvest (fall) → Frost (winter). */
+
+        /* Special theme: Bloom — grass green + blossom pink, yellow-green neutrals */
+        [data-color-theme="bloom"] {
+            --background-color: #f7faf4;
+            --card-color: #eaf1e4;
+            --text-color: #131b0e;
+            --border-color: #dce8d4;
+            --header-bg: #f7faf4;
+            --button-hover-bg: #dae6d1;
+            --muted-color: #69785e;
+
+            --accent-color: #118721;
+            --accent-hover: #de1b7d;
+
+            --font-heading: "Quicksand", "Space Grotesk", "Noto Sans", sans-serif;
+        }
+        [data-theme="dark"][data-color-theme="bloom"] {
+            --background-color: #0e1509;
+            --card-color: #1b2513;
+            --text-color: #f1f7ee;
+            --border-color: #2e3f22;
+            --header-bg: #1b2513;
+            --button-hover-bg: #2e3f22;
+            --muted-color: #99a88f;
+
+            --accent-color: #1c872a;
+            --accent-hover: #d42f82;
+
+            --font-heading: "Quicksand", "Space Grotesk", "Noto Sans", sans-serif;
+        }
+
+        /* Special theme: Tide — turquoise + coral, sandy neutrals */
+        [data-color-theme="tide"] {
+            --background-color: #faf9f4;
+            --card-color: #f1ede4;
+            --text-color: #1b170e;
+            --border-color: #e8e2d4;
+            --header-bg: #faf9f4;
+            --button-hover-bg: #e6dfd1;
+            --muted-color: #78705e;
+
+            --accent-color: #11818c;
+            --accent-hover: #d1441a;
+
+            /* Pacifico only ships a regular weight — forcing bold on it
+               triggers synthetic faux-bold, which distorts the strokes. */
+            --font-heading: "Pacifico", "Space Grotesk", "Noto Sans", cursive;
+            --font-heading-weight: 400;
+        }
+        [data-theme="dark"][data-color-theme="tide"] {
+            --background-color: #151209;
+            --card-color: #252013;
+            --text-color: #f7f4ee;
+            --border-color: #3f3622;
+            --header-bg: #252013;
+            --button-hover-bg: #3f3622;
+            --muted-color: #a8a18f;
+
+            --accent-color: #1c818b;
+            --accent-hover: #c74e29;
+
+            --font-heading: "Pacifico", "Space Grotesk", "Noto Sans", cursive;
+            --font-heading-weight: 400;
+        }
+
+        /* Special theme: Harvest — pumpkin orange + witch purple (Halloween-
+           inspired, kept generic since it's mode-aware: cozy/autumnal in
+           light mode (Rye, falling leaves), spooky in dark mode (Creepster,
+           glowing eyes) — see the ambient-effects section further down and
+           renderThemeFx()/the .theme-fx-eyes rule). */
+        [data-color-theme="harvest"] {
+            --background-color: #fdf6ec;
+            --card-color: #f5e6cc;
+            --text-color: #1f130a;
+            --border-color: #e8d3a0;
+            --header-bg: #fffaf0;
+            --button-hover-bg: #efd9ab;
+            --muted-color: #8a6d3f;
+
+            /* Orange/gold/brown — harvest colors, no purple. Dark mode below
+               is where this theme is allowed to read as Halloween. */
+            --accent-color: #c2410c;
+            --accent-hover: #b45309;
+
+            /* Body text stays the default sans — only headings get the
+               display treatment, so section titles/numbers stay legible. */
+            --font-heading: "Rye", "Space Grotesk", "Noto Sans", sans-serif;
+        }
+        [data-theme="dark"][data-color-theme="harvest"] {
+            --background-color: #0d0704;
+            --card-color: #1a1006;
+            --text-color: #f7ecd8;
+            --border-color: #3a2510;
+            --header-bg: #1a1006;
+            --button-hover-bg: #3a2510;
+            --muted-color: #b89a6a;
+
+            --accent-color: #c2410c;
+            --accent-hover: #9333ea;
+
+            --font-heading: "Creepster", "Space Grotesk", "Noto Sans", sans-serif;
+        }
+
+        /* Special theme: Frost — evergreen + berry red (Christmas-inspired) */
+        [data-color-theme="frost"] {
+            --background-color: #f8faf9;
+            --card-color: #eef5f0;
+            --text-color: #0d1a12;
+            --border-color: #d8e8dd;
+            --header-bg: #ffffff;
+            --button-hover-bg: #d3e6da;
+            --muted-color: #5f7868;
+
+            --accent-color: #b91c1c;
+            --accent-hover: #166534;
+
+            --font-heading: "Mountains of Christmas", "Space Grotesk", "Noto Sans", sans-serif;
+        }
+        [data-theme="dark"][data-color-theme="frost"] {
+            --background-color: #050f08;
+            --card-color: #0d1f13;
+            --text-color: #eef7f1;
+            --border-color: #1f3d29;
+            --header-bg: #0d1f13;
+            --button-hover-bg: #1f3d29;
+            --muted-color: #8fa899;
+
+            --accent-color: #dc2626;
+            --accent-hover: #15803d;
+
+            --font-heading: "Mountains of Christmas", "Space Grotesk", "Noto Sans", sans-serif;
+        }
+
+        /* Future color themes follow the same pattern: one light block + one
+           [data-theme="dark"][data-color-theme="X"] block, tinting both the
+           neutral surfaces and the accent. No JS/HTML changes needed. */
+
         body {
-            font-family: "Space Grotesk", "Noto Sans", sans-serif;
+            font-family: var(--font-body);
             background-color: var(--background-color);
             color: var(--text-color);
             transition: background-color 0.2s ease, color 0.2s ease;
+        }
+
+        h1, h2, h3, .navbar-brand, .content-title {
+            font-family: var(--font-heading);
         }
 
         /* Header styles */
@@ -54,7 +502,10 @@
         }
 
         .app-header .navbar-brand {
-            font-weight: 700;
+            /* var(), not a hardcoded 700: Tide's Pacifico only ships a
+               regular weight — forcing bold on it triggers ugly synthetic/
+               faux-bold rendering. */
+            font-weight: var(--font-heading-weight, 700);
             font-size: 1.25rem;
             color: var(--text-color);
         }
@@ -90,6 +541,55 @@
             color: var(--text-color);
         }
 
+        /* Color theme picker */
+        .color-theme-picker {
+            position: relative;
+        }
+        .color-theme-popover {
+            display: none;
+            position: absolute;
+            top: calc(100% + 0.4rem);
+            right: 0;
+            z-index: 1050;
+            width: 11rem;
+            background-color: var(--header-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 0.5rem;
+            padding: 0.5rem;
+            gap: 0.5rem;
+            box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+        }
+        .color-theme-popover.show {
+            display: flex;
+            flex-wrap: wrap;
+        }
+        .color-swatch {
+            width: 1.5rem;
+            height: 1.5rem;
+            border-radius: 50%;
+            border: 2px solid var(--border-color);
+            cursor: pointer;
+            padding: 0;
+            transition: transform 0.1s ease, border-color 0.2s ease;
+        }
+        .color-swatch:hover {
+            transform: scale(1.1);
+        }
+        .color-swatch.is-active {
+            border-color: var(--text-color);
+        }
+        .color-theme-popover-divider {
+            flex-basis: 100%;
+            border-top: 1px solid var(--border-color);
+            margin-top: 0.2rem;
+            padding-top: 0.4rem;
+            font-size: 0.7rem;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--muted-color);
+        }
+
         /* Comma separator between header controls */
         .header-separator {
             color: var(--border-color);
@@ -111,7 +611,7 @@
         /* Main content styles */
         .content-title {
             font-size: 2rem;
-            font-weight: 700;
+            font-weight: var(--font-heading-weight, 700);
         }
 
         .stat-card {
@@ -133,14 +633,20 @@
 
         /* Custom button styles */
         .btn-custom-primary {
-            background-color: var(--primary-blue);
+            background-color: var(--accent-color);
             color: white;
             font-weight: 700;
             padding: 0.75rem 2rem;
         }
         .btn-custom-primary:hover {
-            background-color: var(--primary-hover);
+            background-color: var(--accent-hover);
             color: white;
+        }
+
+        /* Accent-colored text/spinners (Bootstrap's .text-primary is a fixed
+           color and doesn't follow the color theme) */
+        .text-accent {
+            color: var(--accent-color) !important;
         }
 
         /* Override Bootstrap's .text-muted for dark mode readability */
@@ -191,9 +697,116 @@
         .history-table tbody tr:hover {
             background-color: var(--button-hover-bg);
         }
+
+        /* Special-theme ambient effects (falling snow for Frost).
+           Fixed, full-viewport, non-interactive — particles are populated by
+           renderThemeFx() further down this file. */
+        .theme-fx-layer {
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            overflow: hidden;
+            z-index: 5;
+        }
+        .theme-fx-particle {
+            position: absolute;
+            will-change: transform, opacity;
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .theme-fx-layer,
+            .theme-fx-eyes {
+                display: none !important;
+            }
+        }
+
+        @keyframes theme-fx-snow-fall {
+            from { transform: translate3d(0, -10vh, 0) rotate(0deg); }
+            to   { transform: translate3d(var(--fx-drift, 20px), 115vh, 0) rotate(360deg); }
+        }
+        .theme-fx-particle.snow {
+            top: 0;
+            color: #eaf6ff;
+            text-shadow: 0 0 3px rgba(0, 0, 0, 0.35);
+            animation-name: theme-fx-snow-fall;
+            animation-timing-function: linear;
+            animation-iteration-count: infinite;
+        }
+
+        @keyframes theme-fx-crab-walk {
+            from { transform: translate3d(-10vw, 0, 0); }
+            to   { transform: translate3d(110vw, 0, 0); }
+        }
+        .theme-fx-particle.crab {
+            left: 0;
+            animation-name: theme-fx-crab-walk;
+            animation-timing-function: linear;
+            animation-iteration-count: infinite;
+        }
+
+        /* Harvest's dark-mode effect: glowing eyes in the dark — only
+           shown in dark mode, since that's the whole premise (light mode
+           gets falling leaves instead, via renderThemeFx() below). Each
+           element holds still and visible for a
+           stretch, fades out, silently "teleports" to a new spot while
+           invisible (interpolating position during an opacity:0 window
+           produces no visible motion), then fades back in — appearing to
+           watch from a different spot in the shadows each time. */
+        .theme-fx-eyes {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            font-size: 1.6rem;
+            pointer-events: none;
+            z-index: 4;
+            opacity: 0;
+            filter: drop-shadow(0 0 6px rgba(255, 205, 70, 0.9)) drop-shadow(0 0 10px rgba(255, 205, 70, 0.5));
+            animation-name: theme-fx-eyes-appear;
+            animation-timing-function: linear;
+            animation-iteration-count: infinite;
+            animation-duration: 24s;
+        }
+        [data-theme="dark"][data-color-theme="harvest"] .theme-fx-eyes {
+            display: block;
+        }
+        @keyframes theme-fx-eyes-appear {
+            0%   { opacity: 0; transform: translate3d(var(--fx-ex1), var(--fx-ey1), 0); }
+            3%   { opacity: 1; transform: translate3d(var(--fx-ex1), var(--fx-ey1), 0); }
+            14%  { opacity: 1; transform: translate3d(var(--fx-ex1), var(--fx-ey1), 0); }
+            17%  { opacity: 0; transform: translate3d(var(--fx-ex1), var(--fx-ey1), 0); }
+            18%  { opacity: 0; transform: translate3d(var(--fx-ex2), var(--fx-ey2), 0); }
+            33%  { opacity: 1; transform: translate3d(var(--fx-ex2), var(--fx-ey2), 0); }
+            44%  { opacity: 1; transform: translate3d(var(--fx-ex2), var(--fx-ey2), 0); }
+            47%  { opacity: 0; transform: translate3d(var(--fx-ex2), var(--fx-ey2), 0); }
+            48%  { opacity: 0; transform: translate3d(var(--fx-ex3), var(--fx-ey3), 0); }
+            63%  { opacity: 1; transform: translate3d(var(--fx-ex3), var(--fx-ey3), 0); }
+            74%  { opacity: 1; transform: translate3d(var(--fx-ex3), var(--fx-ey3), 0); }
+            77%  { opacity: 0; transform: translate3d(var(--fx-ex3), var(--fx-ey3), 0); }
+            78%  { opacity: 0; transform: translate3d(var(--fx-ex1), var(--fx-ey1), 0); }
+            100% { opacity: 0; transform: translate3d(var(--fx-ex1), var(--fx-ey1), 0); }
+        }
     </style>
+    <script>
+    // Syncs the browser chrome color (Safari tab bar, Android address bar,
+    // etc.) with the resolved theme before the page renders — must run here,
+    // after </style>, since it needs the CSS custom properties to already be
+    // resolvable. Live updates when the user changes theme/mode are handled
+    // by updateThemeColorMeta() further down this file.
+    (function() {
+        var headerBg = getComputedStyle(document.documentElement).getPropertyValue('--header-bg').trim();
+        var meta = document.querySelector('meta[name="theme-color"]');
+        if (meta && headerBg) meta.setAttribute('content', headerBg);
+    })();
+    </script>
 </head>
 <body>
+    <div id="theme-fx-layer" class="theme-fx-layer" aria-hidden="true"></div>
+    <!-- Harvest's dark-mode ambient effect — see the CSS comment above
+         .theme-fx-eyes. -->
+    <span class="theme-fx-eyes" style="--fx-ex1:8vw; --fx-ey1:15vh; --fx-ex2:70vw; --fx-ey2:60vh; --fx-ex3:40vw; --fx-ey3:25vh; animation-delay:0s;" aria-hidden="true">👀</span>
+    <span class="theme-fx-eyes" style="--fx-ex1:85vw; --fx-ey1:20vh; --fx-ex2:15vw; --fx-ey2:70vh; --fx-ex3:60vw; --fx-ey3:45vh; animation-delay:-6s;" aria-hidden="true">👀</span>
+    <span class="theme-fx-eyes" style="--fx-ex1:50vw; --fx-ey1:75vh; --fx-ex2:20vw; --fx-ey2:35vh; --fx-ex3:80vw; --fx-ey3:65vh; animation-delay:-12s;" aria-hidden="true">👀</span>
+    <span class="theme-fx-eyes" style="--fx-ex1:30vw; --fx-ey1:55vh; --fx-ex2:65vw; --fx-ey2:15vh; --fx-ex3:10vw; --fx-ey3:80vh; animation-delay:-18s;" aria-hidden="true">👀</span>
     <script>
     // Defined before the page's main content block so child templates can
     // call this synchronously the moment their own inline <script> runs,
@@ -232,9 +845,17 @@
             </a>
 
             <div class="d-flex align-items-center gap-1">
+                <div class="color-theme-picker">
+                    <button id="color-theme-toggle" class="btn btn-theme-toggle" title="Color theme" aria-haspopup="true" aria-expanded="false">
+                        <i class="bi bi-palette2"></i>
+                    </button>
+                    <div id="color-theme-popover" class="color-theme-popover" role="menu"></div>
+                </div>
+
                 <button id="theme-toggle" class="btn btn-theme-toggle" title="Toggle theme (Light / Dark / System)">
                     <i class="bi bi-moon-fill" id="theme-icon"></i>
                 </button>
+
                 <a href="{{ url_for('settings_page') }}" class="btn btn-theme-toggle" title="Settings">
                     <i class="bi bi-gear-fill"></i>
                 </a>
@@ -276,6 +897,95 @@
     }
     </script>
     <script>
+    // Shared by both the mode toggle and the color-theme picker below, since
+    // either one can change the resolved --header-bg.
+    function updateThemeColorMeta() {
+        var headerBg = getComputedStyle(document.documentElement).getPropertyValue('--header-bg').trim();
+        if (!headerBg) return;
+        // Safari only reliably samples this tag on initial load — mutating an
+        // existing tag's `content` in place is silently ignored after that.
+        // Removing and re-inserting a fresh element is the standard
+        // workaround to force it to notice the change.
+        var old = document.querySelector('meta[name="theme-color"]');
+        if (old) old.remove();
+        var meta = document.createElement('meta');
+        meta.setAttribute('name', 'theme-color');
+        meta.setAttribute('content', headerBg);
+        document.head.appendChild(meta);
+    }
+
+    // Shared by both the mode toggle and the color-theme picker, since
+    // Harvest's effect depends on both (leaves in light mode, glowing eyes
+    // in dark mode — eyes are pure CSS, gated by the same two attributes, so
+    // only leaves need JS-generated particles here). Reads current state
+    // directly off <html> rather than taking params, so either caller can
+    // invoke it with no coordination needed.
+    // Shared by Frost/Harvest/Bloom — all three are the same fall/drift/
+    // rotate motion (the ".snow" class), differing only in glyphs/count/
+    // size/duration.
+    function spawnFallingParticles(layer, opts) {
+        for (var i = 0; i < opts.count; i++) {
+            var el = document.createElement('span');
+            el.className = 'theme-fx-particle snow';
+            el.textContent = opts.glyphs[i % opts.glyphs.length];
+            el.style.left = (Math.random() * 100) + 'vw';
+            el.style.fontSize = (opts.sizeMin + Math.random() * opts.sizeRange) + 'rem';
+            el.style.opacity = (opts.opacityMin + Math.random() * opts.opacityRange).toFixed(2);
+            el.style.setProperty('--fx-drift', (Math.random() * opts.driftRange - opts.driftRange / 2) + 'px');
+            var duration = opts.durationMin + Math.random() * opts.durationRange;
+            el.style.animationDuration = duration + 's';
+            el.style.animationDelay = (-Math.random() * duration) + 's';
+            layer.appendChild(el);
+        }
+    }
+
+    function renderThemeFx() {
+        var layer = document.getElementById('theme-fx-layer');
+        if (!layer) return;
+        layer.innerHTML = '';
+        var reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        if (reduceMotion) return;
+
+        var colorTheme = document.documentElement.getAttribute('data-color-theme') || 'blue';
+        var isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+
+        if (colorTheme === 'frost') {
+            spawnFallingParticles(layer, {
+                glyphs: ['❄', '❅', '❆'], count: 28,
+                sizeMin: 0.7, sizeRange: 1.1, opacityMin: 0.45, opacityRange: 0.5,
+                driftRange: 60, durationMin: 9, durationRange: 10
+            });
+        } else if (colorTheme === 'harvest' && !isDark) {
+            // Dark mode gets glowing eyes instead (pure CSS, see .theme-fx-eyes).
+            spawnFallingParticles(layer, {
+                glyphs: ['🍂', '🍁'], count: 22,
+                sizeMin: 0.9, sizeRange: 0.9, opacityMin: 0.55, opacityRange: 0.4,
+                driftRange: 80, durationMin: 8, durationRange: 9
+            });
+        } else if (colorTheme === 'bloom') {
+            spawnFallingParticles(layer, {
+                glyphs: ['🌸', '🌸', '💮'], count: 24,
+                sizeMin: 0.7, sizeRange: 0.8, opacityMin: 0.5, opacityRange: 0.45,
+                driftRange: 90, durationMin: 10, durationRange: 10
+            });
+        } else if (colorTheme === 'tide') {
+            var crabDirections = ['normal', 'reverse'];
+            for (var c = 0; c < 8; c++) {
+                var crab = document.createElement('span');
+                crab.className = 'theme-fx-particle crab';
+                crab.textContent = '🦀';
+                crab.style.bottom = (Math.random() * 6) + 'vh';
+                crab.style.fontSize = (1.1 + Math.random() * 0.7) + 'rem';
+                crab.style.opacity = (0.6 + Math.random() * 0.35).toFixed(2);
+                crab.style.animationDirection = crabDirections[c % 2];
+                var crabDuration = 16 + Math.random() * 14;
+                crab.style.animationDuration = crabDuration + 's';
+                crab.style.animationDelay = (-Math.random() * crabDuration) + 's';
+                layer.appendChild(crab);
+            }
+        }
+    }
+
     // Dark Mode logic — three states: light, dark, system
     (function() {
         const root = document.documentElement;
@@ -292,6 +1002,15 @@
 
         function applyTheme(theme) {
             root.setAttribute('data-theme', theme);
+            updateThemeColorMeta();
+            // renderThemeFx() is deliberately NOT called here — it would run
+            // once from this function during initial page load and again a
+            // moment later from applyColorTheme()'s own init call below,
+            // rebuilding the same particles twice. Live mode changes (the
+            // two call sites below) trigger it explicitly instead; the
+            // single init call in the color-theme IIFE covers first paint,
+            // by which point both data-theme and data-color-theme are
+            // already set.
             // Only set icon if we are NOT in system mode (applyMode handles that)
             if (currentMode !== 'system') {
                 if (theme === 'dark') {
@@ -329,14 +1048,176 @@
                 // system → light
                 applyMode('light');
             }
+            renderThemeFx();
         });
 
         // Listen for OS-level theme changes — only auto-follow in system mode
         window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function(e) {
             if (currentMode === 'system') {
                 applyTheme(e.matches ? 'dark' : 'light');
+                renderThemeFx();
             }
         });
+    })();
+
+    // Color theme logic — independent second axis (accent identity only)
+    (function() {
+        const root = document.documentElement;
+        const COLOR_STORAGE_KEY = 'walkingpad-color-theme';
+        const COLOR_THEMES = [
+            { id: 'blue', label: 'Blue', swatch: '#0b73e2' },
+            { id: 'teal', label: 'Teal', swatch: '#0b8375' },
+            { id: 'indigo', label: 'Indigo', swatch: '#0d0f96' },
+            { id: 'violet', label: 'Violet', swatch: '#3f0d96' },
+            { id: 'pink', label: 'Pink', swatch: '#960d64' },
+            { id: 'amber', label: 'Amber', swatch: '#96640d' },
+            { id: 'forest', label: 'Forest', swatch: '#0c8839' },
+            { id: 'lime', label: 'Lime', swatch: '#53820b' },
+            { id: 'cyan', label: 'Cyan', swatch: '#0d7b96' },
+            { id: 'slate', label: 'Slate', swatch: '#404040' },
+            // "Special" themes (e.g. brand/spirit-inspired) render in their own
+            // labeled group below the standard palette. Add more here.
+            {
+                id: 'vt', label: 'Virginia Tech', swatch: '#861f41', special: true,
+                swatchSplit: ['#861f41', '#e5751f'], // Chicago Maroon / Burnt Orange
+                // Rubik + Crimson Text, Google Fonts substitutes for VT's licensed
+                // Acherus Grotesque/Gineso — see the CSS comment above [data-color-theme="vt"].
+                // Only fetched if this theme is actually selected. Sourced from
+                // THEME_FONT_URLS (declared in the head-blocking script) so
+                // there's one copy of each URL, not two kept in sync by hand.
+                fontsUrl: THEME_FONT_URLS.vt
+            },
+            // Seasonal themes, in calendar order: Bloom (spring) → Tide
+            // (summer) → Harvest (fall) → Frost (winter).
+            {
+                id: 'bloom', label: 'Bloom', swatch: '#118721', special: true,
+                swatchSplit: ['#8bda95', '#ea9ac2'], // pastel green / pastel pink — icon only, softer than the functional accent
+                fontsUrl: THEME_FONT_URLS.bloom
+            },
+            {
+                id: 'tide', label: 'Tide', swatch: '#11818c', special: true,
+                swatchSplit: ['#11818c', '#d9b876'], // turquoise water / sand
+                fontsUrl: THEME_FONT_URLS.tide
+            },
+            {
+                id: 'harvest', label: 'Harvest', swatch: '#c2410c', special: true,
+                swatchSplit: ['#c2410c', '#7a4b29'], // pumpkin orange / hay brown — icon reads harvest, not black-cauldron Halloween
+                // Rye for light mode (autumnal), Creepster for dark mode
+                // (spooky) — both loaded together so a later mode toggle
+                // never needs a fresh font fetch.
+                fontsUrl: THEME_FONT_URLS.harvest
+            },
+            {
+                id: 'frost', label: 'Frost', swatch: '#b91c1c', special: true,
+                swatchSplit: ['#b91c1c', '#166534'], // berry red / evergreen
+                fontsUrl: THEME_FONT_URLS.frost
+            }
+        ];
+
+        const trigger = document.getElementById('color-theme-toggle');
+        const popover = document.getElementById('color-theme-popover');
+
+        var loadedFontUrls = new Set();
+        function ensureThemeFontsLoaded(themeId) {
+            var theme = COLOR_THEMES.find(function(t) { return t.id === themeId; });
+            if (!theme || !theme.fontsUrl || loadedFontUrls.has(theme.fontsUrl)) return;
+            // The head-of-document blocking script (see top of <head>) already
+            // injects this link on initial page load to avoid a font flash;
+            // don't fetch it twice.
+            if (document.querySelector('link[href="' + theme.fontsUrl + '"]')) {
+                loadedFontUrls.add(theme.fontsUrl);
+                return;
+            }
+            var link = document.createElement('link');
+            link.rel = 'stylesheet';
+            link.href = theme.fontsUrl;
+            document.head.appendChild(link);
+            loadedFontUrls.add(theme.fontsUrl);
+        }
+
+        function applyColorTheme(themeId) {
+            if (themeId === 'blue') {
+                root.removeAttribute('data-color-theme'); // blue == absence, matches :root defaults
+            } else {
+                root.setAttribute('data-color-theme', themeId);
+                ensureThemeFontsLoaded(themeId);
+            }
+            popover.querySelectorAll('[data-swatch-id]').forEach(function(el) {
+                var active = el.getAttribute('data-swatch-id') === themeId;
+                el.setAttribute('aria-checked', active ? 'true' : 'false');
+                el.classList.toggle('is-active', active);
+            });
+            updateThemeColorMeta();
+            renderThemeFx();
+        }
+
+        function setColorTheme(themeId) {
+            if (themeId === 'blue') {
+                localStorage.removeItem(COLOR_STORAGE_KEY);
+            } else {
+                localStorage.setItem(COLOR_STORAGE_KEY, themeId);
+            }
+            applyColorTheme(themeId);
+        }
+
+        function openPopover() {
+            popover.classList.add('show');
+            trigger.setAttribute('aria-expanded', 'true');
+            document.addEventListener('click', onDocClick, true);
+            document.addEventListener('keydown', onKeydown, true);
+        }
+        function closePopover() {
+            popover.classList.remove('show');
+            trigger.setAttribute('aria-expanded', 'false');
+            document.removeEventListener('click', onDocClick, true);
+            document.removeEventListener('keydown', onKeydown, true);
+        }
+        function onDocClick(e) {
+            if (!popover.contains(e.target) && e.target !== trigger && !trigger.contains(e.target)) {
+                closePopover();
+            }
+        }
+        function onKeydown(e) {
+            if (e.key === 'Escape') { closePopover(); trigger.focus(); }
+        }
+
+        var specialDividerAdded = false;
+        COLOR_THEMES.forEach(function(t) {
+            if (t.special && !specialDividerAdded) {
+                var divider = document.createElement('span');
+                divider.className = 'color-theme-popover-divider';
+                divider.textContent = 'Special';
+                popover.appendChild(divider);
+                specialDividerAdded = true;
+            }
+            var btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'color-swatch';
+            btn.setAttribute('data-swatch-id', t.id);
+            btn.setAttribute('role', 'menuitemradio');
+            btn.setAttribute('aria-checked', 'false');
+            btn.setAttribute('aria-label', t.label);
+            btn.title = t.label;
+            if (t.swatchSplit) {
+                btn.style.background = 'linear-gradient(to bottom, ' + t.swatchSplit[0] + ' 50%, ' + t.swatchSplit[1] + ' 50%)';
+            } else {
+                btn.style.backgroundColor = t.swatch;
+            }
+            btn.addEventListener('click', function() {
+                setColorTheme(t.id);
+                closePopover();
+                trigger.focus();
+            });
+            popover.appendChild(btn);
+        });
+
+        trigger.addEventListener('click', function(e) {
+            e.stopPropagation();
+            if (popover.classList.contains('show')) { closePopover(); } else { openPopover(); }
+        });
+
+        var savedColorTheme = localStorage.getItem(COLOR_STORAGE_KEY) || 'blue';
+        applyColorTheme(savedColorTheme);
     })();
 
     document.getElementById('shutdown-button').addEventListener('click', function(e) {

@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
 {% if pending_restore %}
-<div class="stat-card mb-4 text-center" style="border:1px solid var(--primary-blue);">
+<div class="stat-card mb-4 text-center" style="border:1px solid var(--accent-color);">
     <p class="mb-2" style="font-weight:500;">
         A previous session was interrupted before it could be saved —
         {{ "%.2f"|format(pending_restore.distance_mi) }} mi &middot;

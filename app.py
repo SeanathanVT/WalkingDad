@@ -1573,6 +1573,7 @@ def _build_stats_payload() -> dict:
     """
     return dict(
         is_connected=connected,
+        connection_failed=connection_failed,
         is_running=belt_running,
         belt_transitioning=_belt_transitioning,
         speed=round(current_speed_kmh * KM_TO_MI, 1),

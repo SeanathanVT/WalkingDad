@@ -2,6 +2,24 @@
 
 All notable changes to WalkingDad will be documented in this file.
 
+## [1.7.0] — 2026-08-26
+
+### Added
+
+- **Selectable color themes** — A new palette icon in the header lets you pick a color theme (Blue, Teal, Indigo, Violet, Pink, Amber, Forest, Lime, Cyan, or Slate) independently of the Light/Dark/System toggle, so any combination (e.g. Teal + Dark) is available. Each theme tints the whole surface — backgrounds and cards, not just buttons — and the browser's own chrome (Safari's tab bar color, Android's address bar, etc.) now follows along too.
+- **"Special" theme group** — Virginia Tech (official VT brand colors and typography — Rubik/Crimson Text, Google Fonts substitutes for the licensed Acherus Grotesque/Gineso typefaces), Bloom, Tide, Harvest, and Frost (in that calendar order), each with a two-tone swatch and a heading font fetched only if selected. Bloom (spring, green/pink, Quicksand headings) adds drifting cherry blossom petals; Tide (summer, turquoise/sand, Pacifico headings) adds crabs scuttling along the bottom of the screen. Harvest is mode-aware: cozy autumn in Light mode (Rye headings, falling leaves, orange/gold/brown) and spooky Halloween in Dark mode (Creepster headings, glowing eyes in the dark, orange/purple). Frost adds a falling-snow effect. All ambient effects are non-interactive and respect reduced-motion settings.
+
+### Fixed
+
+- Navigating between pages briefly flashed the default Light/Blue theme before switching to your actual Light/Dark/System selection, since that logic ran in a script that only executed after the page had already started rendering. Now applied before first paint.
+- The "Connecting…" screen reloaded the whole page on a fixed 3-second timer regardless of whether anything had actually changed, causing a jarring flash/reset every cycle. It now only reloads once the connection attempt actually succeeds or gives up.
+
+### Internal
+
+- Extracted the theme/font/ambient-effect rendering logic into shared functions so both the Light/Dark/System toggle and the color-theme picker can trigger the correct effect (needed for Harvest's mode-awareness) without duplicating logic.
+
+---
+
 ## [1.6.0] — 2026-08-25
 
 ### Added
