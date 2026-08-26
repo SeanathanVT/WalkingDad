@@ -16,8 +16,66 @@
         bloom: 'https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&display=swap',
         tide: 'https://fonts.googleapis.com/css2?family=Pacifico&display=swap'
     };
+    // Same reasoning as THEME_FONT_URLS above: declared here (not inside the
+    // color-theme IIFE further down) so this early-paint check and the
+    // fuller picker logic's own init/popover-building code share one array
+    // instead of this script hand-maintaining a separate id list that could
+    // drift out of sync with it.
+    var COLOR_THEMES = [
+        // Slate first -- it's the default (absence of data-color-theme).
+        // The rest run in hue order (ROYGBIV-style spectral sweep, see
+        // the CSS comment above the Red block) so adjacent swatches are
+        // always visually distinct rather than clustered by coincidence.
+        { id: 'slate', label: 'Slate', swatch: '#404040' },
+        { id: 'red', label: 'Red', swatch: '#850c0c' },
+        { id: 'amber', label: 'Amber', swatch: '#855d0c' },
+        { id: 'lime', label: 'Lime', swatch: '#557a0b' },
+        { id: 'forest', label: 'Forest', swatch: '#0c850c' },
+        { id: 'teal', label: 'Teal', swatch: '#0c855d' },
+        { id: 'cyan', label: 'Cyan', swatch: '#0c5d85' },
+        { id: 'blue', label: 'Blue', swatch: '#0c0c85' },
+        { id: 'violet', label: 'Violet', swatch: '#5d0c85' },
+        { id: 'pink', label: 'Pink', swatch: '#850c5d' },
+        // "Special" themes (e.g. brand/spirit-inspired) render in their own
+        // labeled group below the standard palette. Add more here.
+        {
+            id: 'vt', label: 'Virginia Tech', swatch: '#861f41', special: true,
+            swatchSplit: ['#861f41', '#e5751f'], // Chicago Maroon / Burnt Orange
+            // Rubik + Crimson Text, Google Fonts substitutes for VT's licensed
+            // Acherus Grotesque/Gineso — see the CSS comment above [data-color-theme="vt"].
+            // Only fetched if this theme is actually selected. Sourced from
+            // THEME_FONT_URLS (declared above) so there's one copy of each
+            // URL, not two kept in sync by hand.
+            fontsUrl: THEME_FONT_URLS.vt
+        },
+        // Seasonal themes, in calendar order: Bloom (spring) → Tide
+        // (summer) → Harvest (fall) → Frost (winter).
+        {
+            id: 'bloom', label: 'Bloom', swatch: '#118721', special: true,
+            swatchSplit: ['#8bda95', '#ea9ac2'], // pastel green / pastel pink — icon only, softer than the functional accent
+            fontsUrl: THEME_FONT_URLS.bloom
+        },
+        {
+            id: 'tide', label: 'Tide', swatch: '#11818c', special: true,
+            swatchSplit: ['#11818c', '#d9b876'], // turquoise water / sand
+            fontsUrl: THEME_FONT_URLS.tide
+        },
+        {
+            id: 'harvest', label: 'Harvest', swatch: '#c2410c', special: true,
+            swatchSplit: ['#c2410c', '#7a4b29'], // pumpkin orange / hay brown — icon reads harvest, not black-cauldron Halloween
+            // Rye for light mode (autumnal), Creepster for dark mode
+            // (spooky) — both loaded together so a later mode toggle
+            // never needs a fresh font fetch.
+            fontsUrl: THEME_FONT_URLS.harvest
+        },
+        {
+            id: 'frost', label: 'Frost', swatch: '#b91c1c', special: true,
+            swatchSplit: ['#b91c1c', '#166534'], // berry red / evergreen
+            fontsUrl: THEME_FONT_URLS.frost
+        }
+    ];
     // Applies the stored theme (and any theme-specific font) before first
-    // paint, so navigating to a new page doesn't flash the :root (Blue/Light,
+    // paint, so navigating to a new page doesn't flash the :root (Slate/Light,
     // default-font) state first. Intentionally standalone/duplicated from the
     // fuller theme logic further down this file — must run synchronously,
     // before anything else, with no dependency on DOM elements that don't
@@ -29,7 +87,7 @@
         if (isDark) root.setAttribute('data-theme', 'dark');
 
         var colorTheme = localStorage.getItem('walkingpad-color-theme');
-        if (colorTheme) {
+        if (colorTheme && COLOR_THEMES.some(function(t) { return t.id === colorTheme; })) {
             root.setAttribute('data-color-theme', colorTheme);
             if (THEME_FONT_URLS[colorTheme]) {
                 var link = document.createElement('link');
@@ -38,17 +96,27 @@
                 document.head.appendChild(link);
             }
         }
+        // Stale ids (colorTheme set but not recognized) are left unset here,
+        // matching :root's Slate defaults with no flash -- the fuller picker
+        // logic below also clears the stale localStorage key on next init.
     })();
     </script>
     <title>WalkingDad</title>
     <meta name="theme-color" content="#ffffff">
+    <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='apple-touch-icon.png') }}">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
     <link rel="preconnect" href="https://fonts.gstatic.com/" crossorigin>
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?display=swap&family=Noto+Sans:wght@400;500;700;900&family=Space+Grotesk:wght@400;500;700">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?display=swap&family=Noto+Sans:wght@400;500;700;900&family=IBM+Plex+Sans+Condensed:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700">
 
     <style>
         /* Custom properties from the design file */
+        /* Slate is the default (absence of data-color-theme, same
+           optimization the picker already used for the old default) —
+           these neutrals are Tailwind's slate-50/900 scale, unchanged from
+           before this was Slate's identity; only the accent moved from
+           blue to gray. */
         :root {
             --background-color: #f8fafc; /* bg-slate-50 */
             --card-color: #e7edf4;
@@ -58,11 +126,15 @@
             --button-hover-bg: #d8e0ea;
             --muted-color: #6c757d;
 
-            --accent-color: #0b73e2; /* darkened slightly from #0c7ff2 for AA contrast against white button text */
-            --accent-hover: #0a64c5;
+            --accent-color: #404040;
+            --accent-hover: #262626;
 
-            --font-heading: "Space Grotesk", "Noto Sans", sans-serif;
-            --font-body: "Noto Sans", "Space Grotesk", sans-serif;
+            --font-heading: "IBM Plex Sans Condensed", "Noto Sans", sans-serif;
+            --font-body: "Noto Sans", "IBM Plex Sans Condensed", sans-serif;
+            /* Instrument face — stat readouts, data labels, connection status.
+               Constant across every color theme, the way a speedometer's face
+               doesn't change with the car's paint color. */
+            --font-mono: "JetBrains Mono", "Space Mono", ui-monospace, monospace;
         }
 
         /* Dark mode overrides */
@@ -75,258 +147,293 @@
             --button-hover-bg: #334155; /* slate-700 */
             --muted-color: #94a3b8; /* slate-400 */
 
-            --accent-color: #0b72da; /* darkened for AA contrast against white button text */
-            --accent-hover: #1a87f4;
-        }
-
-        /* Color theme: Teal — tints the neutral surfaces too, not just the
-           accent, so the theme reads as distinct rather than "blue app with
-           a teal button" */
-        [data-color-theme="teal"] {
-            --background-color: #f4faf9;
-            --card-color: #e6f2f0;
-            --text-color: #0d1a17;
-            --border-color: #d4e8e4;
-            --header-bg: #f6fbfa;
-            --button-hover-bg: #d0e5e0;
-            --muted-color: #5f7873;
-
-            --accent-color: #0b8375;
-            --accent-hover: #09675c;
-        }
-        [data-theme="dark"][data-color-theme="teal"] {
-            --background-color: #0a1615;
-            --card-color: #132420;
-            --text-color: #eef7f5;
-            --border-color: #234039;
-            --header-bg: #132420;
-            --button-hover-bg: #234039;
-            --muted-color: #8fa9a3;
-
-            --accent-color: #1b8276;
-            --accent-hover: #1ea797;
-        }
-
-        /* Color theme: Indigo */
-        [data-color-theme="indigo"] {
-            --background-color: #f4f5fa;
-            --card-color: #e4e4f1;
-            --text-color: #0e0e1b;
-            --border-color: #d4d4e8;
-            --header-bg: #f4f5fa;
-            --button-hover-bg: #d1d1e6;
-            --muted-color: #5e5f78;
-
-            --accent-color: #0d0f96;
-            --accent-hover: #0f1175;
-        }
-        [data-theme="dark"][data-color-theme="indigo"] {
-            --background-color: #090a15;
-            --card-color: #131425;
-            --text-color: #eeeef7;
-            --border-color: #22233f;
-            --header-bg: #131425;
-            --button-hover-bg: #22233f;
-            --muted-color: #8f8fa8;
-
-            --accent-color: #2b2ed4;
-            --accent-hover: #5d5fea;
-        }
-
-        /* Color theme: Violet */
-        [data-color-theme="violet"] {
-            --background-color: #f7f4fa;
-            --card-color: #e9e4f1;
-            --text-color: #130e1b;
-            --border-color: #dbd4e8;
-            --header-bg: #f7f4fa;
-            --button-hover-bg: #d9d1e6;
-            --muted-color: #685e78;
-
-            --accent-color: #3f0d96;
-            --accent-hover: #350f75;
-        }
-        [data-theme="dark"][data-color-theme="violet"] {
-            --background-color: #0e0915;
-            --card-color: #1a1325;
-            --text-color: #f1eef7;
-            --border-color: #2d223f;
-            --header-bg: #1a1325;
-            --button-hover-bg: #2d223f;
-            --muted-color: #988fa8;
-
-            --accent-color: #692bd4;
-            --accent-hover: #905dea;
-        }
-
-        /* Color theme: Pink */
-        [data-color-theme="pink"] {
-            --background-color: #faf4f8;
-            --card-color: #f1e4ec;
-            --text-color: #1b0e16;
-            --border-color: #e8d4e1;
-            --header-bg: #faf4f8;
-            --button-hover-bg: #e6d1de;
-            --muted-color: #785e6f;
-
-            --accent-color: #960d64;
-            --accent-hover: #750f50;
-        }
-        [data-theme="dark"][data-color-theme="pink"] {
-            --background-color: #150911;
-            --card-color: #25131e;
-            --text-color: #f7eef3;
-            --border-color: #3f2234;
-            --header-bg: #25131e;
-            --button-hover-bg: #3f2234;
-            --muted-color: #a88f9f;
-
-            --accent-color: #d42b96;
-            --accent-hover: #ea5db6;
-        }
-
-        /* Color theme: Amber */
-        [data-color-theme="amber"] {
-            --background-color: #faf8f4;
-            --card-color: #f1ece4;
-            --text-color: #1b160e;
-            --border-color: #e8e1d4;
-            --header-bg: #faf8f4;
-            --button-hover-bg: #e6ded1;
-            --muted-color: #786f5e;
-
-            --accent-color: #96640d;
-            --accent-hover: #75500f;
-        }
-        [data-theme="dark"][data-color-theme="amber"] {
-            --background-color: #151109;
-            --card-color: #251e13;
-            --text-color: #f7f3ee;
-            --border-color: #3f3422;
-            --header-bg: #251e13;
-            --button-hover-bg: #3f3422;
-            --muted-color: #a89f8f;
-
-            --accent-color: #986b1f;
-            --accent-hover: #be8522;
-        }
-
-        /* Color theme: Forest */
-        [data-color-theme="forest"] {
-            --background-color: #f4faf7;
-            --card-color: #e4f1e9;
-            --text-color: #0e1b13;
-            --border-color: #d4e8db;
-            --header-bg: #f4faf7;
-            --button-hover-bg: #d1e6d9;
-            --muted-color: #5e7868;
-
-            --accent-color: #0c8839;
-            --accent-hover: #096b2d;
-        }
-        [data-theme="dark"][data-color-theme="forest"] {
-            --background-color: #09150e;
-            --card-color: #13251a;
-            --text-color: #eef7f1;
-            --border-color: #223f2d;
-            --header-bg: #13251a;
-            --button-hover-bg: #223f2d;
-            --muted-color: #8fa898;
-
-            --accent-color: #1b8442;
-            --accent-hover: #1eaa52;
-        }
-
-        /* Color theme: Lime */
-        [data-color-theme="lime"] {
-            --background-color: #f8faf4;
-            --card-color: #ecf1e4;
-            --text-color: #161b0e;
-            --border-color: #e0e8d4;
-            --header-bg: #f8faf4;
-            --button-hover-bg: #dde6d1;
-            --muted-color: #6e785e;
-
-            --accent-color: #53820b;
-            --accent-hover: #416609;
-        }
-        [data-theme="dark"][data-color-theme="lime"] {
-            --background-color: #101509;
-            --card-color: #1e2513;
-            --text-color: #f3f7ee;
-            --border-color: #333f22;
-            --header-bg: #1e2513;
-            --button-hover-bg: #333f22;
-            --muted-color: #9ea88f;
-
-            --accent-color: #577f1a;
-            --accent-hover: #6fa51d;
-        }
-
-        /* Color theme: Cyan */
-        [data-color-theme="cyan"] {
-            --background-color: #f4f9fa;
-            --card-color: #e4eff1;
-            --text-color: #0e181b;
-            --border-color: #d4e4e8;
-            --header-bg: #f4f9fa;
-            --button-hover-bg: #d1e2e6;
-            --muted-color: #5e7378;
-
-            --accent-color: #0d7b96;
-            --accent-hover: #0f6175;
-        }
-        [data-theme="dark"][data-color-theme="cyan"] {
-            --background-color: #091315;
-            --card-color: #132125;
-            --text-color: #eef5f7;
-            --border-color: #22393f;
-            --header-bg: #132125;
-            --button-hover-bg: #22393f;
-            --muted-color: #8fa3a8;
-
-            --accent-color: #1f7e95;
-            --accent-hover: #219dbc;
-        }
-
-        /* Color theme: Slate — grayscale/minimal, reuses the default neutral
-           slate surfaces (same as Blue) with a monochrome accent instead of
-           a hue */
-        [data-color-theme="slate"] {
-            --accent-color: #404040;
-            --accent-hover: #262626;
-        }
-        [data-theme="dark"][data-color-theme="slate"] {
             --accent-color: #737373;
             --accent-hover: #8d8d8d;
         }
 
-        /* Special theme: Virginia Tech — official brand colors, sourced from
-           https://brand.vt.edu/identity/color.html (Chicago Maroon + Impact
-           Orange, the digital-accessible alternate to Burnt Orange). VT's own
-           guidelines forbid lightening/tinting Maroon or Burnt Orange (shading
-           only), so the accent is identical in light and dark mode; only the
-           neutral surfaces (built from their Hokie Stone scale) invert. */
-        [data-color-theme="vt"] {
-            --background-color: #fbfafa;
-            --card-color: #f1f1f2;
-            --text-color: #0c0c0c;
-            --border-color: #e3e4e5;
-            --header-bg: #ffffff;
-            --button-hover-bg: #d5d6d7;
-            --muted-color: #75787b;
+        /* The 9 hued standard themes below are generated from one formula
+           (constant S/L per token, hue swept in even 40° steps: Red 0° ->
+           Pink 320°) so every option reads as equally distinct in the
+           picker — the previous ad-hoc hues clustered 5 cool colors
+           (Teal/Cyan/Blue/Indigo/Violet) into an 89° span while leaving a
+           76° gap where red belongs. Each accent is contrast-checked at
+           >=4.5:1 against white button text. */
 
-            --accent-color: #861f41;
-            --accent-hover: #ca4f00;
+        /* Color theme: Red (0°) */
+        [data-color-theme="red"] {
+            --background-color: #faf4f4;
+            --card-color: #f2e5e5;
+            --text-color: #1a0e0e;
+            --border-color: #e8d4d4;
+            --header-bg: #faf4f4;
+            --button-hover-bg: #e5d1d1;
+            --muted-color: #785e5e;
+
+            --accent-color: #850c0c;
+            --accent-hover: #690909;
+        }
+        [data-theme="dark"][data-color-theme="red"] {
+            --background-color: #150a0a;
+            --card-color: #251313;
+            --text-color: #f7eeee;
+            --border-color: #3f2222;
+            --header-bg: #251313;
+            --button-hover-bg: #3f2222;
+            --muted-color: #a98f8f;
+
+            --accent-color: #831b1b;
+            --accent-hover: #a81e1e;
+        }
+
+        /* Color theme: Amber (40°) */
+        [data-color-theme="amber"] {
+            --background-color: #faf8f4;
+            --card-color: #f2ede5;
+            --text-color: #1a160e;
+            --border-color: #e8e1d4;
+            --header-bg: #faf8f4;
+            --button-hover-bg: #e5dfd1;
+            --muted-color: #78705e;
+
+            --accent-color: #855d0c;
+            --accent-hover: #694909;
+        }
+        [data-theme="dark"][data-color-theme="amber"] {
+            --background-color: #15120a;
+            --card-color: #251f13;
+            --text-color: #f7f4ee;
+            --border-color: #3f3622;
+            --header-bg: #251f13;
+            --button-hover-bg: #3f3622;
+            --muted-color: #a9a08f;
+
+            --accent-color: #83601b;
+            --accent-hover: #a87a1e;
+        }
+
+        /* Color theme: Lime (80°) — accent lightness nudged darker than the
+           formula default (L26/28 vs the usual L28/31) since the formula
+           value fell just under 4.5:1 white-text contrast at this hue. */
+        [data-color-theme="lime"] {
+            --background-color: #f8faf4;
+            --card-color: #edf2e5;
+            --text-color: #161a0e;
+            --border-color: #e1e8d4;
+            --header-bg: #f8faf4;
+            --button-hover-bg: #dfe5d1;
+            --muted-color: #70785e;
+
+            --accent-color: #557a0b;
+            --accent-hover: #415e08;
+        }
+        [data-theme="dark"][data-color-theme="lime"] {
+            --background-color: #12150a;
+            --card-color: #1f2513;
+            --text-color: #f4f7ee;
+            --border-color: #363f22;
+            --header-bg: #1f2513;
+            --button-hover-bg: #363f22;
+            --muted-color: #a0a98f;
+
+            --accent-color: #567418;
+            --accent-hover: #7aa81e;
+        }
+
+        /* Color theme: Forest (120°) */
+        [data-color-theme="forest"] {
+            --background-color: #f4faf4;
+            --card-color: #e5f2e5;
+            --text-color: #0e1a0e;
+            --border-color: #d4e8d4;
+            --header-bg: #f4faf4;
+            --button-hover-bg: #d1e5d1;
+            --muted-color: #5e785e;
+
+            --accent-color: #0c850c;
+            --accent-hover: #096909;
+        }
+        [data-theme="dark"][data-color-theme="forest"] {
+            --background-color: #0a150a;
+            --card-color: #132513;
+            --text-color: #eef7ee;
+            --border-color: #223f22;
+            --header-bg: #132513;
+            --button-hover-bg: #223f22;
+            --muted-color: #8fa98f;
+
+            --accent-color: #1b831b;
+            --accent-hover: #1ea81e;
+        }
+
+        /* Color theme: Teal (160°) — tints the neutral surfaces too, not
+           just the accent, so the theme reads as distinct rather than
+           "gray app with a teal button" (same for every hued theme below). */
+        [data-color-theme="teal"] {
+            --background-color: #f4faf8;
+            --card-color: #e5f2ed;
+            --text-color: #0e1a16;
+            --border-color: #d4e8e1;
+            --header-bg: #f4faf8;
+            --button-hover-bg: #d1e5df;
+            --muted-color: #5e7870;
+
+            --accent-color: #0c855d;
+            --accent-hover: #096949;
+        }
+        [data-theme="dark"][data-color-theme="teal"] {
+            --background-color: #0a1512;
+            --card-color: #13251f;
+            --text-color: #eef7f4;
+            --border-color: #223f36;
+            --header-bg: #13251f;
+            --button-hover-bg: #223f36;
+            --muted-color: #8fa9a0;
+
+            --accent-color: #1b8360;
+            --accent-hover: #1ea87a;
+        }
+
+        /* Color theme: Cyan (200°) */
+        [data-color-theme="cyan"] {
+            --background-color: #f4f8fa;
+            --card-color: #e5edf2;
+            --text-color: #0e161a;
+            --border-color: #d4e1e8;
+            --header-bg: #f4f8fa;
+            --button-hover-bg: #d1dfe5;
+            --muted-color: #5e7078;
+
+            --accent-color: #0c5d85;
+            --accent-hover: #094969;
+        }
+        [data-theme="dark"][data-color-theme="cyan"] {
+            --background-color: #0a1215;
+            --card-color: #131f25;
+            --text-color: #eef4f7;
+            --border-color: #22363f;
+            --header-bg: #131f25;
+            --button-hover-bg: #22363f;
+            --muted-color: #8fa0a9;
+
+            --accent-color: #1b6083;
+            --accent-hover: #1e7aa8;
+        }
+
+        /* Color theme: Blue (240°) — no longer the implicit default (Slate
+           is now); this is a full explicit override like every other hue. */
+        [data-color-theme="blue"] {
+            --background-color: #f4f4fa;
+            --card-color: #e5e5f2;
+            --text-color: #0e0e1a;
+            --border-color: #d4d4e8;
+            --header-bg: #f4f4fa;
+            --button-hover-bg: #d1d1e5;
+            --muted-color: #5e5e78;
+
+            --accent-color: #0c0c85;
+            --accent-hover: #090969;
+        }
+        [data-theme="dark"][data-color-theme="blue"] {
+            --background-color: #0a0a15;
+            --card-color: #131325;
+            --text-color: #eeeef7;
+            --border-color: #22223f;
+            --header-bg: #131325;
+            --button-hover-bg: #22223f;
+            --muted-color: #8f8fa9;
+
+            --accent-color: #1b1b83;
+            --accent-hover: #1e1ea8;
+        }
+
+        /* Color theme: Violet (280°) — stands in for both Indigo and Violet;
+           the two are only ~20° apart in real color theory and read as
+           near-duplicates at swatch size, so this palette keeps one. */
+        [data-color-theme="violet"] {
+            --background-color: #f8f4fa;
+            --card-color: #ede5f2;
+            --text-color: #160e1a;
+            --border-color: #e1d4e8;
+            --header-bg: #f8f4fa;
+            --button-hover-bg: #dfd1e5;
+            --muted-color: #705e78;
+
+            --accent-color: #5d0c85;
+            --accent-hover: #490969;
+        }
+        [data-theme="dark"][data-color-theme="violet"] {
+            --background-color: #120a15;
+            --card-color: #1f1325;
+            --text-color: #f4eef7;
+            --border-color: #36223f;
+            --header-bg: #1f1325;
+            --button-hover-bg: #36223f;
+            --muted-color: #a08fa9;
+
+            --accent-color: #601b83;
+            --accent-hover: #7a1ea8;
+        }
+
+        /* Color theme: Pink (320°) */
+        [data-color-theme="pink"] {
+            --background-color: #faf4f8;
+            --card-color: #f2e5ed;
+            --text-color: #1a0e16;
+            --border-color: #e8d4e1;
+            --header-bg: #faf4f8;
+            --button-hover-bg: #e5d1df;
+            --muted-color: #785e70;
+
+            --accent-color: #850c5d;
+            --accent-hover: #690949;
+        }
+        [data-theme="dark"][data-color-theme="pink"] {
+            --background-color: #150a12;
+            --card-color: #25131f;
+            --text-color: #f7eef4;
+            --border-color: #3f2236;
+            --header-bg: #25131f;
+            --button-hover-bg: #3f2236;
+            --muted-color: #a98fa0;
+
+            --accent-color: #831b60;
+            --accent-hover: #a81e7a;
+        }
+
+        /* Special theme: Virginia Tech — official brand colors, verified
+           directly against VT's own production CSS custom properties
+           (--vt-maroon, --vt-impactOrange, --vt-hokieStone, --vt-grey,
+           --vt-smoke, --vt-white), not just the brand-guide description.
+           VT's own guidelines forbid lightening/tinting Maroon or Burnt
+           Orange (shading only), so the accent is identical in light and
+           dark mode; only the neutral surfaces — now VT's actual secondary
+           palette (Grey/Smoke/White), not an approximation — invert. */
+        [data-color-theme="vt"] {
+            --background-color: #ffffff; /* --vt-white */
+            --card-color: #e5e1e6; /* --vt-smoke */
+            --text-color: #0c0c0c;
+            --border-color: #d7d2cb; /* --vt-grey */
+            --header-bg: #ffffff; /* --vt-white */
+            --button-hover-bg: #c1b9ae; /* darkened --vt-grey */
+            --muted-color: #75787b; /* --vt-hokieStone */
+
+            --accent-color: #861f41; /* --vt-maroon */
+            --accent-hover: #ca4f00; /* --vt-impactOrange */
 
             /* VT's primary typeface (Acherus Grotesque) and display face
                (Gineso) are licensed and not freely distributable. VT's own
                typography guide names Rubik as an acceptable substitute for
                Acherus in headlines, and Crimson Text as their chosen Google
                Font for body copy — both loaded from Google Fonts, same as
-               this app's default fonts. */
-            --font-heading: "Rubik", "Space Grotesk", "Noto Sans", sans-serif;
+               this app's default fonts. Arial is VT's own stated fallback
+               for whenever a brand font is unavailable (ahead of this app's
+               own generic fallback, kept as a last resort). */
+            --font-heading: "Rubik", Arial, "IBM Plex Sans Condensed", "Noto Sans", sans-serif;
             --font-body: "Crimson Text", Georgia, serif;
+            /* "Acherus Grotesque requires slightly tighter tracking than
+               default" per VT's typography guide -- carried over to Rubik
+               since it stands in for Acherus here. */
+            --font-heading-letter-spacing: -0.015em;
         }
         [data-theme="dark"][data-color-theme="vt"] {
             --background-color: #171819;
@@ -340,8 +447,9 @@
             --accent-color: #861f41;
             --accent-hover: #ca4f00;
 
-            --font-heading: "Rubik", "Space Grotesk", "Noto Sans", sans-serif;
+            --font-heading: "Rubik", Arial, "IBM Plex Sans Condensed", "Noto Sans", sans-serif;
             --font-body: "Crimson Text", Georgia, serif;
+            --font-heading-letter-spacing: -0.015em;
         }
 
         /* Seasonal themes, in calendar order: Bloom (spring) → Tide (summer)
@@ -360,7 +468,7 @@
             --accent-color: #118721;
             --accent-hover: #de1b7d;
 
-            --font-heading: "Quicksand", "Space Grotesk", "Noto Sans", sans-serif;
+            --font-heading: "Quicksand", "IBM Plex Sans Condensed", "Noto Sans", sans-serif;
         }
         [data-theme="dark"][data-color-theme="bloom"] {
             --background-color: #0e1509;
@@ -374,7 +482,7 @@
             --accent-color: #1c872a;
             --accent-hover: #d42f82;
 
-            --font-heading: "Quicksand", "Space Grotesk", "Noto Sans", sans-serif;
+            --font-heading: "Quicksand", "IBM Plex Sans Condensed", "Noto Sans", sans-serif;
         }
 
         /* Special theme: Tide — turquoise + coral, sandy neutrals */
@@ -392,7 +500,7 @@
 
             /* Pacifico only ships a regular weight — forcing bold on it
                triggers synthetic faux-bold, which distorts the strokes. */
-            --font-heading: "Pacifico", "Space Grotesk", "Noto Sans", cursive;
+            --font-heading: "Pacifico", "IBM Plex Sans Condensed", "Noto Sans", cursive;
             --font-heading-weight: 400;
         }
         [data-theme="dark"][data-color-theme="tide"] {
@@ -407,7 +515,7 @@
             --accent-color: #1c818b;
             --accent-hover: #c74e29;
 
-            --font-heading: "Pacifico", "Space Grotesk", "Noto Sans", cursive;
+            --font-heading: "Pacifico", "IBM Plex Sans Condensed", "Noto Sans", cursive;
             --font-heading-weight: 400;
         }
 
@@ -432,7 +540,7 @@
 
             /* Body text stays the default sans — only headings get the
                display treatment, so section titles/numbers stay legible. */
-            --font-heading: "Rye", "Space Grotesk", "Noto Sans", sans-serif;
+            --font-heading: "Rye", "IBM Plex Sans Condensed", "Noto Sans", sans-serif;
         }
         [data-theme="dark"][data-color-theme="harvest"] {
             --background-color: #0d0704;
@@ -446,7 +554,7 @@
             --accent-color: #c2410c;
             --accent-hover: #9333ea;
 
-            --font-heading: "Creepster", "Space Grotesk", "Noto Sans", sans-serif;
+            --font-heading: "Creepster", "IBM Plex Sans Condensed", "Noto Sans", sans-serif;
         }
 
         /* Special theme: Frost — evergreen + berry red (Christmas-inspired) */
@@ -462,7 +570,7 @@
             --accent-color: #b91c1c;
             --accent-hover: #166534;
 
-            --font-heading: "Mountains of Christmas", "Space Grotesk", "Noto Sans", sans-serif;
+            --font-heading: "Mountains of Christmas", "IBM Plex Sans Condensed", "Noto Sans", sans-serif;
         }
         [data-theme="dark"][data-color-theme="frost"] {
             --background-color: #050f08;
@@ -476,7 +584,7 @@
             --accent-color: #dc2626;
             --accent-hover: #15803d;
 
-            --font-heading: "Mountains of Christmas", "Space Grotesk", "Noto Sans", sans-serif;
+            --font-heading: "Mountains of Christmas", "IBM Plex Sans Condensed", "Noto Sans", sans-serif;
         }
 
         /* Future color themes follow the same pattern: one light block + one
@@ -492,6 +600,7 @@
 
         h1, h2, h3, .navbar-brand, .content-title {
             font-family: var(--font-heading);
+            letter-spacing: var(--font-heading-letter-spacing, normal);
         }
 
         /* Header styles */
@@ -578,6 +687,10 @@
         .color-swatch.is-active {
             border-color: var(--text-color);
         }
+        .color-swatch:focus-visible {
+            outline: 2px solid var(--text-color);
+            outline-offset: 2px;
+        }
         .color-theme-popover-divider {
             flex-basis: 100%;
             border-top: 1px solid var(--border-color);
@@ -596,18 +709,6 @@
             user-select: none;
         }
 
-        .connection-indicator {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            font-weight: 500;
-            font-size: 0.9rem;
-        }
-
-        .connection-indicator .bi {
-            font-size: 1.2rem;
-        }
-
         /* Main content styles */
         .content-title {
             font-size: 2rem;
@@ -621,14 +722,250 @@
             transition: background-color 0.2s ease;
         }
 
-        .stat-card .stat-label {
-            font-size: 1rem;
-            font-weight: 500;
+        /* Console readout — the live-telemetry hero + secondary instrument
+           strip used on the Start/Active/Paused screens, standing in for the
+           WalkingPad's own onboard display. Inset shadow suggests a display
+           cut into the panel rather than a card sitting on top of it. */
+        .console-hero {
+            background-color: var(--card-color);
+            border: 1px solid var(--border-color);
+            border-radius: 1rem;
+            padding: 2rem 1.5rem;
+            box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.12), inset 0 -1px 0 rgba(255, 255, 255, 0.04);
         }
 
-        .stat-card .stat-value {
-            font-size: 1.75rem;
+        .console-hero-label {
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.15em;
+            color: var(--muted-color);
+        }
+
+        /* Status word (Connecting/Connection Failed/Disconnected) -- a
+           smaller, single-line sibling of .console-hero-value for screens
+           that report a state rather than a live numeric reading. */
+        .console-hero-status {
+            font-family: var(--font-mono);
+            font-size: 1.5rem;
             font-weight: 700;
+            letter-spacing: 0.05em;
+            margin-top: 0.5rem;
+        }
+
+        .console-hero-value {
+            font-family: var(--font-mono);
+            font-size: clamp(3.5rem, 12vw, 5.5rem);
+            font-weight: 700;
+            line-height: 1;
+            font-variant-numeric: tabular-nums;
+            color: var(--text-color);
+        }
+        .console-hero-value.is-time {
+            /* Time strings run longer ("1:04:22") than a speed reading —
+               a smaller ceiling keeps them from overflowing narrow screens. */
+            font-size: clamp(2.25rem, 9vw, 3.5rem);
+        }
+
+        .console-hero-unit {
+            font-family: var(--font-mono);
+            font-size: 1.1rem;
+            color: var(--muted-color);
+            margin-left: 0.4rem;
+        }
+
+        .console-hero-controls {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 1.25rem;
+            margin-top: 0.5rem;
+        }
+
+        .stepper-btn {
+            width: 3rem;
+            height: 3rem;
+            flex: none;
+            border-radius: 50%;
+            border: none;
+            background-color: var(--button-hover-bg);
+            color: var(--text-color);
+            font-size: 1.1rem;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            transition: background-color 0.15s ease, transform 0.1s ease;
+        }
+        .stepper-btn:hover {
+            background-color: var(--accent-color);
+            color: white;
+        }
+        .stepper-btn:active {
+            transform: scale(0.92);
+        }
+        .stepper-btn:focus-visible {
+            outline: 2px solid var(--accent-color);
+            outline-offset: 2px;
+        }
+
+        .console-engage-btn {
+            width: 8rem;
+            height: 8rem;
+            border-radius: 50%;
+            border: none;
+            background-color: var(--accent-color);
+            color: white;
+            font-family: var(--font-mono);
+            font-size: 1rem;
+            font-weight: 700;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            display: inline-flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 0.35rem;
+            box-shadow: 0 0.5rem 1.5rem rgba(0, 0, 0, 0.15);
+            transition: background-color 0.15s ease, transform 0.1s ease;
+        }
+        .console-engage-btn i {
+            font-size: 1.75rem;
+        }
+        .console-engage-btn:hover {
+            background-color: var(--accent-hover);
+        }
+        .console-engage-btn:active {
+            transform: scale(0.96);
+        }
+        .console-engage-btn:focus-visible {
+            outline: 2px solid var(--text-color);
+            outline-offset: 3px;
+        }
+
+        .console-strip {
+            display: flex;
+            flex-wrap: wrap;
+            margin-top: 1.5rem;
+            border: 1px solid var(--border-color);
+            border-radius: 0.75rem;
+            overflow: hidden;
+        }
+        .console-strip-item {
+            flex: 1 1 0;
+            min-width: 5.5rem;
+            text-align: center;
+            padding: 0.9rem 0.5rem;
+            background-color: var(--card-color);
+            border-right: 1px solid var(--border-color);
+        }
+        .console-strip-item:last-child {
+            border-right: none;
+        }
+        @media (max-width: 480px) {
+            /* Grid instead of flex-wrap: dividers come from the gap showing
+               the container's own background through, so they only ever
+               appear between two real cells -- a flex+border-right/bottom
+               approach can't distinguish "last row" from "any row" or handle
+               an odd item count (a lone trailing item) without per-item
+               bookkeeping the template doesn't have. */
+            .console-strip {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 1px;
+                background-color: var(--border-color);
+            }
+            .console-strip-item {
+                border-right: none;
+            }
+            .console-strip-item:last-child:nth-child(odd) {
+                /* Lone leftover item (odd total count, e.g. Paused's 3-item
+                   strip) spans both columns instead of leaving an empty
+                   cell with a dangling divider next to it. */
+                grid-column: 1 / -1;
+            }
+        }
+        .console-strip-label {
+            display: block;
+            font-family: var(--font-mono);
+            font-size: 0.65rem;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--muted-color);
+            margin-bottom: 0.3rem;
+        }
+        .console-strip-value {
+            font-family: var(--font-mono);
+            font-size: 1.15rem;
+            font-weight: 700;
+            font-variant-numeric: tabular-nums;
+            color: var(--text-color);
+        }
+
+        /* Preset chips (Slow/Moderate/Max) — text-only, deliberately
+           icon-free so the icons on Pause/Resume/End keep their signal value. */
+        .btn-preset {
+            background-color: var(--card-color);
+            color: var(--text-color);
+            font-weight: 600;
+            border: 1px solid var(--border-color);
+            padding: 0.6rem 1.25rem;
+        }
+        .btn-preset:hover {
+            background-color: var(--button-hover-bg);
+            color: var(--text-color);
+        }
+
+        /* Odometer-style tick on a value change — a quick mechanical roll
+           rather than an instant text swap. Triggered via the shared
+           setStatValue() helper. */
+        @keyframes console-tick {
+            0%   { transform: translateY(0); opacity: 1; }
+            30%  { transform: translateY(-0.35em); opacity: 0.4; }
+            31%  { transform: translateY(0.35em); }
+            100% { transform: translateY(0); opacity: 1; }
+        }
+        .console-hero-value.tick,
+        .console-strip-value.tick {
+            animation: console-tick 0.35s ease-out;
+        }
+
+        /* Status LED — connection state as a small glowing dot instead of an
+           icon + colored text, matching the instrument-panel language above. */
+        .connection-indicator {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--muted-color);
+        }
+        .status-led {
+            width: 0.55rem;
+            height: 0.55rem;
+            border-radius: 50%;
+            background-color: var(--muted-color);
+        }
+        .connection-indicator[data-status="connected"] .status-led {
+            background-color: #22c55e;
+            box-shadow: 0 0 6px #22c55e;
+        }
+        .connection-indicator[data-status="connecting"] .status-led {
+            background-color: #f59e0b;
+            box-shadow: 0 0 6px #f59e0b;
+            animation: status-pulse 1.4s ease-in-out infinite;
+        }
+        .connection-indicator[data-status="disconnected"] .status-led {
+            background-color: #ef4444;
+            box-shadow: 0 0 6px #ef4444;
+        }
+        @keyframes status-pulse {
+            0%, 100% { opacity: 1; }
+            50%      { opacity: 0.35; }
         }
 
         /* Custom button styles */
@@ -697,6 +1034,26 @@
         .history-table tbody tr:hover {
             background-color: var(--button-hover-bg);
         }
+        .history-table .mono-num {
+            font-family: var(--font-mono);
+            font-variant-numeric: tabular-nums;
+        }
+
+        /* Settings form fields -- shared by every input/hint/section title
+           instead of repeating the same inline style per field. */
+        .settings-input {
+            background-color: var(--background-color);
+            color: var(--text-color);
+            border-color: var(--border-color);
+        }
+        .settings-hint {
+            font-family: var(--font-mono);
+        }
+        .settings-section-title {
+            font-size: 1.1rem;
+            font-weight: var(--font-heading-weight, 700);
+            margin-bottom: 1rem;
+        }
 
         /* Special-theme ambient effects (falling snow for Frost).
            Fixed, full-viewport, non-interactive — particles are populated by
@@ -716,6 +1073,11 @@
             .theme-fx-layer,
             .theme-fx-eyes {
                 display: none !important;
+            }
+            .status-led,
+            .console-hero-value,
+            .console-strip-value {
+                animation: none !important;
             }
         }
 
@@ -785,6 +1147,73 @@
             78%  { opacity: 0; transform: translate3d(var(--fx-ex1), var(--fx-ey1), 0); }
             100% { opacity: 0; transform: translate3d(var(--fx-ex1), var(--fx-ey1), 0); }
         }
+
+        /* Virginia Tech's accent devices — both sourced from VT's own
+           "Design Elements" guide rather than invented: square dots ("can
+           be used... to call attention to numbers, section types"), applied
+           to every stat label since this whole app is numbers/section
+           labels, and a detail line ("never thicker than 2 points... rarely
+           used as decoration"), a two-tone maroon/orange rule under the
+           header and above the instrument strip. Colors are hardcoded (not
+           var(--accent-color)): this pairing only reads as "VT" in exactly
+           these two hues, the same reason .btn-custom-danger ignores the
+           theme accent. Static, no motion — an earlier animated stripe-bar
+           version read as too loud and was dropped in favor of this. */
+        [data-color-theme="vt"] .console-hero-label::before,
+        [data-color-theme="vt"] .console-strip-label::before {
+            content: '';
+            display: inline-block;
+            width: 6px;
+            height: 6px;
+            margin-right: 0.45em;
+            margin-bottom: 1px;
+            background: #e5751f;
+            vertical-align: middle;
+        }
+        /* Only reaches Settings' <h1> and the conditional "Recent Sessions"
+           <h2> -- Active/Paused/Start's own page headings are
+           visually-hidden for accessibility (see those templates), so this
+           never renders there. The small dot on .console-hero-label above
+           is what actually shows as this app's "page title" accent on
+           those three screens. */
+        [data-color-theme="vt"] .content-title::before {
+            content: '';
+            display: inline-block;
+            width: 9px;
+            height: 9px;
+            margin-right: 0.5em;
+            margin-bottom: 2px;
+            background: #861f41;
+            vertical-align: middle;
+        }
+        [data-color-theme="vt"] .app-header {
+            /* No position:relative needed for the ::after below -- .app-header
+               already carries Bootstrap's .sticky-top (position:sticky), which
+               is an equally valid containing block for an absolute child. */
+            border-bottom: none;
+        }
+        [data-color-theme="vt"] .app-header::after {
+            content: '';
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            height: 2px;
+            background: linear-gradient(to right, #861f41 0 70%, #e5751f 70% 100%);
+        }
+        [data-color-theme="vt"] .console-strip {
+            position: relative;
+            margin-top: 2rem;
+        }
+        [data-color-theme="vt"] .console-strip::before {
+            content: '';
+            position: absolute;
+            top: -0.75rem;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: linear-gradient(to right, #861f41 0 70%, #e5751f 70% 100%);
+        }
     </style>
     <script>
     // Syncs the browser chrome color (Safari tab bar, Android address bar,
@@ -836,13 +1265,56 @@
             console.warn('Stats stream connection error (browser will auto-retry).');
         };
     }
+
+    // Updates a console readout and plays the odometer-tick animation, but
+    // only when the value actually changed (SSE ticks arrive every second
+    // regardless of whether any stat moved).
+    function setStatValue(el, text) {
+        if (!el || el.textContent === text) return;
+        el.textContent = text;
+        el.classList.remove('tick');
+        void el.offsetWidth; // Force reflow so a rapid re-trigger still restarts the animation.
+        el.classList.add('tick');
+    }
+
+    // Toggles a "<verb> belt..." hint and disables/dims the buttons that
+    // shouldn't be double-tapped while a belt sequence is in flight. Shared
+    // by active/paused/start, which each pass their own hint id and button set.
+    function setTransitioning(hintId, buttons, on) {
+        var hint = document.getElementById(hintId);
+        if (hint) hint.style.display = on ? '' : 'none';
+        buttons.forEach(function(b) {
+            b.disabled = on;
+            b.style.opacity = on ? '0.5' : '';
+        });
+    }
+
+    // Wires every form on the page to disable/dim `buttons` the instant any
+    // of them is submitted -- the SSE-driven belt_transitioning update that
+    // setTransitioning() above also responds to can lag behind by a full
+    // network round-trip, leaving a window for a double-tap otherwise.
+    function disableButtonsOnSubmit(hintId, buttons) {
+        document.querySelectorAll('form').forEach(function(form) {
+            form.addEventListener('submit', function() {
+                setTransitioning(hintId, buttons, true);
+            });
+        });
+    }
     </script>
     <header class="app-header sticky-top">
         <nav class="container-xl d-flex align-items-center justify-content-between py-3 px-4">
-            <a class="navbar-brand d-flex align-items-center gap-2" href="{{ url_for('root') }}">
-                <i class="bi bi-caret-down-fill"></i>
-                <span>WalkingDad</span>
-            </a>
+            <div class="d-flex align-items-center gap-3">
+                <a class="navbar-brand d-flex align-items-center gap-2" href="{{ url_for('root') }}">
+                    <i class="bi bi-person-walking"></i>
+                    <span>WalkingDad</span>
+                </a>
+
+                {% set conn_status = 'Connected' if connected else ('Connecting' if connecting else 'Disconnected') %}
+                <div class="connection-indicator" data-status="{{ conn_status|lower }}" aria-label="{{ conn_status }}">
+                    <span class="status-led" aria-hidden="true"></span>
+                    <span class="d-none d-md-inline" aria-hidden="true">{{ conn_status }}</span>
+                </div>
+            </div>
 
             <div class="d-flex align-items-center gap-1">
                 <div class="color-theme-picker">
@@ -860,21 +1332,8 @@
                     <i class="bi bi-gear-fill"></i>
                 </a>
                 <span class="header-separator px-2">|</span>
-                
+
                 <button id="shutdown-button" class="btn btn-header-close">Close</button>
-                
-                <div class="connection-indicator">
-                    {% if connected %}
-                        <i class="bi bi-wifi text-success"></i>
-                        <span class="text-success d-none d-md-inline">Connected</span>
-                    {% elif connecting %}
-                        <i class="bi bi-arrow-repeat text-warning"></i>
-                        <span class="text-warning d-none d-md-inline">Connecting</span>
-                    {% else %}
-                        <i class="bi bi-wifi-off text-danger"></i>
-                        <span class="text-danger d-none d-md-inline">Disconnected</span>
-                    {% endif %}
-                </div>
             </div>
         </nav>
     </header>
@@ -946,7 +1405,7 @@
         var reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
         if (reduceMotion) return;
 
-        var colorTheme = document.documentElement.getAttribute('data-color-theme') || 'blue';
+        var colorTheme = document.documentElement.getAttribute('data-color-theme') || 'slate';
         var isDark = document.documentElement.getAttribute('data-theme') === 'dark';
 
         if (colorTheme === 'frost') {
@@ -1064,55 +1523,9 @@
     (function() {
         const root = document.documentElement;
         const COLOR_STORAGE_KEY = 'walkingpad-color-theme';
-        const COLOR_THEMES = [
-            { id: 'blue', label: 'Blue', swatch: '#0b73e2' },
-            { id: 'teal', label: 'Teal', swatch: '#0b8375' },
-            { id: 'indigo', label: 'Indigo', swatch: '#0d0f96' },
-            { id: 'violet', label: 'Violet', swatch: '#3f0d96' },
-            { id: 'pink', label: 'Pink', swatch: '#960d64' },
-            { id: 'amber', label: 'Amber', swatch: '#96640d' },
-            { id: 'forest', label: 'Forest', swatch: '#0c8839' },
-            { id: 'lime', label: 'Lime', swatch: '#53820b' },
-            { id: 'cyan', label: 'Cyan', swatch: '#0d7b96' },
-            { id: 'slate', label: 'Slate', swatch: '#404040' },
-            // "Special" themes (e.g. brand/spirit-inspired) render in their own
-            // labeled group below the standard palette. Add more here.
-            {
-                id: 'vt', label: 'Virginia Tech', swatch: '#861f41', special: true,
-                swatchSplit: ['#861f41', '#e5751f'], // Chicago Maroon / Burnt Orange
-                // Rubik + Crimson Text, Google Fonts substitutes for VT's licensed
-                // Acherus Grotesque/Gineso — see the CSS comment above [data-color-theme="vt"].
-                // Only fetched if this theme is actually selected. Sourced from
-                // THEME_FONT_URLS (declared in the head-blocking script) so
-                // there's one copy of each URL, not two kept in sync by hand.
-                fontsUrl: THEME_FONT_URLS.vt
-            },
-            // Seasonal themes, in calendar order: Bloom (spring) → Tide
-            // (summer) → Harvest (fall) → Frost (winter).
-            {
-                id: 'bloom', label: 'Bloom', swatch: '#118721', special: true,
-                swatchSplit: ['#8bda95', '#ea9ac2'], // pastel green / pastel pink — icon only, softer than the functional accent
-                fontsUrl: THEME_FONT_URLS.bloom
-            },
-            {
-                id: 'tide', label: 'Tide', swatch: '#11818c', special: true,
-                swatchSplit: ['#11818c', '#d9b876'], // turquoise water / sand
-                fontsUrl: THEME_FONT_URLS.tide
-            },
-            {
-                id: 'harvest', label: 'Harvest', swatch: '#c2410c', special: true,
-                swatchSplit: ['#c2410c', '#7a4b29'], // pumpkin orange / hay brown — icon reads harvest, not black-cauldron Halloween
-                // Rye for light mode (autumnal), Creepster for dark mode
-                // (spooky) — both loaded together so a later mode toggle
-                // never needs a fresh font fetch.
-                fontsUrl: THEME_FONT_URLS.harvest
-            },
-            {
-                id: 'frost', label: 'Frost', swatch: '#b91c1c', special: true,
-                swatchSplit: ['#b91c1c', '#166534'], // berry red / evergreen
-                fontsUrl: THEME_FONT_URLS.frost
-            }
-        ];
+        // COLOR_THEMES itself is declared in the head-blocking script above
+        // (a true global, same reasoning as THEME_FONT_URLS) so that script's
+        // early-paint stale-id check and this popover-building code share it.
 
         const trigger = document.getElementById('color-theme-toggle');
         const popover = document.getElementById('color-theme-popover');
@@ -1131,8 +1544,8 @@
         }
 
         function applyColorTheme(themeId) {
-            if (themeId === 'blue') {
-                root.removeAttribute('data-color-theme'); // blue == absence, matches :root defaults
+            if (themeId === 'slate') {
+                root.removeAttribute('data-color-theme'); // slate == absence, matches :root defaults
             } else {
                 root.setAttribute('data-color-theme', themeId);
                 ensureThemeFontsLoaded(themeId);
@@ -1147,7 +1560,7 @@
         }
 
         function setColorTheme(themeId) {
-            if (themeId === 'blue') {
+            if (themeId === 'slate') {
                 localStorage.removeItem(COLOR_STORAGE_KEY);
             } else {
                 localStorage.setItem(COLOR_STORAGE_KEY, themeId);
@@ -1211,7 +1624,16 @@
             if (popover.classList.contains('show')) { closePopover(); } else { openPopover(); }
         });
 
-        var savedColorTheme = localStorage.getItem(COLOR_STORAGE_KEY) || 'blue';
+        var savedColorTheme = localStorage.getItem(COLOR_STORAGE_KEY) || 'slate';
+        if (savedColorTheme !== 'slate' && !COLOR_THEMES.some(function(t) { return t.id === savedColorTheme; })) {
+            // Stale id from a since-removed theme (e.g. "indigo", merged into
+            // Violet during the palette rebalance) -- otherwise this sets a
+            // data-color-theme attribute with no matching CSS rule and no
+            // swatch that shows as active, silently rendering the default
+            // palette with nothing checked in the picker.
+            localStorage.removeItem(COLOR_STORAGE_KEY);
+            savedColorTheme = 'slate';
+        }
         applyColorTheme(savedColorTheme);
     })();
 

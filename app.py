@@ -1530,15 +1530,26 @@ def decrease_speed():
     return redirect(url_for("root"))
 
 
-@app.route("/slow_speed", methods=["POST"])
-def slow_speed():
-    """Set the belt speed to a predefined slow walk speed."""
+def _set_preset_speed(speed_kmh: float):
+    """Shared body for the fixed-speed presets (min/slow/max) below."""
     if not belt_running:
         return redirect(url_for("root"))
 
-    dev_speed = int(SLOW_WALK_SPEED_KMH * 10)
+    dev_speed = int(speed_kmh * 10)
     asyncio.run_coroutine_threadsafe(_locked_change_speed(dev_speed), ble_loop)
     return redirect(url_for("root"))
+
+
+@app.route("/min_speed", methods=["POST"])
+def min_speed():
+    """Set the belt speed to the configured floor (a gentle warm-up pace)."""
+    return _set_preset_speed(MIN_SPEED_KMH)
+
+
+@app.route("/slow_speed", methods=["POST"])
+def slow_speed():
+    """Set the belt speed to a predefined slow walk speed."""
+    return _set_preset_speed(SLOW_WALK_SPEED_KMH)
 
 
 @app.route("/increase_speed", methods=["POST"])
@@ -1556,12 +1567,7 @@ def increase_speed():
 @app.route("/max_speed", methods=["POST"])
 def max_speed():
     """Set the belt speed to maximum."""
-    if not belt_running:
-        return redirect(url_for("root"))
-
-    dev_speed = int(MAX_SPEED_KMH * 10)
-    asyncio.run_coroutine_threadsafe(_locked_change_speed(dev_speed), ble_loop)
-    return redirect(url_for("root"))
+    return _set_preset_speed(MAX_SPEED_KMH)
 
 
 # ── Live JSON endpoint ───────────────────────────────────────────────────

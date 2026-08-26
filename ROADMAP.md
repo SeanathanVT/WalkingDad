@@ -113,7 +113,8 @@ Shipping this surfaced a real gap it needed to close first: a dead BLE connectio
     - `Arrow Down` / `S`: Decrease speed
     - `Space`: Pause / Resume
     - `M`: Max speed
-    - `L`: Slow walk
+    - `L`: Slow preset
+    - `K`: Moderate preset
 - **Implementation:** Add a keyboard event listener in the active session template that sends `fetch()` requests to the corresponding routes.
 
 ---
@@ -160,8 +161,8 @@ Stores completed sessions in a local JSON file (`session_history.json`) and disp
 ### 2.7 Touch / Swipe Gesture Speed Controls
 - **Status:** Planned
 - **Problem:** The primary interaction is a desktop/laptop browser at the desk the WalkingPad sits under, which 2.3 (Keyboard Shortcuts) already serves well. On the occasions the control page is pulled up on a phone or tablet as a secondary device, though, every speed change is still a full button tap.
-- **Solution:** Add swipe-up/swipe-down gestures over the stat cards on `active_session.html` as a touch-friendly alternative to button taps whenever a touchscreen is in use.
-- **Implementation:** `touchstart`/`touchend` delta listeners on the stats grid, calling the same `/increase_speed` and `/decrease_speed` routes as the buttons.
+- **Solution:** Add swipe-up/swipe-down gestures over the speed readout on `active_session.html` as a touch-friendly alternative to button taps whenever a touchscreen is in use.
+- **Implementation:** `touchstart`/`touchend` delta listeners on the console hero, calling the same `/increase_speed` and `/decrease_speed` routes as the buttons.
 
 ---
 
@@ -197,7 +198,7 @@ All user-tunable settings are now loaded from an optional `config.json` file, wi
 ### 3.4 Self-Hosted Static Assets
 - **Status:** Planned
 - **Problem:** Bootstrap, Bootstrap Icons, and Google Fonts all load from CDNs in `base.html`, so the UI visibly breaks without internet access (already called out in the README's "Icons missing" troubleshooting entry) — at odds with the "runs locally, no cloud" pitch.
-- **Solution:** Vendor Bootstrap CSS/JS, Bootstrap Icons, and the two Google Fonts (Noto Sans and Space Grotesk, all weights currently loaded) into a local `static/` directory and reference them relatively instead of via CDN.
+- **Solution:** Vendor Bootstrap CSS/JS, Bootstrap Icons, and the always-loaded Google Fonts (Noto Sans, IBM Plex Sans Condensed, JetBrains Mono) into a local `static/` directory and reference them relatively instead of via CDN. The per-special-theme fonts (Rubik/Crimson Text, Quicksand, Pacifico, Rye/Creepster, Mountains of Christmas — fetched only when that theme is selected) can stay CDN-loaded since they're already conditional, or get vendored too as a follow-on.
 - **Implementation:** Download and pin the exact versions currently used, serve via Flask's default `static` route, update `base.html`'s `<link>`/`<script>` tags. Pure dependency removal, no functional change.
 
 ---
@@ -207,7 +208,7 @@ All user-tunable settings are now loaded from an optional `config.json` file, wi
 ### 4.1 Heart Rate Display
 - **Status:** Planned
 - **Problem:** Some WalkingPad models have hand-held heart rate sensors, but the data is not exposed in the UI.
-- **Solution:** If `ph4-walkingpad` provides heart rate data in status packets, display it as an additional stat card during active sessions.
+- **Solution:** If `ph4-walkingpad` provides heart rate data in status packets, display it as an additional item in the instrument strip during active sessions.
 - **Dependency:** Verify heart rate data availability via `ph4-walkingpad` library and device firmware support.
 
 ---

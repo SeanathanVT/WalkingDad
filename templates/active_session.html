@@ -1,119 +1,90 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="text-center">
-    <h1 class="content-title mb-4">Active Session</h1>
+    <h1 class="visually-hidden">Active Session</h1>
+    <div class="console-hero">
+        <span class="console-hero-label">Speed</span>
+        <div class="console-hero-controls">
+            <form method="post" action="{{ url_for('decrease_speed') }}" style="display:contents">
+                <button type="submit" class="stepper-btn" aria-label="Decrease speed"><i class="bi bi-dash-lg"></i></button>
+            </form>
+            <div>
+                <span class="console-hero-value" id="speed">{{ "%.1f"|format(speed) }}</span><span class="console-hero-unit">mph</span>
+            </div>
+            <form method="post" action="{{ url_for('increase_speed') }}" style="display:contents">
+                <button type="submit" class="stepper-btn" aria-label="Increase speed"><i class="bi bi-plus-lg"></i></button>
+            </form>
+        </div>
+        <p id="transitioning-hint" class="text-muted mt-3 mb-0" style="display:none;font-size:0.85rem;">
+            <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+            Getting the belt moving&hellip;
+        </p>
+    </div>
 
-    <div class="row g-4 mb-5">
-      <div class="col-lg col-md-4 col-6">
-          <div class="stat-card">
-              <p class="stat-label">Time</p>
-              <p class="stat-value" id="time_active">{{ time_active }}</p>
-          </div>
-      </div>
-      <div class="col-lg col-md-4 col-6"> <div class="stat-card">
-              <p class="stat-label">Speed</p>
-              <p class="stat-value" id="speed">{{ "%.1f"|format(speed) }} mph</p>
-          </div>
-      </div>
-      <div class="col-lg col-md-4 col-6">
-          <div class="stat-card">
-              <p class="stat-label">Distance</p>
-              <p class="stat-value" id="distance">{{ "%.2f"|format(distance) }} mi</p>
-          </div>
-      </div>
-      <div class="col-lg col-md-4 col-6">
-          <div class="stat-card">
-              <p class="stat-label">Steps</p>
-              <p class="stat-value" id="steps">{{ steps|int }}</p>
-          </div>
-      </div>
-      <div class="col-lg col-md-4 col-6">
-          <div class="stat-card">
-              <p class="stat-label">Calories</p>
-              <p class="stat-value" id="calories">{{ "%.0f"|format(calories) }}</p>
-          </div>
-      </div>
-  </div>
+    <div class="console-strip">
+        <div class="console-strip-item">
+            <span class="console-strip-label">Time</span>
+            <span class="console-strip-value" id="time_active">{{ time_active }}</span>
+        </div>
+        <div class="console-strip-item">
+            <span class="console-strip-label">Distance</span>
+            <span class="console-strip-value" id="distance">{{ "%.2f"|format(distance) }} mi</span>
+        </div>
+        <div class="console-strip-item">
+            <span class="console-strip-label">Steps</span>
+            <span class="console-strip-value" id="steps">{{ steps|int }}</span>
+        </div>
+        <div class="console-strip-item">
+            <span class="console-strip-label">Calories</span>
+            <span class="console-strip-value" id="calories">{{ "%.0f"|format(calories) }}</span>
+        </div>
+    </div>
 
-    <p id="transitioning-hint" class="text-muted mb-2" style="display:none;font-size:0.9rem;">
-        <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
-        Getting the belt moving&hellip;
-    </p>
-
-    <div class="d-flex justify-content-center gap-2 mb-3">
+    <div class="d-flex justify-content-center gap-2 mt-4">
+        <form method="post" action="{{ url_for('min_speed') }}" style="display:contents">
+            <button type="submit" class="btn btn-preset">Slow</button>
+        </form>
         <form method="post" action="{{ url_for('slow_speed') }}" style="display:contents">
-            <button type="submit" class="btn btn-custom-primary d-flex align-items-center gap-2">
-                <i class="bi bi-person-walking"></i> Slow
-            </button>
+            <button type="submit" class="btn btn-preset">Moderate</button>
         </form>
-        <form method="post" action="{{ url_for('decrease_speed') }}" style="display:contents">
-            <button type="submit" class="btn btn-custom-primary d-flex align-items-center gap-2">
-                <i class="bi bi-dash-lg"></i> Decrease
-            </button>
+        <form method="post" action="{{ url_for('max_speed') }}" style="display:contents">
+            <button type="submit" class="btn btn-preset">Max</button>
         </form>
+    </div>
+    <div class="d-flex justify-content-center gap-2 mt-3">
         <form method="post" action="{{ url_for('pause_session') }}" style="display:contents">
             <button type="submit" class="btn btn-custom-primary d-flex align-items-center gap-2">
                 <i class="bi bi-pause-fill"></i> Pause
             </button>
         </form>
-        <form method="post" action="{{ url_for('increase_speed') }}" style="display:contents">
-            <button type="submit" class="btn btn-custom-primary d-flex align-items-center gap-2">
-                <i class="bi bi-plus-lg"></i> Increase
-            </button>
-        </form>
-        <form method="post" action="{{ url_for('max_speed') }}" style="display:contents">
-            <button type="submit" class="btn btn-custom-primary d-flex align-items-center gap-2">
-                <i class="bi bi-speedometer"></i> Max
+        <form method="post" action="{{ url_for('end_session') }}" style="display:contents">
+            <button type="submit" class="btn btn-custom-danger">
+                <i class="bi bi-stop-fill"></i> End Session
             </button>
         </form>
     </div>
-    <form method="post" action="{{ url_for('end_session') }}" style="display:inline">
-        <button type="submit" class="btn btn-custom-danger">
-            <i class="bi bi-stop-fill"></i> End Session
-        </button>
-    </form>
 </div>
 
 <script>
-  // Disable all action buttons immediately on any form submit so a double-tap
-  // or slow network can't dispatch a second belt command before the page reloads.
-  document.querySelectorAll('form').forEach(function(form) {
-    form.addEventListener('submit', function() {
-      document.querySelectorAll('button[type="submit"]').forEach(function(b) {
-        b.disabled = true;
-        b.style.opacity = '0.5';
-      });
-    });
-  });
-
-  // Mirrors paused_session.html's setTransitioning(): a fresh Start or a
-  // Resume both redirect here the instant belt_running flips true, which can
-  // be well before the backend's wake-up sequence actually finishes (up to
-  // several seconds on a slow connection) -- without this, the buttons are
-  // live and clickable during that window even though a belt command is
-  // already in flight. Reuses the same generic button selector as the
-  // reactive disable-on-submit handler above, rather than per-button ids.
-  function setTransitioning(on) {
-    var hint = document.getElementById('transitioning-hint');
-    hint.style.display = on ? '' : 'none';
-    document.querySelectorAll('button[type="submit"]').forEach(function(b) {
-      b.disabled = on;
-      b.style.opacity = on ? '0.5' : '';
-    });
-  }
+  // A fresh Start or a Resume both redirect here the instant belt_running
+  // flips true, which can be well before the backend's wake-up sequence
+  // actually finishes (up to several seconds on a slow connection) -- so the
+  // buttons need to stay disabled/dim until belt_transitioning clears, not
+  // just during the on-submit window.
+  var actionButtons = document.querySelectorAll('button[type="submit"]');
+  disableButtonsOnSubmit('transitioning-hint', actionButtons);
 
   startStatsStream(function(data) {
-    setTransitioning(data.belt_transitioning === true);
+    setTransitioning('transitioning-hint', actionButtons, data.belt_transitioning === true);
     // Check if the server has auto-paused the session
     if (data.is_running === false) {
       window.location.reload();
     } else {
-      // Update the stats on the current page
-      document.getElementById("time_active").innerText = data.time_active;
-      document.getElementById("speed").innerText = data.speed.toFixed(1) + ' mph';
-      document.getElementById("distance").innerText = data.distance.toFixed(2) + ' mi';
-      document.getElementById("steps").innerText = parseInt(data.steps, 10);
-      document.getElementById("calories").innerText = data.calories.toFixed(0);
+      setStatValue(document.getElementById('time_active'), data.time_active);
+      setStatValue(document.getElementById('speed'), data.speed.toFixed(1));
+      setStatValue(document.getElementById('distance'), data.distance.toFixed(2) + ' mi');
+      setStatValue(document.getElementById('steps'), String(parseInt(data.steps, 10)));
+      setStatValue(document.getElementById('calories'), data.calories.toFixed(0));
     }
   });
 </script>

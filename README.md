@@ -15,12 +15,30 @@ The official WalkingPad experience is a bloated mobile app that wants your email
 - **Web UI** — Control your treadmill from any browser on your local network
 - **Real-time stats** — Speed, distance, steps, calories, and active time, updated live
 - **Smart pause & resume** — Auto-detects when you step off; remembers your speed; configurable grace period prevents re-triggering on restart
-- **Speed presets** — Max, slow walk, and incremental increase/decrease buttons
+- **Speed presets** — Slow (speed floor), Moderate, and Max buttons, plus incremental increase/decrease steppers
+- **Console-style interface** — Active, Paused, and Start screens read like the WalkingPad's own onboard display: one large tabular-digit reading up top, secondary stats in a compact readout strip below
 - **Session history** — Completed sessions saved to `session_history.json` with full stats; last 10 shown on the start screen. Includes CSV export and history clearing.
 - **Crash recovery** — If the server crashes or restarts mid-session, your stats aren't lost. The start screen offers to restore the interrupted session (paused, ready to resume) or discard it.
 - **Settings page** — Gear icon in the header lets you change any setting (device name, speed limits, port, and more) from the browser without editing files
 - **Dark mode** — Three-state toggle (Light → Dark → System) with localStorage persistence
-- **Color themes** — 10 selectable palettes (Blue, Teal, Indigo, Violet, Pink, Amber, Forest, Lime, Cyan, Slate), plus a "Special" group with two-tone swatches and festive fonts (Virginia Tech, Bloom, Tide, Harvest, Frost — in calendar order). Bloom (spring, green/pink, Quicksand) adds drifting cherry blossom petals, and Tide (summer, turquoise/sand, Pacifico) adds crabs scuttling along the bottom. Frost gets a falling-snow effect; Harvest is mode-aware — cozy autumn (orange/gold/brown) with falling leaves in Light mode, spooky Halloween (orange/purple) with glowing eyes in Dark mode. Independent of the Light/Dark/System toggle, via the palette icon in the header
+- **Color themes** — Independent of the Light/Dark/System toggle, via the palette icon in the header. Each theme tints the whole surface, not just buttons, and follows into the browser's own chrome (tab color, etc).
+    - Standard palette — Slate is the default; the rest run in spectral order:
+      ![Slate](https://img.shields.io/badge/Slate-404040)
+      ![Red](https://img.shields.io/badge/Red-850c0c)
+      ![Amber](https://img.shields.io/badge/Amber-855d0c)
+      ![Lime](https://img.shields.io/badge/Lime-557a0b)
+      ![Forest](https://img.shields.io/badge/Forest-0c850c)
+      ![Teal](https://img.shields.io/badge/Teal-0c855d)
+      ![Cyan](https://img.shields.io/badge/Cyan-0c5d85)
+      ![Blue](https://img.shields.io/badge/Blue-0c0c85)
+      ![Violet](https://img.shields.io/badge/Violet-5d0c85)
+      ![Pink](https://img.shields.io/badge/Pink-850c5d)
+    - Special (two-tone swatches, festive fonts, and — except Virginia Tech — an ambient effect that respects reduced-motion settings):
+    - ![Virginia Tech](https://img.shields.io/badge/Virginia_Tech-861f41) the university's own brand colors and typography (Chicago Maroon, Impact Orange, Rubik, Crimson Text — verified against VT's official guidelines), plus a maroon/orange square-dot-and-rule accent motif
+    - ![Bloom](https://img.shields.io/badge/Bloom-118721) spring, green/pink, Quicksand headings, drifting cherry blossom petals
+    - ![Tide](https://img.shields.io/badge/Tide-11818c) summer, turquoise/sand, Pacifico headings, crabs scuttling along the bottom
+    - ![Harvest](https://img.shields.io/badge/Harvest-c2410c) mode-aware — cozy autumn (falling leaves) in Light, spooky Halloween (glowing eyes) in Dark
+    - ![Frost](https://img.shields.io/badge/Frost-b91c1c) winter, falling snow
 - **Cross-platform BLE** — Tested on Windows, macOS, and Linux with retry logic and event loop cleanup
 - **Graceful shutdown** — Stops the belt, switches to standby, and disconnects BLE whether you click Close in the UI, press Ctrl+C, or kill the process. Web UI shows "Server is shutting down" notification so you know what happened. Includes an `atexit` safety net as a last resort.
 - **No account. No cloud. No phone required.**
@@ -76,9 +94,9 @@ All settings can be changed from the **Settings page** (gear icon in the header)
 |---|---|---|
 | `ble_device_name` | `"KS-BLC2"` | Your treadmill's Bluetooth name |
 | `max_speed_kmh` | `6.0` | Max speed button (~3.7 mph) |
-| `min_speed_kmh` | `1.0` | Speed floor |
+| `min_speed_kmh` | `1.0` | Speed floor; also the Slow preset button |
 | `speed_step` | `0.6` | Increment per button press |
-| `slow_walk_speed_kmh` | `4.5` | Slow Walk preset (~2.8 mph) |
+| `slow_walk_speed_kmh` | `4.5` | Moderate preset button (~2.8 mph) |
 | `kcal_per_mile` | `95` | Calorie estimate constant |
 | `resume_grace_period_seconds` | `7` | Seconds before auto-pause can trigger after start/resume (minimum 3) |
 | `history_display_limit` | `10` | Sessions shown on the start screen |

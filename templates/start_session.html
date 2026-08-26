@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
+<h1 class="visually-hidden">Start New Session</h1>
 {% if pending_restore %}
 <div class="stat-card mb-4 text-center" style="border:1px solid var(--accent-color);">
     <p class="mb-2" style="font-weight:500;">
@@ -20,43 +21,21 @@
 </div>
 {% endif %}
 <div class="text-center">
-    <h1 class="content-title mb-4">Start New Session</h1>
-
-    <div class="row g-4 mb-5">
-        <div class="col-lg col-md-4 col-6">
-            <div class="stat-card">
-                <p class="stat-label">Time</p>
-                <p class="stat-value">{{ time_active }}</p> </div>
+    <div class="console-hero">
+        <span class="console-hero-label">Ready</span>
+        <div class="mt-2">
+            <form method="post" action="{{ url_for('start_session') }}" style="display:inline-block">
+                <button type="submit" class="console-engage-btn" id="btn-start">
+                    <i class="bi bi-play-fill"></i>
+                    Start
+                </button>
+            </form>
         </div>
-        <div class="col-lg col-md-4 col-6">
-            <div class="stat-card">
-                <p class="stat-label">Speed</p>
-                <p class="stat-value">0.0 mph</p>
-            </div>
-        </div>
-        <div class="col-lg col-md-4 col-6">
-            <div class="stat-card">
-                <p class="stat-label">Distance</p>
-                <p class="stat-value">0.0 mi</p>
-            </div>
-        </div>
-        <div class="col-lg col-md-4 col-6">
-            <div class="stat-card">
-                <p class="stat-label">Steps</p>
-                <p class="stat-value">0</p>
-            </div>
-        </div>
-        <div class="col-lg col-md-4 col-6">
-            <div class="stat-card">
-                <p class="stat-label">Calories</p>
-                <p class="stat-value">0</p>
-            </div>
-        </div>
+        <p id="transitioning-hint" class="text-muted mt-3 mb-0" style="display:none;font-size:0.85rem;">
+            <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+            Stopping belt&hellip;
+        </p>
     </div>
-
-    <form method="post" action="{{ url_for('start_session') }}" style="display:inline">
-        <button type="submit" class="btn btn-custom-primary">Start</button>
-    </form>
 </div>
 
 {% if history %}
@@ -89,12 +68,12 @@
                 {% for s in history %}
                 <tr>
                     <td class="text-start">{{ s.date }}</td>
-                    <td>{{ s.start_time }}</td>
-                    <td>{{ s.duration_seconds // 60 }}m {{ s.duration_seconds % 60 }}s</td>
-                    <td>{{ "%.2f"|format(s.distance_mi) }} mi</td>
-                    <td>{{ "{:,}".format(s.steps|int) }}</td>
-                    <td>{{ s.calories|round(0)|int }}</td>
-                    <td class="text-end">{{ s.avg_speed_mph }} mph</td>
+                    <td class="mono-num">{{ s.start_time }}</td>
+                    <td class="mono-num">{{ s.duration_seconds // 60 }}m {{ s.duration_seconds % 60 }}s</td>
+                    <td class="mono-num">{{ "%.2f"|format(s.distance_mi) }} mi</td>
+                    <td class="mono-num">{{ "{:,}".format(s.steps|int) }}</td>
+                    <td class="mono-num">{{ s.calories|round(0)|int }}</td>
+                    <td class="mono-num text-end">{{ s.avg_speed_mph }} mph</td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -104,10 +83,23 @@
 {% endif %}
 
 <script>
-  // No per-message UI update needed on this screen -- just keeps the
-  // connection/shutdown watchdog (handled centrally in startStatsStream)
-  // active while it's open.
-  startStatsStream(function(data) {});
+  // Covers the tail of End Session: the route clears session state and
+  // redirects here immediately, while the belt itself is still physically
+  // stopping in the background (_belt_transitioning stays true for that
+  // span, same flag the active/paused screens already gate their own
+  // in-flight sequences on).
+  var startButtons = [document.getElementById('btn-start')];
+
+  // Disable every submit button (Start, plus Restore/Discard when the
+  // pending-restore banner is shown) immediately on submit so a double-tap
+  // can't fire twice -- matches active/paused_session.html. Only Start
+  // itself reacts to the belt_transitioning SSE signal below, since
+  // Restore/Discard aren't an in-flight belt sequence the same way.
+  disableButtonsOnSubmit('transitioning-hint', document.querySelectorAll('button[type="submit"]'));
+
+  startStatsStream(function(data) {
+    setTransitioning('transitioning-hint', startButtons, data.belt_transitioning === true);
+  });
 
   // Clear history button
   var clearBtn = document.getElementById('clear-history-btn');
