@@ -27,7 +27,7 @@ def http_shutdown():
         print("/shutdown acknowledged.")
     except Exception as exc:
         # "Connection reset by peer" is expected if Waitress dies while we're
-        # reading the response — the shutdown request was already processed.
+        # reading the response, the shutdown request was already processed.
         print(f"/shutdown requested (server may have exited before response): {exc}")
 
     # Wait for the server's deferred exit thread (~5s) to complete so the

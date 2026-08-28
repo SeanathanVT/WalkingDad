@@ -10,14 +10,14 @@ A comprehensive set of reliability improvements for Bluetooth Low Energy communi
 
 | Fix | Description |
 |---|---|
-| **Context Manager Scanning** | Replaced unreliable `BleakScanner.find_device_*()` static methods with `async with BleakScanner()` context manager — more stable on macOS CoreBluetooth and consistent across all platforms |
+| **Context Manager Scanning** | Replaced unreliable `BleakScanner.find_device_*()` static methods with `async with BleakScanner()` context manager, more stable on macOS CoreBluetooth and consistent across all platforms |
 | **Retry with Exponential Backoff** | 3-retry mechanism (up to 10s wait) handles transient Bluetooth connectivity issues; searches by cached MAC address and device name |
 | **Event Loop Cleanup** | Proper task cancellation before loop close prevents resource leaks and crashes on all platforms |
 | **Stats Monitor Robustness** | `asyncio.wait_for()` with 2s timeout, proper cancellation handling, no event-loop crashes on errors |
 | **Async Sequence Error Handling** | `start_belt()`, `resume_session()` now have try-catch; failures update app state and trigger disconnect handling |
 | **Thread-Safe Coroutine Execution** | Error handling on `run_coroutine_threadsafe()` calls; proper state management if queueing fails |
-| **Configurable Device Name** | Device name configurable without touching scanner logic — initially a constant in `app.py`, now via `config.json` / Settings page (3.1) |
-| **Bleak API Version Compatibility** | Supports both `set_disconn_callback()` (newer) and `set_disconnected_callback()` (older) — works across Bleak versions |
+| **Configurable Device Name** | Device name configurable without touching scanner logic; initially a constant in `app.py`, now via `config.json` / Settings page (3.1) |
+| **Bleak API Version Compatibility** | Supports both `set_disconn_callback()` (newer) and `set_disconnected_callback()` (older), working across Bleak versions |
 | **Stats Monitor Lifecycle Fix** | Global `_stats_monitor_task` tracks active monitor; old tasks cancelled before new ones on resume; cleaned up on disconnect. Fixes metrics-not-updating-after-pause/resume bug |
 
 **Compatibility:** macOS 12+, Windows, Linux · Bleak 0.19+ · Python 3.10+
@@ -37,16 +37,16 @@ Multi-layer graceful shutdown ensuring the treadmill belt always stops and BLE d
 | **`atexit` safety net** | Any process exit not caught by the above layers | Last-resort cleanup that calls `_graceful_shutdown()` with a 5-second timeout to ensure the belt is stopped even on unexpected exits |
 
 Shutdown coroutine (`_graceful_shutdown()`) steps:
-1. **Stop Belt** — If `belt_running`, call `controller.stop_belt()` and wait 0.5s
-2. **Cancel Monitors** — Cancel `_stats_monitor_task` and `_idle_watchdog_task`, awaiting each `CancelledError`
-3. **Standby Mode** — Switch device to `WalkingPad.MODE_STANDBY`
-4. **BLE Disconnect** — Call `controller.client.disconnect()` to close the connection cleanly
+1. **Stop Belt**: If `belt_running`, call `controller.stop_belt()` and wait 0.5s
+2. **Cancel Monitors**: Cancel `_stats_monitor_task` and `_idle_watchdog_task`, awaiting each `CancelledError`
+3. **Standby Mode**: Switch device to `WalkingPad.MODE_STANDBY`
+4. **BLE Disconnect**: Call `controller.client.disconnect()` to close the connection cleanly
 
 Additional fixes:
 - Duplicate shutdown requests are ignored via thread-safe `_shutting_down` flag protected by `threading.Lock()`
-- Uses `os._exit(0)` (not `sys.exit(0)`) for reliable Waitress termination — Waitress catches and suppresses `SystemExit` from `sys.exit()`
-- **UI shutdown notification** — all session templates watch the `/stats_stream` SSE connection for `stopping: true` and display "Server is shutting down" message
-- **Process-isolated subprocess** — `run.py` launches Waitress via `os.setsid()` so Ctrl+C only hits the wrapper, not Waitress directly; gives the HTTP shutdown path time to complete
+- Uses `os._exit(0)` (not `sys.exit(0)`) for reliable Waitress termination; Waitress catches and suppresses `SystemExit` from `sys.exit()`
+- **UI shutdown notification**: all session templates watch the `/stats_stream` SSE connection for `stopping: true` and display "Server is shutting down" message
+- **Process-isolated subprocess**: `run.py` launches Waitress via `os.setsid()` so Ctrl+C only hits the wrapper, not Waitress directly; gives the HTTP shutdown path time to complete
 - Edge case handling when `ble_loop` or `controller` is None (skip BLE cleanup, exit directly)
 
 ---
@@ -63,8 +63,8 @@ Cumulative session stats now survive a server crash or restart. In-progress sess
 | **State-Change Saves** | Also saved immediately on `/start`, `/pause`, and `/resume` so a crash right after a transition doesn't lose it |
 | **Startup Detection** | On launch, `_load_session_state()` checks for a leftover file from an unclean exit; if found, it's held as a pending restore rather than auto-resumed (no BLE connection to trust yet) |
 | **Restore Banner** | Start screen shows a summary (distance, steps, calories, time) of the interrupted session with **Restore Session** / **Discard** actions |
-| **Restore Session** | `/restore_session` reinstates the session in **paused** state (belt physically stopped) — user hits Resume to reconnect and continue, matching the existing pause/resume flow |
-| **Clean-Exit Cleanup** | `session_state.json` is removed once a session is finalized normally — on `/end_session` (after saving to history) and during graceful shutdown (Ctrl+C / signal / `/shutdown`) — so a clean exit never triggers a restore prompt |
+| **Restore Session** | `/restore_session` reinstates the session in **paused** state (belt physically stopped); user hits Resume to reconnect and continue, matching the existing pause/resume flow |
+| **Clean-Exit Cleanup** | `session_state.json` is removed once a session is finalized normally: on `/end_session` (after saving to history) and during graceful shutdown (Ctrl+C / signal / `/shutdown`). A clean exit never triggers a restore prompt |
 | **Fault Tolerant** | Corrupted or missing `session_state.json` is ignored gracefully, same pattern as `session_history.json` |
 
 ---
@@ -79,8 +79,8 @@ Cumulative session stats now survive a server crash or restart. In-progress sess
 
 ### 1.5 Auto-End Stale Paused Session
 - **Status:** Planned
-- **Problem:** A paused session (manual or auto-pause) has no timeout — if the user forgets to resume or end it, it sits in `paused_session.html` indefinitely. `session_state.json` is written once at the pause transition and never refreshed again until resume/end, so the file also goes stale the longer it sits.
-- **Solution:** If a session stays paused longer than a configurable timeout (e.g. 30 minutes), automatically run the same path as `/end_session` — save to history, clear state, return to the start screen.
+- **Problem:** A paused session (manual or auto-pause) has no timeout. If the user forgets to resume or end it, it sits in `paused_session.html` indefinitely. `session_state.json` is written once at the pause transition and never refreshed again until resume/end, so the file also goes stale the longer it sits.
+- **Solution:** If a session stays paused longer than a configurable timeout (e.g. 30 minutes), automatically run the same path as `/end_session`: save to history, clear state, return to the start screen.
 - **Implementation:** Track a pause-started timestamp when `belt_running` flips to `False`; check it on a lightweight timer even while the belt sequence is idle; add `stale_pause_timeout_minutes` to `config.json`/Settings.
 
 ---
@@ -99,7 +99,7 @@ Three-state theme toggle (Light → Dark → System) with `localStorage` persist
 **Status:** ✅ Complete
 **Files Modified:** `app.py`, `run.py`, `config.py`, `config.json.example`, `templates/base.html`, `templates/active_session.html`, `templates/paused_session.html`, `templates/start_session.html`, `templates/settings.html`
 
-Replaced the three templates' `setInterval(fetch('/stats'))` polling loops (1.5s / 3s cadences) with a single `/stats_stream` Server-Sent Events endpoint. A daemon thread broadcasts a stats snapshot to all subscribers once a second via thread-safe per-client queues, independent of whether the belt is running — so active, paused, and start screens all get uniform live updates. `/stats` is kept unchanged for compatibility; both routes now share one `_build_stats_payload()` helper.
+Replaced the three templates' `setInterval(fetch('/stats'))` polling loops (1.5s / 3s cadences) with a single `/stats_stream` Server-Sent Events endpoint. A daemon thread broadcasts a stats snapshot to all subscribers once a second via thread-safe per-client queues, independent of whether the belt is running, so active, paused, and start screens all get uniform live updates. `/stats` is kept unchanged for compatibility; both routes now share one `_build_stats_payload()` helper.
 
 Shipping this surfaced a real gap it needed to close first: a dead BLE connection while paused or idle went undetected entirely, since nothing was polling for liveness outside an active session. That's now covered by a dedicated idle/paused connection watchdog with its own staleness threshold, serialized against belt commands, the active stats poll, and speed changes via a lock recreated per connection attempt. See `CHANGELOG.md` `[1.6.0]` for details.
 
@@ -113,7 +113,8 @@ Shipping this surfaced a real gap it needed to close first: a dead BLE connectio
     - `Arrow Down` / `S`: Decrease speed
     - `Space`: Pause / Resume
     - `M`: Max speed
-    - `L`: Slow walk
+    - `L`: Slow preset
+    - `K`: Moderate preset
 - **Implementation:** Add a keyboard event listener in the active session template that sends `fetch()` requests to the corresponding routes.
 
 ---
@@ -141,11 +142,11 @@ Stores completed sessions in a local JSON file (`session_history.json`) and disp
 | **Thread-Safe I/O** | All file reads/writes protected by `threading.Lock()` (`_history_lock`) to prevent corruption across Flask request threads and the BLE thread |
 | **Session Record** | Each record stores: date, start_time, end_time, duration_seconds, distance_km, distance_mi, steps, calories, avg_speed_kmh, avg_speed_mph |
 | **Recent Sessions Table** | Start screen displays last 10 sessions (configurable via `HISTORY_DISPLAY_LIMIT`) in a responsive table with date, time, duration, distance, steps, calories, and avg speed |
-| **End Session Button** | Red "End Session" button on Active and Paused screens — stops belt, cancels monitor, saves session to history, resets all counters, returns to start screen |
+| **End Session Button** | Red "End Session" button on Active and Paused screens: stops belt, cancels monitor, saves session to history, resets all counters, returns to start screen |
 | **CSV Export** | `/export_csv` route generates a downloadable CSV with all historical sessions (full history, no limit) |
 | **Clear History** | "Clear" button on start screen with confirmation dialog, calls `/clear_history` POST endpoint to truncate the history file |
 | **Graceful Shutdown Hook** | `_save_session()` called at the start of `_graceful_shutdown()` so in-progress sessions are captured even on Ctrl+C or server Close |
-| **Fault Tolerant** | Corrupted or missing `session_history.json` is handled gracefully — starts fresh with empty array and logs warning |
+| **Fault Tolerant** | Corrupted or missing `session_history.json` is handled gracefully: starts fresh with empty array and logs warning |
 
 ---
 
@@ -160,8 +161,24 @@ Stores completed sessions in a local JSON file (`session_history.json`) and disp
 ### 2.7 Touch / Swipe Gesture Speed Controls
 - **Status:** Planned
 - **Problem:** The primary interaction is a desktop/laptop browser at the desk the WalkingPad sits under, which 2.3 (Keyboard Shortcuts) already serves well. On the occasions the control page is pulled up on a phone or tablet as a secondary device, though, every speed change is still a full button tap.
-- **Solution:** Add swipe-up/swipe-down gestures over the stat cards on `active_session.html` as a touch-friendly alternative to button taps whenever a touchscreen is in use.
-- **Implementation:** `touchstart`/`touchend` delta listeners on the stats grid, calling the same `/increase_speed` and `/decrease_speed` routes as the buttons.
+- **Solution:** Add swipe-up/swipe-down gestures over the speed readout on `active_session.html` as a touch-friendly alternative to button taps whenever a touchscreen is in use.
+- **Implementation:** `touchstart`/`touchend` delta listeners on the console hero, calling the same `/increase_speed` and `/decrease_speed` routes as the buttons.
+
+---
+
+### ✅ 2.8 Selectable Color Themes
+**Status:** ✅ Complete
+**Files Modified:** `templates/base.html`
+
+10 standard color themes (Slate default, plus 9 hues run in even 40° spectral steps: Red, Amber, Lime, Forest, Teal, Cyan, Blue, Violet, Pink) and 5 "special" themes (Virginia Tech, Bloom, Tide, Harvest, Frost), selectable independently of the Light/Dark/System toggle via a palette icon in the header. Each theme tints the whole surface (backgrounds, cards, browser chrome) through CSS custom properties, not just accent buttons. Special themes add a two-tone swatch, a heading font (fetched only if selected), and, except Virginia Tech, a non-interactive ambient effect (falling petals/snow/leaves, scuttling crabs, glowing eyes) that respects `prefers-reduced-motion`. See `CHANGELOG.md` `[1.7.0]` for details.
+
+---
+
+### ✅ 2.9 Console-Style Interface Redesign
+**Status:** ✅ Complete
+**Files Modified:** `templates/base.html`, `templates/active_session.html`, `templates/paused_session.html`, `templates/start_session.html`, `templates/connecting.html`, `static/favicon.ico`, `static/apple-touch-icon.png`
+
+Active, Paused, and Start screens redesigned to read like the WalkingPad's own onboard display: one large tabular-digit instrument-face reading (Speed while walking, elapsed time while paused, a Start control when idle) plus a compact Time/Distance/Steps/Calories readout strip below, with a brief mechanical tick animation on value changes and a colored connection status LED next to the logo. Also added a favicon and "Add to Home Screen" icon using the app's own logo mark instead of the browser default. See `CHANGELOG.md` `[1.7.0]` for details.
 
 ---
 
@@ -196,8 +213,8 @@ All user-tunable settings are now loaded from an optional `config.json` file, wi
 
 ### 3.4 Self-Hosted Static Assets
 - **Status:** Planned
-- **Problem:** Bootstrap, Bootstrap Icons, and Google Fonts all load from CDNs in `base.html`, so the UI visibly breaks without internet access (already called out in the README's "Icons missing" troubleshooting entry) — at odds with the "runs locally, no cloud" pitch.
-- **Solution:** Vendor Bootstrap CSS/JS, Bootstrap Icons, and the two Google Fonts (Noto Sans and Space Grotesk, all weights currently loaded) into a local `static/` directory and reference them relatively instead of via CDN.
+- **Problem:** Bootstrap, Bootstrap Icons, and Google Fonts all load from CDNs in `base.html`, so the UI visibly breaks without internet access (already called out in the README's "Icons missing" troubleshooting entry), at odds with the "runs locally, no cloud" pitch.
+- **Solution:** Vendor Bootstrap CSS/JS, Bootstrap Icons, and the always-loaded Google Fonts (Noto Sans, IBM Plex Sans Condensed, JetBrains Mono) into a local `static/` directory and reference them relatively instead of via CDN. The per-special-theme fonts (Rubik/Crimson Text, Quicksand, Pacifico, Rye/Creepster, Mountains of Christmas), fetched only when that theme is selected, can stay CDN-loaded since they're already conditional, or get vendored too as a follow-on.
 - **Implementation:** Download and pin the exact versions currently used, serve via Flask's default `static` route, update `base.html`'s `<link>`/`<script>` tags. Pure dependency removal, no functional change.
 
 ---
@@ -207,7 +224,7 @@ All user-tunable settings are now loaded from an optional `config.json` file, wi
 ### 4.1 Heart Rate Display
 - **Status:** Planned
 - **Problem:** Some WalkingPad models have hand-held heart rate sensors, but the data is not exposed in the UI.
-- **Solution:** If `ph4-walkingpad` provides heart rate data in status packets, display it as an additional stat card during active sessions.
+- **Solution:** If `ph4-walkingpad` provides heart rate data in status packets, display it as an additional item in the instrument strip during active sessions.
 - **Dependency:** Verify heart rate data availability via `ph4-walkingpad` library and device firmware support.
 
 ---
@@ -243,7 +260,7 @@ All user-tunable settings are now loaded from an optional `config.json` file, wi
 
 ### 5.1 Personal Records
 - **Status:** Planned
-- **Problem:** `session_history.json` already has everything needed to highlight records, but nothing surfaces them — every session looks the same as the last.
+- **Problem:** `session_history.json` already has everything needed to highlight records, but nothing surfaces them. Every session looks the same as the last.
 - **Solution:** Compute and display "bests" on the start screen: longest session, farthest distance, most steps in a day, fastest avg speed.
 - **Implementation:** A `_compute_records()` helper over `_load_session_history(limit=None)`, rendered as a small stat row near the history table.
 
@@ -251,7 +268,7 @@ All user-tunable settings are now loaded from an optional `config.json` file, wi
 
 ### 5.2 Daily / Weekly Goals with Progress Bar
 - **Status:** Planned
-- **Problem:** There's no way to set a target and see progress toward it beyond a single session — distinct from 4.2's live per-session ETA, this is about tracking progress across multiple sessions over time.
+- **Problem:** There's no way to set a target and see progress toward it beyond a single session. Unlike 4.2's live per-session ETA, this tracks progress across multiple sessions over time.
 - **Solution:** Let the user set a daily or weekly step/distance goal in Settings; show a progress bar on the start screen summing today's/this week's sessions from history.
 - **Implementation:** New config keys (`goal_type`, `goal_target`, `goal_period`); an aggregation function filtering `session_history.json` by date range; progress bar on `start_session.html`.
 
@@ -259,15 +276,15 @@ All user-tunable settings are now loaded from an optional `config.json` file, wi
 
 ### 5.3 Weekly / Monthly Trend Summary
 - **Status:** Planned
-- **Problem:** History is a flat list of individual sessions — there's no sense of trend (more or less active than last week/month).
+- **Problem:** History is a flat list of individual sessions. There's no sense of trend (more or less active than last week/month).
 - **Solution:** Add a compact summary comparing this week's/month's totals (distance, steps, sessions) against the previous period.
-- **Implementation:** Aggregate `session_history.json` by ISO week/month; render as text deltas or a minimal inline sparkline — no new charting dependency needed for a first pass.
+- **Implementation:** Aggregate `session_history.json` by ISO week/month; render as text deltas or a minimal inline sparkline. No new charting dependency needed for a first pass.
 
 ---
 
 ### 5.4 Per-User Profiles
 - **Status:** Planned
-- **Problem:** WalkingDad is built for a household to share, but `session_history.json` mixes everyone's sessions together — history, records (5.1), and goals (5.2) can't be attributed to a person.
+- **Problem:** WalkingDad is built for a household to share, but `session_history.json` mixes everyone's sessions together. History, records (5.1), and goals (5.2) can't be attributed to a person.
 - **Solution:** A lightweight profile selector (name only, no accounts/auth) that tags each session with a `profile` field; history, CSV export, personal records (5.1), and goals (5.2) all filter by the active profile.
 - **Implementation:** Add `profile` to the session record schema (`_build_session_record()`); update 5.1's `_compute_records()` and 5.2's date-range aggregation to filter by the active profile; a profile switcher in the header or start screen; default to a single "default" profile so existing history isn't invalidated.
 
@@ -277,17 +294,17 @@ All user-tunable settings are now loaded from an optional `config.json` file, wi
 
 ### 6.1 Apple Health Export via Shortcuts
 - **Status:** Planned
-- **Problem:** Completed sessions have nowhere to go besides `session_history.json`/CSV. A native HealthKit integration would require an Apple Developer Program membership and an actual iOS app — out of scope.
-- **Solution:** Expose a small JSON export endpoint for a session's stats, and document an Apple Shortcuts recipe (`Get Contents of URL` → `Log Workout`) that reads it and logs the session to Apple Health. No app, no developer account — the Shortcut runs entirely on the user's own device.
-- **Implementation:** A route returning duration/distance/steps/calories for the most recently completed session (no id needed — reads the last entry in `session_history.json`); a documented Shortcuts recipe in the README. Exporting an arbitrary past session by id is a follow-on, gated on the identifier prerequisite noted in 6.2.
+- **Problem:** Completed sessions have nowhere to go besides `session_history.json`/CSV. A native HealthKit integration would require an Apple Developer Program membership and an actual iOS app, which is out of scope.
+- **Solution:** Expose a small JSON export endpoint for a session's stats, and document an Apple Shortcuts recipe (`Get Contents of URL` → `Log Workout`) that reads it and logs the session to Apple Health. No app, no developer account: the Shortcut runs entirely on the user's own device.
+- **Implementation:** A route returning duration/distance/steps/calories for the most recently completed session (no id needed; reads the last entry in `session_history.json`); a documented Shortcuts recipe in the README. Exporting an arbitrary past session by id is a follow-on, gated on the identifier prerequisite noted in 6.2.
 
 ---
 
 ### 6.2 Generic GPX/TCX Export
 - **Status:** Planned
 - **Problem:** CSV covers spreadsheets, but most fitness platforms and importers (Strava, RunGap, Health Connect-integrated apps) expect a GPX or TCX file.
-- **Solution:** Add a per-session GPX/TCX export alongside the existing CSV export, so users on any platform can hand the file to whatever importer they already use — no direct API integration on WalkingDad's side.
-- **Implementation:** Requires first adding a stable identifier to the session record schema — `_build_session_record()`/`session_history.json` have none today (an index or ISO timestamp key would work). Then an `/export_gpx/<session_id>`-style route generating a minimal GPX/TCX document (timestamp, distance, duration; no GPS track since the treadmill doesn't produce one).
+- **Solution:** Add a per-session GPX/TCX export alongside the existing CSV export, so users on any platform can hand the file to whatever importer they already use. No direct API integration on WalkingDad's side.
+- **Implementation:** Requires first adding a stable identifier to the session record schema: `_build_session_record()`/`session_history.json` have none today (an index or ISO timestamp key would work). Then an `/export_gpx/<session_id>`-style route generating a minimal GPX/TCX document (timestamp, distance, duration; no GPS track since the treadmill doesn't produce one).
 
 ---
 
@@ -295,5 +312,5 @@ All user-tunable settings are now loaded from an optional `config.json` file, wi
 
 - Items within each phase can be implemented in any order unless dependencies exist.
 - New features or bug fixes discovered during development may be added to this roadmap.
-- **Google Fit / Health Connect native sync was considered and declined** — the only free path requires a native companion app using the platform SDK (Health Connect has no web/API route in), which is out of scope while WalkingDad stays a pure web app. Revisit only if that constraint changes; 6.2 (GPX/TCX export) is the current cross-platform fallback.
+- **Google Fit / Health Connect native sync was considered and declined**: the only free path requires a native companion app using the platform SDK (Health Connect has no web/API route in), which is out of scope while WalkingDad stays a pure web app. Revisit only if that constraint changes; 6.2 (GPX/TCX export) is the current cross-platform fallback.
 - For questions or feature requests, open an issue on the project repository.
