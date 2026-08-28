@@ -166,6 +166,22 @@ Stores completed sessions in a local JSON file (`session_history.json`) and disp
 
 ---
 
+### ✅ 2.8 Selectable Color Themes
+**Status:** ✅ Complete
+**Files Modified:** `templates/base.html`
+
+10 standard color themes (Slate default, plus 9 hues run in even 40° spectral steps: Red, Amber, Lime, Forest, Teal, Cyan, Blue, Violet, Pink) and 5 "special" themes (Virginia Tech, Bloom, Tide, Harvest, Frost), selectable independently of the Light/Dark/System toggle via a palette icon in the header. Each theme tints the whole surface (backgrounds, cards, browser chrome) through CSS custom properties, not just accent buttons. Special themes add a two-tone swatch, a heading font (fetched only if selected), and, except Virginia Tech, a non-interactive ambient effect (falling petals/snow/leaves, scuttling crabs, glowing eyes) that respects `prefers-reduced-motion`. See `CHANGELOG.md` `[1.7.0]` for details.
+
+---
+
+### ✅ 2.9 Console-Style Interface Redesign
+**Status:** ✅ Complete
+**Files Modified:** `templates/base.html`, `templates/active_session.html`, `templates/paused_session.html`, `templates/start_session.html`, `templates/connecting.html`, `static/favicon.ico`, `static/apple-touch-icon.png`
+
+Active, Paused, and Start screens redesigned to read like the WalkingPad's own onboard display: one large tabular-digit instrument-face reading (Speed while walking, elapsed time while paused, a Start control when idle) plus a compact Time/Distance/Steps/Calories readout strip below, with a brief mechanical tick animation on value changes and a colored connection status LED next to the logo. Also added a favicon and "Add to Home Screen" icon using the app's own logo mark instead of the browser default. See `CHANGELOG.md` `[1.7.0]` for details.
+
+---
+
 ## Phase 3: Code Quality (Medium Priority)
 
 ### ✅ 3.1 External Configuration File

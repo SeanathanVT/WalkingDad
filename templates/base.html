@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <script>
-    // THEME_FONT_URLS is the single source of truth for special-theme fonts —
+    // THEME_FONT_URLS is the single source of truth for special-theme fonts,
     // declared here, outside the IIFE below, so it's a true global that the
     // fuller color-theme picker logic further down this file can reference
     // too (its COLOR_THEMES entries set fontsUrl: THEME_FONT_URLS.<id>
@@ -42,7 +42,7 @@
             id: 'vt', label: 'Virginia Tech', swatch: '#861f41', special: true,
             swatchSplit: ['#861f41', '#e5751f'], // Chicago Maroon / Burnt Orange
             // Rubik + Crimson Text, Google Fonts substitutes for VT's licensed
-            // Acherus Grotesque/Gineso — see the CSS comment above [data-color-theme="vt"].
+            // Acherus Grotesque/Gineso. See the CSS comment above [data-color-theme="vt"].
             // Only fetched if this theme is actually selected. Sourced from
             // THEME_FONT_URLS (declared above) so there's one copy of each
             // URL, not two kept in sync by hand.
@@ -52,7 +52,7 @@
         // (summer) → Harvest (fall) → Frost (winter).
         {
             id: 'bloom', label: 'Bloom', swatch: '#118721', special: true,
-            swatchSplit: ['#8bda95', '#ea9ac2'], // pastel green / pastel pink — icon only, softer than the functional accent
+            swatchSplit: ['#8bda95', '#ea9ac2'], // pastel green / pastel pink (icon only, softer than the functional accent)
             fontsUrl: THEME_FONT_URLS.bloom
         },
         {
@@ -62,9 +62,9 @@
         },
         {
             id: 'harvest', label: 'Harvest', swatch: '#c2410c', special: true,
-            swatchSplit: ['#c2410c', '#7a4b29'], // pumpkin orange / hay brown — icon reads harvest, not black-cauldron Halloween
+            swatchSplit: ['#c2410c', '#7a4b29'], // pumpkin orange / hay brown (icon reads harvest, not black-cauldron Halloween)
             // Rye for light mode (autumnal), Creepster for dark mode
-            // (spooky) — both loaded together so a later mode toggle
+            // (spooky), both loaded together so a later mode toggle
             // never needs a fresh font fetch.
             fontsUrl: THEME_FONT_URLS.harvest
         },
@@ -77,7 +77,7 @@
     // Applies the stored theme (and any theme-specific font) before first
     // paint, so navigating to a new page doesn't flash the :root (Slate/Light,
     // default-font) state first. Intentionally standalone/duplicated from the
-    // fuller theme logic further down this file — must run synchronously,
+    // fuller theme logic further down this file. Must run synchronously,
     // before anything else, with no dependency on DOM elements that don't
     // exist yet.
     (function() {
@@ -113,8 +113,8 @@
     <style>
         /* Custom properties from the design file */
         /* Slate is the default (absence of data-color-theme, same
-           optimization the picker already used for the old default) —
-           these neutrals are Tailwind's slate-50/900 scale, unchanged from
+           optimization the picker already used for the old default).
+           These neutrals are Tailwind's slate-50/900 scale, unchanged from
            before this was Slate's identity; only the accent moved from
            blue to gray. */
         :root {
@@ -131,7 +131,7 @@
 
             --font-heading: "IBM Plex Sans Condensed", "Noto Sans", sans-serif;
             --font-body: "Noto Sans", "IBM Plex Sans Condensed", sans-serif;
-            /* Instrument face — stat readouts, data labels, connection status.
+            /* Instrument face (stat readouts, data labels, connection status).
                Constant across every color theme, the way a speedometer's face
                doesn't change with the car's paint color. */
             --font-mono: "JetBrains Mono", "Space Mono", ui-monospace, monospace;
@@ -154,7 +154,7 @@
         /* The 9 hued standard themes below are generated from one formula
            (constant S/L per token, hue swept in even 40° steps: Red 0° ->
            Pink 320°) so every option reads as equally distinct in the
-           picker — the previous ad-hoc hues clustered 5 cool colors
+           picker. The previous ad-hoc hues clustered 5 cool colors
            (Teal/Cyan/Blue/Indigo/Violet) into an 89° span while leaving a
            76° gap where red belongs. Each accent is contrast-checked at
            >=4.5:1 against white button text. */
@@ -211,7 +211,7 @@
             --accent-hover: #a87a1e;
         }
 
-        /* Color theme: Lime (80°) — accent lightness nudged darker than the
+        /* Color theme: Lime (80°). Accent lightness nudged darker than the
            formula default (L26/28 vs the usual L28/31) since the formula
            value fell just under 4.5:1 white-text contrast at this hue. */
         [data-color-theme="lime"] {
@@ -265,7 +265,7 @@
             --accent-hover: #1ea81e;
         }
 
-        /* Color theme: Teal (160°) — tints the neutral surfaces too, not
+        /* Color theme: Teal (160°). Tints the neutral surfaces too, not
            just the accent, so the theme reads as distinct rather than
            "gray app with a teal button" (same for every hued theme below). */
         [data-color-theme="teal"] {
@@ -319,7 +319,7 @@
             --accent-hover: #1e7aa8;
         }
 
-        /* Color theme: Blue (240°) — no longer the implicit default (Slate
+        /* Color theme: Blue (240°). No longer the implicit default (Slate
            is now); this is a full explicit override like every other hue. */
         [data-color-theme="blue"] {
             --background-color: #f4f4fa;
@@ -346,7 +346,7 @@
             --accent-hover: #1e1ea8;
         }
 
-        /* Color theme: Violet (280°) — stands in for both Indigo and Violet;
+        /* Color theme: Violet (280°). Stands in for both Indigo and Violet;
            the two are only ~20° apart in real color theory and read as
            near-duplicates at swatch size, so this palette keeps one. */
         [data-color-theme="violet"] {
@@ -400,14 +400,14 @@
             --accent-hover: #a81e7a;
         }
 
-        /* Special theme: Virginia Tech — official brand colors, verified
+        /* Special theme: Virginia Tech. Official brand colors, verified
            directly against VT's own production CSS custom properties
            (--vt-maroon, --vt-impactOrange, --vt-hokieStone, --vt-grey,
            --vt-smoke, --vt-white), not just the brand-guide description.
            VT's own guidelines forbid lightening/tinting Maroon or Burnt
            Orange (shading only), so the accent is identical in light and
-           dark mode; only the neutral surfaces — now VT's actual secondary
-           palette (Grey/Smoke/White), not an approximation — invert. */
+           dark mode; only the neutral surfaces, now VT's actual secondary
+           palette (Grey/Smoke/White) rather than an approximation, invert. */
         [data-color-theme="vt"] {
             --background-color: #ffffff; /* --vt-white */
             --card-color: #e5e1e6; /* --vt-smoke */
@@ -424,7 +424,7 @@
                (Gineso) are licensed and not freely distributable. VT's own
                typography guide names Rubik as an acceptable substitute for
                Acherus in headlines, and Crimson Text as their chosen Google
-               Font for body copy — both loaded from Google Fonts, same as
+               Font for body copy, both loaded from Google Fonts, same as
                this app's default fonts. Arial is VT's own stated fallback
                for whenever a brand font is unavailable (ahead of this app's
                own generic fallback, kept as a last resort). */
@@ -455,7 +455,7 @@
         /* Seasonal themes, in calendar order: Bloom (spring) → Tide (summer)
            → Harvest (fall) → Frost (winter). */
 
-        /* Special theme: Bloom — grass green + blossom pink, yellow-green neutrals */
+        /* Special theme: Bloom (grass green + blossom pink, yellow-green neutrals) */
         [data-color-theme="bloom"] {
             --background-color: #f7faf4;
             --card-color: #eaf1e4;
@@ -485,7 +485,7 @@
             --font-heading: "Quicksand", "IBM Plex Sans Condensed", "Noto Sans", sans-serif;
         }
 
-        /* Special theme: Tide — turquoise + coral, sandy neutrals */
+        /* Special theme: Tide (turquoise + coral, sandy neutrals) */
         [data-color-theme="tide"] {
             --background-color: #faf9f4;
             --card-color: #f1ede4;
@@ -498,7 +498,7 @@
             --accent-color: #11818c;
             --accent-hover: #d1441a;
 
-            /* Pacifico only ships a regular weight — forcing bold on it
+            /* Pacifico only ships a regular weight. Forcing bold on it
                triggers synthetic faux-bold, which distorts the strokes. */
             --font-heading: "Pacifico", "IBM Plex Sans Condensed", "Noto Sans", cursive;
             --font-heading-weight: 400;
@@ -519,10 +519,10 @@
             --font-heading-weight: 400;
         }
 
-        /* Special theme: Harvest — pumpkin orange + witch purple (Halloween-
+        /* Special theme: Harvest. Pumpkin orange + witch purple (Halloween-
            inspired, kept generic since it's mode-aware: cozy/autumnal in
            light mode (Rye, falling leaves), spooky in dark mode (Creepster,
-           glowing eyes) — see the ambient-effects section further down and
+           glowing eyes). See the ambient-effects section further down and
            renderThemeFx()/the .theme-fx-eyes rule). */
         [data-color-theme="harvest"] {
             --background-color: #fdf6ec;
@@ -533,12 +533,12 @@
             --button-hover-bg: #efd9ab;
             --muted-color: #8a6d3f;
 
-            /* Orange/gold/brown — harvest colors, no purple. Dark mode below
+            /* Orange/gold/brown, harvest colors, no purple. Dark mode below
                is where this theme is allowed to read as Halloween. */
             --accent-color: #c2410c;
             --accent-hover: #b45309;
 
-            /* Body text stays the default sans — only headings get the
+            /* Body text stays the default sans. Only headings get the
                display treatment, so section titles/numbers stay legible. */
             --font-heading: "Rye", "IBM Plex Sans Condensed", "Noto Sans", sans-serif;
         }
@@ -557,7 +557,7 @@
             --font-heading: "Creepster", "IBM Plex Sans Condensed", "Noto Sans", sans-serif;
         }
 
-        /* Special theme: Frost — evergreen + berry red (Christmas-inspired) */
+        /* Special theme: Frost (evergreen + berry red, Christmas-inspired) */
         [data-color-theme="frost"] {
             --background-color: #f8faf9;
             --card-color: #eef5f0;
@@ -612,7 +612,7 @@
 
         .app-header .navbar-brand {
             /* var(), not a hardcoded 700: Tide's Pacifico only ships a
-               regular weight — forcing bold on it triggers ugly synthetic/
+               regular weight. Forcing bold on it triggers ugly synthetic/
                faux-bold rendering. */
             font-weight: var(--font-heading-weight, 700);
             font-size: 1.25rem;
@@ -722,7 +722,7 @@
             transition: background-color 0.2s ease;
         }
 
-        /* Console readout — the live-telemetry hero + secondary instrument
+        /* Console readout. The live-telemetry hero + secondary instrument
            strip used on the Start/Active/Paused screens, standing in for the
            WalkingPad's own onboard display. Inset shadow suggests a display
            cut into the panel rather than a card sitting on top of it. */
@@ -763,8 +763,8 @@
             color: var(--text-color);
         }
         .console-hero-value.is-time {
-            /* Time strings run longer ("1:04:22") than a speed reading —
-               a smaller ceiling keeps them from overflowing narrow screens. */
+            /* Time strings run longer ("1:04:22") than a speed reading.
+               A smaller ceiling keeps them from overflowing narrow screens. */
             font-size: clamp(2.25rem, 9vw, 3.5rem);
         }
 
@@ -903,7 +903,7 @@
             color: var(--text-color);
         }
 
-        /* Preset chips (Slow/Moderate/Max) — text-only, deliberately
+        /* Preset chips (Slow/Moderate/Max), text-only, deliberately
            icon-free so the icons on Pause/Resume/End keep their signal value. */
         .btn-preset {
             background-color: var(--card-color);
@@ -917,7 +917,7 @@
             color: var(--text-color);
         }
 
-        /* Odometer-style tick on a value change — a quick mechanical roll
+        /* Odometer-style tick on a value change, a quick mechanical roll
            rather than an instant text swap. Triggered via the shared
            setStatValue() helper. */
         @keyframes console-tick {
@@ -931,7 +931,7 @@
             animation: console-tick 0.35s ease-out;
         }
 
-        /* Status LED — connection state as a small glowing dot instead of an
+        /* Status LED, connection state as a small glowing dot instead of an
            icon + colored text, matching the instrument-panel language above. */
         .connection-indicator {
             display: flex;
@@ -1009,7 +1009,7 @@
             background-color: #dc3545;
         }
 
-        /* History table — fully custom, no Bootstrap .table dependency */
+        /* History table (fully custom, no Bootstrap .table dependency) */
         .history-table {
             width: 100%;
             border-collapse: collapse;
@@ -1056,7 +1056,7 @@
         }
 
         /* Special-theme ambient effects (falling snow for Frost).
-           Fixed, full-viewport, non-interactive — particles are populated by
+           Fixed, full-viewport, non-interactive, particles are populated by
            renderThemeFx() further down this file. */
         .theme-fx-layer {
             position: fixed;
@@ -1105,13 +1105,13 @@
             animation-iteration-count: infinite;
         }
 
-        /* Harvest's dark-mode effect: glowing eyes in the dark — only
+        /* Harvest's dark-mode effect: glowing eyes in the dark, only
            shown in dark mode, since that's the whole premise (light mode
            gets falling leaves instead, via renderThemeFx() below). Each
            element holds still and visible for a
            stretch, fades out, silently "teleports" to a new spot while
            invisible (interpolating position during an opacity:0 window
-           produces no visible motion), then fades back in — appearing to
+           produces no visible motion), then fades back in, appearing to
            watch from a different spot in the shadows each time. */
         .theme-fx-eyes {
             display: none;
@@ -1148,7 +1148,7 @@
             100% { opacity: 0; transform: translate3d(var(--fx-ex1), var(--fx-ey1), 0); }
         }
 
-        /* Virginia Tech's accent devices — both sourced from VT's own
+        /* Virginia Tech's accent devices. Both sourced from VT's own
            "Design Elements" guide rather than invented: square dots ("can
            be used... to call attention to numbers, section types"), applied
            to every stat label since this whole app is numbers/section
@@ -1157,7 +1157,7 @@
            header and above the instrument strip. Colors are hardcoded (not
            var(--accent-color)): this pairing only reads as "VT" in exactly
            these two hues, the same reason .btn-custom-danger ignores the
-           theme accent. Static, no motion — an earlier animated stripe-bar
+           theme accent. Static, no motion. An earlier animated stripe-bar
            version read as too loud and was dropped in favor of this. */
         [data-color-theme="vt"] .console-hero-label::before,
         [data-color-theme="vt"] .console-strip-label::before {
@@ -1217,7 +1217,7 @@
     </style>
     <script>
     // Syncs the browser chrome color (Safari tab bar, Android address bar,
-    // etc.) with the resolved theme before the page renders — must run here,
+    // etc.) with the resolved theme before the page renders. Must run here,
     // after </style>, since it needs the CSS custom properties to already be
     // resolvable. Live updates when the user changes theme/mode are handled
     // by updateThemeColorMeta() further down this file.
@@ -1230,7 +1230,7 @@
 </head>
 <body>
     <div id="theme-fx-layer" class="theme-fx-layer" aria-hidden="true"></div>
-    <!-- Harvest's dark-mode ambient effect — see the CSS comment above
+    <!-- Harvest's dark-mode ambient effect. See the CSS comment above
          .theme-fx-eyes. -->
     <span class="theme-fx-eyes" style="--fx-ex1:8vw; --fx-ey1:15vh; --fx-ex2:70vw; --fx-ey2:60vh; --fx-ex3:40vw; --fx-ey3:25vh; animation-delay:0s;" aria-hidden="true">👀</span>
     <span class="theme-fx-eyes" style="--fx-ex1:85vw; --fx-ey1:20vh; --fx-ex2:15vw; --fx-ey2:70vh; --fx-ex3:60vw; --fx-ey3:45vh; animation-delay:-6s;" aria-hidden="true">👀</span>
@@ -1361,7 +1361,7 @@
     function updateThemeColorMeta() {
         var headerBg = getComputedStyle(document.documentElement).getPropertyValue('--header-bg').trim();
         if (!headerBg) return;
-        // Safari only reliably samples this tag on initial load — mutating an
+        // Safari only reliably samples this tag on initial load. Mutating an
         // existing tag's `content` in place is silently ignored after that.
         // Removing and re-inserting a fresh element is the standard
         // workaround to force it to notice the change.
@@ -1373,7 +1373,7 @@
         document.head.appendChild(meta);
     }
 
-    // Shared by Frost/Harvest/Bloom — all three are the same fall/drift/
+    // Shared by Frost/Harvest/Bloom, all three are the same fall/drift/
     // rotate motion (the ".snow" class), differing only in glyphs/count/
     // size/duration.
     function spawnFallingParticles(layer, opts) {
@@ -1394,7 +1394,7 @@
 
     // Shared by both the mode toggle and the color-theme picker, since
     // Harvest's effect depends on both (leaves in light mode, glowing eyes
-    // in dark mode — eyes are pure CSS, gated by the same two attributes, so
+    // in dark mode, eyes are pure CSS, gated by the same two attributes, so
     // only leaves need JS-generated particles here). Reads current state
     // directly off <html> rather than taking params, so either caller can
     // invoke it with no coordination needed.
@@ -1445,7 +1445,7 @@
         }
     }
 
-    // Dark Mode logic — three states: light, dark, system
+    // Dark Mode logic (three states: light, dark, system)
     (function() {
         const root = document.documentElement;
         const toggleBtn = document.getElementById('theme-toggle');
@@ -1459,10 +1459,10 @@
             return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
         }
 
-        function applyTheme(theme) {
+        function applyTheme(theme, skipMetaSync) {
             root.setAttribute('data-theme', theme);
-            updateThemeColorMeta();
-            // renderThemeFx() is deliberately NOT called here — it would run
+            if (!skipMetaSync) updateThemeColorMeta();
+            // renderThemeFx() is deliberately NOT called here. It would run
             // once from this function during initial page load and again a
             // moment later from applyColorTheme()'s own init call below,
             // rebuilding the same particles twice. Live mode changes (the
@@ -1480,22 +1480,24 @@
             }
         }
 
-        function applyMode(mode) {
+        function applyMode(mode, skipMetaSync) {
             // mode: 'light' | 'dark' | 'system'
             currentMode = mode;
             if (mode === 'system') {
                 localStorage.removeItem(STORAGE_KEY);
                 themeIcon.className = 'bi bi-display-fill';
-                applyTheme(getSystemPreference());
+                applyTheme(getSystemPreference(), skipMetaSync);
             } else {
                 localStorage.setItem(STORAGE_KEY, mode);
-                applyTheme(mode);
+                applyTheme(mode, skipMetaSync);
             }
         }
 
-        // Initialize
+        // Initialize. skipMetaSync=true: the head-blocking IIFE above already
+        // synced theme-color before first paint, so this init call shouldn't
+        // redo that work.
         var savedMode = localStorage.getItem(STORAGE_KEY);
-        applyMode(savedMode || 'system');
+        applyMode(savedMode || 'system', true);
 
         // Cycle: light → dark → system → light ...
         toggleBtn.addEventListener('click', function() {
@@ -1510,7 +1512,7 @@
             renderThemeFx();
         });
 
-        // Listen for OS-level theme changes — only auto-follow in system mode
+        // Listen for OS-level theme changes (only auto-follow in system mode)
         window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function(e) {
             if (currentMode === 'system') {
                 applyTheme(e.matches ? 'dark' : 'light');
@@ -1519,7 +1521,7 @@
         });
     })();
 
-    // Color theme logic — independent second axis (accent identity only)
+    // Color theme logic. Independent second axis (accent identity only)
     (function() {
         const root = document.documentElement;
         const COLOR_STORAGE_KEY = 'walkingpad-color-theme';
@@ -1543,7 +1545,7 @@
             document.head.appendChild(link);
         }
 
-        function applyColorTheme(themeId) {
+        function applyColorTheme(themeId, skipMetaSync) {
             if (themeId === 'slate') {
                 root.removeAttribute('data-color-theme'); // slate == absence, matches :root defaults
             } else {
@@ -1555,7 +1557,7 @@
                 el.setAttribute('aria-checked', active ? 'true' : 'false');
                 el.classList.toggle('is-active', active);
             });
-            updateThemeColorMeta();
+            if (!skipMetaSync) updateThemeColorMeta();
             renderThemeFx();
         }
 
@@ -1634,7 +1636,10 @@
             localStorage.removeItem(COLOR_STORAGE_KEY);
             savedColorTheme = 'slate';
         }
-        applyColorTheme(savedColorTheme);
+        // skipMetaSync=true: same reasoning as the dark-mode IIFE's init
+        // call above -- the head-blocking IIFE already synced theme-color
+        // before first paint.
+        applyColorTheme(savedColorTheme, true);
     })();
 
     document.getElementById('shutdown-button').addEventListener('click', function(e) {

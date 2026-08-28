@@ -71,7 +71,7 @@ _CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.
 _session_state_file_lock = threading.Lock()  # Protect session_state.json reads/writes
 SESSION_STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "session_state.json")
 _SESSION_STATE_SAVE_INTERVAL_SECONDS = 5
-# ask_stats() only sends a request — the ph4_walkingpad library never returns the reply
+# ask_stats() only sends a request. The ph4_walkingpad library never returns the reply
 # synchronously; the real data always lands via the on_cur_status_received notification
 # callback (also routed through process_status_packet), independent of ask_stats(). So
 # "is the connection alive" is judged by recency of ANY successful process_status_packet()
@@ -478,7 +478,7 @@ def process_status_packet(dev_dist: float, dev_steps: int, dev_speed: float):
     """Update cumulative stats from raw values AND handle auto-pause.
 
     Called from both the active poll (_stats_monitor -> ask_stats) and the
-    passive BLE notification callback (_handle_status_update) — either path
+    passive BLE notification callback (_handle_status_update), either path
     landing here means the connection is alive.
     """
     global belt_running, resume_speed_kmh, _resume_grace_deadline
@@ -712,7 +712,7 @@ async def _idle_connection_watchdog():
 async def _stats_monitor():
     """Active monitor: explicitly request a status packet every second.
 
-    ask_stats() only sends the request — the reply (if any) arrives via a
+    ask_stats() only sends the request. The reply (if any) arrives via a
     separate BLE notification handled by _handle_status_update, so a falsy/
     empty return here is normal on some devices and is NOT a failure signal.
     Connection health is judged instead by _last_status_update_monotonic,
@@ -1307,7 +1307,7 @@ def restore_session():
         _session_start_time = datetime.fromisoformat(start_str) if start_str else datetime.now()
         speed_history.clear()
 
-        # Restored in paused state — the belt isn't actually running; user hits
+        # Restored in paused state. The belt isn't actually running; user hits
         # Resume to reconnect the belt sequence and stats monitor.
         session_active = True
         belt_running = False
@@ -1574,7 +1574,7 @@ def max_speed():
 def _build_stats_payload() -> dict:
     """Build the stats snapshot dict from current global state.
 
-    Single source of truth for the wire payload shape — shared by the
+    Single source of truth for the wire payload shape, shared by the
     polling /stats endpoint and the SSE broadcaster.
     """
     return dict(
@@ -1614,7 +1614,7 @@ def _sse_broadcast_loop():
 
     Runs unconditionally (unlike _stats_monitor, which only runs while
     belt_running) so idle/paused screens stay live too. This is the only
-    broadcaster thread in the process — an unhandled exception here would
+    broadcaster thread in the process. An unhandled exception here would
     silently and permanently stop all SSE delivery, so every tick runs
     under a broad except that logs and keeps the loop alive.
     """

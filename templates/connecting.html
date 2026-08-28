@@ -10,12 +10,12 @@
             <p class="text-muted mt-2 mb-0" style="font-size:0.9rem;">Please ensure your WalkingPad is turned on.</p>
             <script>
             // Reload only once something has actually changed (connected, or the
-            // background retry loop has given up) — never on a fixed timer like
+            // background retry loop has given up), never on a fixed timer like
             // the old <meta refresh> did, so ambient theme effects (falling
             // snow/leaves, etc.) keep running smoothly instead of visibly
             // resetting every few seconds while nothing's actually changed yet.
             // Not startStatsStream() from base.html: that helper treats
-            // is_connected===false as "something broke, reload" — correct once
+            // is_connected===false as "something broke, reload", correct once
             // a session is underway, wrong here where not-yet-connected is the
             // expected steady state.
             (function() {
@@ -31,6 +31,10 @@
                 };
             })();
             </script>
+            <!-- No-JS fallback: the EventSource-driven reload above needs JavaScript, so this covers clients without it. -->
+            <noscript>
+                <meta http-equiv="refresh" content="3">
+            </noscript>
         {% elif connection_failed %}
             <h1 class="console-hero-status text-danger">CONNECTION FAILED</h1>
             <p class="text-muted mt-2 mb-3" style="font-size:0.9rem;">Could not find the WalkingPad. Please ensure it's on and in range.</p>
