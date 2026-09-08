@@ -154,7 +154,7 @@ Stores completed sessions in a local JSON file (`session_history.json`) and disp
 - **Status:** Planned
 - **Problem:** The app's pitch is controlling the treadmill "from any browser on your network," but there's no way to get from the desktop console to a phone except typing the LAN IP by hand.
 - **Solution:** Render a QR code pointing at `http://<lan-ip>:<port>` so a phone can scan-and-go instead.
-- **Implementation:** Resolve the LAN IP at startup (`socket`), generate a QR code (small dependency, or an inline SVG generator to avoid one), show it in `run.py`'s console output and/or a corner of `connecting.html`.
+- **Implementation:** Resolve the LAN IP at startup (`socket`), generate a QR code, show it in `run.py`'s console output and/or a corner of `connecting.html`. 6.1's Apple Health export already added client-side QR rendering (`qrcodejs` via CDN) that this can reuse directly instead of picking a library from scratch.
 
 ---
 
@@ -292,11 +292,26 @@ All user-tunable settings are now loaded from an optional `config.json` file, wi
 
 ## Phase 6: Data Export & Integrations (Low Priority)
 
-### 6.1 Apple Health Export via Shortcuts
-- **Status:** Planned
+### ✅ 6.1 Apple Health Export via Shortcuts
+**Status:** ✅ Complete
+**Files Modified:** `app.py`, `config.py`, `config.json.example`, `templates/start_session.html`, `templates/settings.html`, `apple_health/log-walkingdad-workout.shortcut`, `README.md`
+
+Verified against current Apple documentation before building (the original plan below, kept for history, assumed a network-fetch design that turned out to need correcting): no Apple Developer Program membership is needed (a personal Shortcut is never distributed), and critically, the Health app does not exist on macOS as of Tahoe 26 — this can only run on the iPhone, not the Mac WalkingDad itself runs on.
+
+Two QR codes, both self-contained (no fetch back to WalkingDad's server, so no HTTPS/App Transport Security problems): a **setup QR** (`shortcuts://import-shortcut?url=...`, hosted on GitHub over real HTTPS since WalkingDad's own local HTTP server can't satisfy ATS) installs a small pre-built Shortcut once per phone, and a **per-session QR** (`shortcuts://run-shortcut?name=...&input=text&text=<session JSON>`) runs it with that session's data embedded directly in the URL. The Shortcut itself (`Get Dictionary from Input` → `Log Workout`, Type Walking, Date/Duration/Calories/Distance bound via Magic Variable) was hand-built in the Shortcuts app and exported, since there's no official API to generate a `.shortcut` file programmatically.
+
+The start screen shows a persistent "Log to Apple Health" banner after a session ends, driven by a `health_logged` flag stored on the session record itself (not a one-shot flash) — it survives navigation and reloads, and only clears on an explicit Dismiss or once a newer session supersedes it. Tapping it opens an in-page modal (no navigation) with the per-session QR, with a link inside to swap to the setup QR for anyone who hasn't installed the Shortcut yet. The Settings page also keeps a permanent copy of the setup QR for reinstalling later. QR rendering is client-side (`qrcodejs` via CDN, matching how `base.html` already pulls Bootstrap/Icons/Fonts) — no new Python dependency.
+
+This also gave 2.6 (QR Code for LAN Access) a proven client-side QR-rendering approach to reuse rather than starting from scratch.
+
+<details>
+<summary>Original plan (superseded by the design above)</summary>
+
 - **Problem:** Completed sessions have nowhere to go besides `session_history.json`/CSV. A native HealthKit integration would require an Apple Developer Program membership and an actual iOS app, which is out of scope.
 - **Solution:** Expose a small JSON export endpoint for a session's stats, and document an Apple Shortcuts recipe (`Get Contents of URL` → `Log Workout`) that reads it and logs the session to Apple Health. No app, no developer account: the Shortcut runs entirely on the user's own device.
 - **Implementation:** A route returning duration/distance/steps/calories for the most recently completed session (no id needed; reads the last entry in `session_history.json`); a documented Shortcuts recipe in the README. Exporting an arbitrary past session by id is a follow-on, gated on the identifier prerequisite noted in 6.2.
+
+</details>
 
 ---
 

@@ -2,6 +2,14 @@
 
 All notable changes to WalkingDad will be documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- **Apple Health export**. A "Log to Apple Health" prompt appears on the start screen after a session ends; scanning the QR it shows runs a Shortcut on your iPhone that logs the session as a Workout via `Log Workout`, no manual re-entry. A separate one-time setup QR (Settings page) installs the Shortcut itself. No Apple Developer account, no cloud service, no network fetch back to WalkingDad's server for either step. See the README's Apple Health Export section.
+
+---
+
 ## [1.7.0] (2026-08-26)
 
 ### Added

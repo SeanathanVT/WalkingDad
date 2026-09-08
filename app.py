@@ -20,7 +20,7 @@ import config
 from config import (
     BLE_DEVICE_NAME, KCAL_PER_MILE, MAX_SPEED_KMH, MIN_SPEED_KMH,
     SPEED_STEP, SLOW_WALK_SPEED_KMH, RESUME_GRACE_PERIOD_SECONDS,
-    HISTORY_DISPLAY_LIMIT,
+    HISTORY_DISPLAY_LIMIT, APPLE_HEALTH_SHORTCUT_NAME,
 )
 
 # ── Logging Setup ────────────────────────────────────────────────────────
@@ -220,6 +220,7 @@ def _build_session_record() -> dict:
         "calories": round(current_calories),
         "avg_speed_kmh": round(avg_speed_kmh, 1),
         "avg_speed_mph": round(avg_speed_mph, 1),
+        "health_logged": False,
     }
 
 
@@ -285,6 +286,28 @@ def _clear_session_history():
             logging.info("Session history cleared")
         except IOError as exc:
             logging.error(f"Failed to clear session history: {exc}")
+
+
+def _dismiss_health_export():
+    """Mark the most recent session as no longer pending an Apple Health export
+    (thread-safe, atomic). session_history.json stores oldest-first, so the most
+    recent record is the last element -- not history[0], which is only true of
+    _load_session_history()'s reversed-for-display copy."""
+    with _history_lock:
+        if not os.path.exists(HISTORY_FILE):
+            return
+        try:
+            with open(HISTORY_FILE, "r") as f:
+                history = json.load(f)
+            if not isinstance(history, list) or not history:
+                return
+            history[-1]["health_logged"] = True
+            tmp_path = f"{HISTORY_FILE}.tmp"
+            with open(tmp_path, "w") as f:
+                json.dump(history, f, indent=2)
+            os.replace(tmp_path, HISTORY_FILE)
+        except (json.JSONDecodeError, IOError) as exc:
+            logging.warning(f"Failed to dismiss health export flag: {exc}")
 
 
 # ── Session State Persistence (crash/restart recovery) ──────────────────
@@ -362,7 +385,10 @@ _pending_restore = _load_session_state()  # Check for an interrupted session at 
 # ── Context processor so templates always know flags ────────────────────
 @app.context_processor
 def inject_flags():
-    return dict(connected=connected, connecting=connecting, connection_failed=connection_failed)
+    return dict(
+        connected=connected, connecting=connecting, connection_failed=connection_failed,
+        apple_health_shortcut_name=APPLE_HEALTH_SHORTCUT_NAME,
+    )
 
 
 # ── BLE helpers ─────────────────────────────────────────────────────────
@@ -1064,6 +1090,7 @@ def root():
     if not session_active:
         # For start_session, show history (last N sessions)
         history = _load_session_history(limit=HISTORY_DISPLAY_LIMIT)
+        pending_health_export = bool(history) and not history[0].get("health_logged", False)
 
         pending_restore = None
         if _pending_restore:
@@ -1076,6 +1103,7 @@ def root():
 
         return render_template(
             "start_session.html", time_active="0:00:00", history=history, pending_restore=pending_restore,
+            pending_health_export=pending_health_export,
         )
 
     template = "active_session.html" if belt_running else "paused_session.html"
@@ -1185,6 +1213,14 @@ def clear_history():
     return jsonify({"status": "cleared"})
 
 
+# ── Dismiss Apple Health Export Prompt ───────────────────────────────────
+@app.route("/dismiss_health_export", methods=["POST"])
+def dismiss_health_export():
+    """Mark the most recent session as dismissed from the Apple Health export prompt."""
+    _dismiss_health_export()
+    return jsonify({"status": "dismissed"})
+
+
 # Waitress won't necessarily start (or will be unusably starved) with too
 # few threads -- unlike the other numeric settings, a bad value here doesn't
 # just misbehave one subsystem, it can take down the whole app on next
@@ -1242,6 +1278,7 @@ _SETTINGS_SCHEMA = [
     ("host", "HOST", lambda v, cur: v.strip() or cur, False),
     ("port", "PORT", lambda v, cur: int(v), False),
     ("waitress_threads", "WAITRESS_THREADS", _clamp_waitress_threads, False),
+    ("apple_health_shortcut_name", "APPLE_HEALTH_SHORTCUT_NAME", lambda v, cur: v.strip() or cur, True),
 ]
 
 
