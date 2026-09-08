@@ -90,11 +90,30 @@
 
         <div class="stat-card mb-4">
             <h2 class="settings-section-title">Apple Health</h2>
-            <div class="mb-3">
-                <label class="form-label fw-medium" style="display:block;margin-bottom:0.25rem;">Shortcut Name</label>
-                <input type="text" name="apple_health_shortcut_name" value="{{ apple_health_shortcut_name }}"
-                       class="form-control settings-input">
-                <small class="text-muted settings-hint">apple_health_shortcut_name -- must match the name of the Shortcut on your iPhone exactly</small>
+            <div class="mb-3 form-check form-switch">
+                <input type="checkbox" class="form-check-input" role="switch" name="apple_health_export_enabled"
+                       id="apple_health_export_enabled" data-bs-toggle="collapse" data-bs-target="#apple-health-collapse"
+                       {% if apple_health_export_enabled %}checked{% endif %}>
+                <label class="form-check-label fw-medium" for="apple_health_export_enabled">Enable Apple Health export</label>
+                <div><small class="text-muted settings-hint">apple_health_export_enabled</small></div>
+            </div>
+            {# Live preview only -- toggling this doesn't persist anything until
+               Save Settings, same as every other field on this page. The QR
+               itself is cheap to generate, so it's always rendered here (not
+               gated behind an {% if %}), just visually collapsed/expanded. #}
+            <div class="collapse{% if apple_health_export_enabled %} show{% endif %}" id="apple-health-collapse">
+                <div class="mb-3">
+                    <label class="form-label fw-medium" style="display:block;margin-bottom:0.25rem;">Shortcut Name</label>
+                    <input type="text" name="apple_health_shortcut_name" value="{{ apple_health_shortcut_name }}"
+                           class="form-control settings-input">
+                    <small class="text-muted settings-hint">apple_health_shortcut_name -- must match the name of the Shortcut on your iPhone exactly</small>
+                </div>
+                {# setup_shortcut_url comes from inject_flags() in app.py -- built as a
+                   plain string there, not with Jinja filters (see its docstring). #}
+                <div class="text-center pt-2" style="border-top:1px solid var(--border-color);">
+                    <p class="text-muted mb-3" style="font-size:0.875rem;">Scan once with your iPhone's Camera app to install the Shortcut that logs sessions to Apple Health. See the README for what it does and how to rebuild it.</p>
+                    <div id="settings-health-qr-container" class="d-flex justify-content-center"></div>
+                </div>
             </div>
         </div>
 
@@ -104,12 +123,6 @@
 
     </form>
 
-    {% set setup_shortcut_url = 'shortcuts://import-shortcut?url=' ~ ('https://raw.githubusercontent.com/SeanathanVT/WalkingDad/feature/apple-health-workout-log/apple_health/log-walkingdad-workout.shortcut' | urlencode) ~ '&name=' ~ (apple_health_shortcut_name | urlencode) %}
-    <div class="stat-card mt-4 text-center">
-        <h2 class="settings-section-title">Set Up Apple Health Shortcut</h2>
-        <p class="text-muted mb-3" style="font-size:0.875rem;">Scan once with your iPhone's Camera app to install the Shortcut that logs sessions to Apple Health. See the README for what it does and how to rebuild it.</p>
-        <div id="settings-health-qr-container" class="d-flex justify-content-center"></div>
-    </div>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <script>
     (function() {

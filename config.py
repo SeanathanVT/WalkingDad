@@ -14,6 +14,7 @@ _DEFAULTS = {
     "port": 5001,
     "waitress_threads": 16,
     "apple_health_shortcut_name": "Log WalkingDad Workout",
+    "apple_health_export_enabled": False,
 }
 
 _path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
@@ -39,3 +40,4 @@ HOST: str                         = _get("host")
 PORT: int                         = _get("port")
 WAITRESS_THREADS: int             = _get("waitress_threads")
 APPLE_HEALTH_SHORTCUT_NAME: str   = _get("apple_health_shortcut_name")
+APPLE_HEALTH_EXPORT_ENABLED: bool = _get("apple_health_export_enabled")

@@ -21,16 +21,10 @@
 </div>
 {% endif %}
 {% if pending_health_export %}
-{% set health_payload = {
-    'date': history[0].date,
-    'start_time': history[0].start_time,
-    'duration_seconds': history[0].duration_seconds,
-    'distance_km': history[0].distance_km,
-    'distance_mi': history[0].distance_mi,
-    'calories': history[0].calories,
-} %}
-{% set log_shortcut_url = 'shortcuts://run-shortcut?name=' ~ (apple_health_shortcut_name | urlencode) ~ '&input=text&text=' ~ (health_payload | tojson | urlencode) %}
-{% set setup_shortcut_url = 'shortcuts://import-shortcut?url=' ~ ('https://raw.githubusercontent.com/SeanathanVT/WalkingDad/feature/apple-health-workout-log/apple_health/log-walkingdad-workout.shortcut' | urlencode) ~ '&name=' ~ (apple_health_shortcut_name | urlencode) %}
+{# log_shortcut_url comes from root() (depends on history[0]); setup_shortcut_url
+   comes from inject_flags() (config-derived only). Both are built as plain
+   strings in app.py, not with Jinja's tojson/urlencode filters -- mixing those
+   with plain-string concatenation double-escaped & into &amp;. #}
 <div class="stat-card mb-4 text-center" id="health-export-banner" style="border:1px solid var(--accent-color);">
     <p class="mb-2" style="font-weight:500;">Session complete. Log it to Apple Health?</p>
     <div class="d-flex justify-content-center gap-2">
