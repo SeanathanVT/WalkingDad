@@ -20,6 +20,89 @@
     </div>
 </div>
 {% endif %}
+{% if pending_health_export %}
+{# log_shortcut_url comes from root() (depends on history[0]); setup_shortcut_url
+   comes from inject_flags() (config-derived only). Both are built as plain
+   strings in app.py, not with Jinja's tojson/urlencode filters -- mixing those
+   with plain-string concatenation double-escaped & into &amp;. #}
+<div class="stat-card mb-4 text-center" id="health-export-banner" style="border:1px solid var(--accent-color);">
+    <p class="mb-2" style="font-weight:500;">Session complete. Log it to Apple Health?</p>
+    <div class="d-flex justify-content-center gap-2">
+        <button type="button" class="btn btn-custom-primary" data-bs-toggle="modal" data-bs-target="#health-export-modal">
+            <i class="bi bi-heart-pulse"></i> Log to Apple Health
+        </button>
+        <button type="button" id="dismiss-health-export-btn" class="btn btn-sm" style="background-color:var(--card-color);color:var(--text-color);border:none;font-weight:500;">
+            Dismiss
+        </button>
+    </div>
+</div>
+
+<div class="modal fade" id="health-export-modal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content" style="background-color:var(--card-color);color:var(--text-color);">
+            <div class="modal-header" style="border-color:var(--border-color);">
+                <h5 class="modal-title" id="health-export-modal-title">Log to Apple Health</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body text-center">
+                <div id="health-qr-container" class="d-flex justify-content-center mb-3"></div>
+                <p class="text-muted mb-2" id="health-export-modal-hint" style="font-size:0.85rem;">Scan with iPhone Camera</p>
+                <a href="#" id="health-export-toggle-link" style="font-size:0.85rem;">Haven't set up the Shortcut yet? Set up here</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script>
+(function() {
+    var logUrl = {{ log_shortcut_url | tojson }};
+    var setupUrl = {{ setup_shortcut_url | tojson }};
+    var showingSetup = false;
+
+    function renderQR(url) {
+        var container = document.getElementById('health-qr-container');
+        if (!container) return;
+        container.innerHTML = '';
+        new QRCode(container, { text: url, width: 220, height: 220, correctLevel: QRCode.CorrectLevel.M });
+    }
+
+    var modal = document.getElementById('health-export-modal');
+    if (modal) {
+        modal.addEventListener('show.bs.modal', function() {
+            showingSetup = false;
+            renderQR(logUrl);
+            document.getElementById('health-export-modal-title').textContent = 'Log to Apple Health';
+            document.getElementById('health-export-modal-hint').textContent = 'Scan with iPhone Camera';
+            document.getElementById('health-export-toggle-link').textContent = "Haven't set up the Shortcut yet? Set up here";
+        });
+    }
+
+    var toggleLink = document.getElementById('health-export-toggle-link');
+    if (toggleLink) {
+        toggleLink.addEventListener('click', function(e) {
+            e.preventDefault();
+            showingSetup = !showingSetup;
+            renderQR(showingSetup ? setupUrl : logUrl);
+            document.getElementById('health-export-modal-title').textContent = showingSetup ? 'Set Up Apple Health Shortcut' : 'Log to Apple Health';
+            document.getElementById('health-export-modal-hint').textContent = showingSetup ? 'Scan once to install the Shortcut' : 'Scan with iPhone Camera';
+            toggleLink.textContent = showingSetup ? 'Back' : "Haven't set up the Shortcut yet? Set up here";
+        });
+    }
+
+    var dismissBtn = document.getElementById('dismiss-health-export-btn');
+    if (dismissBtn) {
+        dismissBtn.addEventListener('click', function() {
+            fetch("{{ url_for('dismiss_health_export') }}", { method: 'POST' })
+                .then(function() {
+                    var banner = document.getElementById('health-export-banner');
+                    if (banner) banner.remove();
+                });
+        });
+    }
+})();
+</script>
+{% endif %}
 <div class="text-center">
     <div class="console-hero">
         <span class="console-hero-label">Ready</span>

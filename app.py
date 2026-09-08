@@ -9,6 +9,7 @@ import queue
 import signal
 import threading
 import time
+import urllib.parse
 from collections import deque
 from datetime import datetime
 
@@ -20,7 +21,7 @@ import config
 from config import (
     BLE_DEVICE_NAME, KCAL_PER_MILE, MAX_SPEED_KMH, MIN_SPEED_KMH,
     SPEED_STEP, SLOW_WALK_SPEED_KMH, RESUME_GRACE_PERIOD_SECONDS,
-    HISTORY_DISPLAY_LIMIT,
+    HISTORY_DISPLAY_LIMIT, APPLE_HEALTH_SHORTCUT_NAME, APPLE_HEALTH_EXPORT_ENABLED,
 )
 
 # ── Logging Setup ────────────────────────────────────────────────────────
@@ -220,6 +221,7 @@ def _build_session_record() -> dict:
         "calories": round(current_calories),
         "avg_speed_kmh": round(avg_speed_kmh, 1),
         "avg_speed_mph": round(avg_speed_mph, 1),
+        "health_logged": False,
     }
 
 
@@ -285,6 +287,28 @@ def _clear_session_history():
             logging.info("Session history cleared")
         except IOError as exc:
             logging.error(f"Failed to clear session history: {exc}")
+
+
+def _dismiss_health_export():
+    """Mark the most recent session as no longer pending an Apple Health export
+    (thread-safe, atomic). session_history.json stores oldest-first, so the most
+    recent record is the last element -- not history[0], which is only true of
+    _load_session_history()'s reversed-for-display copy."""
+    with _history_lock:
+        if not os.path.exists(HISTORY_FILE):
+            return
+        try:
+            with open(HISTORY_FILE, "r") as f:
+                history = json.load(f)
+            if not isinstance(history, list) or not history:
+                return
+            history[-1]["health_logged"] = True
+            tmp_path = f"{HISTORY_FILE}.tmp"
+            with open(tmp_path, "w") as f:
+                json.dump(history, f, indent=2)
+            os.replace(tmp_path, HISTORY_FILE)
+        except (json.JSONDecodeError, IOError) as exc:
+            logging.warning(f"Failed to dismiss health export flag: {exc}")
 
 
 # ── Session State Persistence (crash/restart recovery) ──────────────────
@@ -359,10 +383,57 @@ def _write_config(updates: dict) -> None:
 _pending_restore = _load_session_state()  # Check for an interrupted session at startup
 
 
+# ── Apple Health export (Shortcuts QR codes) ─────────────────────────────
+# The setup QR points at an iCloud share link, not a repo-hosted file.
+# Confirmed by hand (repeated Safari address-bar testing, every url=/name=
+# encoding and ordering tried): shortcuts://import-shortcut?url=<raw GitHub
+# file> reliably fails with "shortcut URL provided was invalid", a known,
+# documented unreliability of GitHub-hosted .shortcut files with this scheme,
+# not an encoding bug on WalkingDad's end. An iCloud share link (Share ->
+# Copy iCloud Link in the Shortcuts app) is Apple's actual supported
+# distribution path; every shortcut-sharing community, including RoutineHub,
+# ultimately hands off to one of these under the hood. It's also just a
+# plain https:// link, not the shortcuts:// scheme -- Apple's own "Get
+# Shortcut" page at the other end handles the import itself.
+_APPLE_HEALTH_SHORTCUT_ICLOUD_LINK = "https://www.icloud.com/shortcuts/c832ad7548ac425898fae31920bcb8c3"
+
+
+def _build_setup_shortcut_url() -> str:
+    """URL for the one-time setup QR that installs the Shortcut. See the
+    module-level comment above for why this is an iCloud link rather than a
+    shortcuts://import-shortcut URL pointed at the repo's .shortcut file."""
+    return _APPLE_HEALTH_SHORTCUT_ICLOUD_LINK
+
+
+def _build_log_shortcut_url(session_record: dict) -> str:
+    """shortcuts://run-shortcut runs the already-installed Shortcut with that
+    session's data embedded directly in the URL -- no fetch back to this server
+    needed. Percent-encodes name= and the JSON text= payload (which has its own
+    unsafe characters -- spaces, quotes, braces), but leaves ":" and "/" alone:
+    a raw, un-percent-encoded space isn't valid inside a URI at all (unlike :
+    and /, which are allowed unencoded in a query component per RFC 3986), and
+    a literal space broke this scheme's name= handling during testing."""
+    payload = json.dumps({
+        "date": session_record["date"],
+        "start_time": session_record["start_time"],
+        "duration_seconds": session_record["duration_seconds"],
+        "distance_km": session_record["distance_km"],
+        "distance_mi": session_record["distance_mi"],
+        "calories": session_record["calories"],
+    })
+    name = urllib.parse.quote(APPLE_HEALTH_SHORTCUT_NAME, safe=":/")
+    text = urllib.parse.quote(payload, safe=":/")
+    return f"shortcuts://run-shortcut?name={name}&input=text&text={text}"
+
+
 # ── Context processor so templates always know flags ────────────────────
 @app.context_processor
 def inject_flags():
-    return dict(connected=connected, connecting=connecting, connection_failed=connection_failed)
+    return dict(
+        connected=connected, connecting=connecting, connection_failed=connection_failed,
+        apple_health_shortcut_name=APPLE_HEALTH_SHORTCUT_NAME,
+        setup_shortcut_url=_build_setup_shortcut_url(),
+    )
 
 
 # ── BLE helpers ─────────────────────────────────────────────────────────
@@ -1064,6 +1135,18 @@ def root():
     if not session_active:
         # For start_session, show history (last N sessions)
         history = _load_session_history(limit=HISTORY_DISPLAY_LIMIT)
+        # Deliberately a separate query rather than reusing history[0]: with
+        # history_display_limit set to 0, history is [] and would silently
+        # (and wrongly) disable the Apple Health prompt too, an unrelated
+        # display-count setting reaching into a feature it has nothing to do
+        # with.
+        most_recent_session = _load_session_history(limit=1)
+        pending_health_export = (
+            APPLE_HEALTH_EXPORT_ENABLED
+            and bool(most_recent_session)
+            and not most_recent_session[0].get("health_logged", False)
+        )
+        log_shortcut_url = _build_log_shortcut_url(most_recent_session[0]) if pending_health_export else None
 
         pending_restore = None
         if _pending_restore:
@@ -1076,6 +1159,7 @@ def root():
 
         return render_template(
             "start_session.html", time_active="0:00:00", history=history, pending_restore=pending_restore,
+            pending_health_export=pending_health_export, log_shortcut_url=log_shortcut_url,
         )
 
     template = "active_session.html" if belt_running else "paused_session.html"
@@ -1185,6 +1269,14 @@ def clear_history():
     return jsonify({"status": "cleared"})
 
 
+# ── Dismiss Apple Health Export Prompt ───────────────────────────────────
+@app.route("/dismiss_health_export", methods=["POST"])
+def dismiss_health_export():
+    """Mark the most recent session as dismissed from the Apple Health export prompt."""
+    _dismiss_health_export()
+    return jsonify({"status": "dismissed"})
+
+
 # Waitress won't necessarily start (or will be unusably starved) with too
 # few threads -- unlike the other numeric settings, a bad value here doesn't
 # just misbehave one subsystem, it can take down the whole app on next
@@ -1242,11 +1334,13 @@ _SETTINGS_SCHEMA = [
     ("host", "HOST", lambda v, cur: v.strip() or cur, False),
     ("port", "PORT", lambda v, cur: int(v), False),
     ("waitress_threads", "WAITRESS_THREADS", _clamp_waitress_threads, False),
+    ("apple_health_shortcut_name", "APPLE_HEALTH_SHORTCUT_NAME", lambda v, cur: v.strip() or cur, True),
 ]
 
 
 @app.route("/settings", methods=["GET", "POST"])
 def settings_page():
+    global APPLE_HEALTH_EXPORT_ENABLED
     if request.method == "POST":
         updates = {}
         for form_key, const_name, cast, _live in _SETTINGS_SCHEMA:
@@ -1258,15 +1352,43 @@ def settings_page():
                 logging.warning(f"Invalid value for {form_key} ({raw!r}); keeping current value.")
                 updates[form_key] = current
 
+        # Unlike every field above, a checkbox is absent from form data
+        # entirely when unchecked rather than submitting a falsy value, so
+        # the generic default-to-current-value loop above can't handle it --
+        # this is the one boolean setting, handled as a one-off rather than
+        # complicating _SETTINGS_SCHEMA's cast-function contract for it.
+        was_enabled = APPLE_HEALTH_EXPORT_ENABLED
+        updates["apple_health_export_enabled"] = "apple_health_export_enabled" in request.form
+
         _write_config(updates)
         for form_key, const_name, _cast, live in _SETTINGS_SCHEMA:
             setattr(config, const_name, updates[form_key])
             if live:
                 globals()[const_name] = updates[form_key]
+        config.APPLE_HEALTH_EXPORT_ENABLED = updates["apple_health_export_enabled"]
+        APPLE_HEALTH_EXPORT_ENABLED = updates["apple_health_export_enabled"]
+
+        # Turning the feature on shouldn't retroactively surface a session
+        # that predates it being enabled (pending_health_export only checks
+        # whether the most recent session has ever been logged/dismissed,
+        # with no notion of "before vs. after enabling"). But don't
+        # blanket-suppress on every enable either -- someone finishing a walk
+        # and enabling the feature specifically to log THAT walk shouldn't
+        # have it silently marked as already handled before they ever see
+        # the banner. Split the difference: only pre-dismiss if the most
+        # recent session isn't from today, since "today's most recent
+        # session" is the one case where enabling right after a walk is a
+        # plausible, common reason to be here at all.
+        if updates["apple_health_export_enabled"] and not was_enabled:
+            recent = _load_session_history(limit=1)
+            if recent and recent[0].get("date") != datetime.now().strftime("%Y-%m-%d"):
+                _dismiss_health_export()
+
         return redirect(url_for("root", saved=1))
 
     return render_template(
         "settings.html",
+        apple_health_export_enabled=APPLE_HEALTH_EXPORT_ENABLED,
         **{form_key: getattr(config, const_name) for form_key, const_name, _, _ in _SETTINGS_SCHEMA},
     )
 
