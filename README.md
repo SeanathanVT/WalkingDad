@@ -136,7 +136,7 @@ Changes to most settings take effect immediately via the Settings page. `host`, 
 - **Won't connect:** Make sure your WalkingPad is powered on and not paired to another device (like your phone). Check the console for log details.
 - **Icons missing:** Bootstrap Icons load from a CDN. Make sure your browser has internet access.
 - **Stats stop updating:** The app detects a dead BLE connection automatically (during an active session and while paused/idle) and shows a **Connection Failed** screen with a **Try Again** button instead of freezing silently. If stats stay stuck without that screen appearing, check the console for `ask_stats` errors and restart the app.
-- **macOS BLE quirks:** See [ROADMAP.md](ROADMAP.md) Phase 1.1 for the full list of cross-platform reliability fixes.
+- **macOS BLE quirks:** See [ROADMAP.md](ROADMAP.md) 1.1 (Reliability & Safety) for the full list of cross-platform reliability fixes.
 
 ## Credits
 
@@ -144,7 +144,7 @@ Forked and expanded from the original [walkingpad](https://github.com/CodeJawn/w
 
 ## Roadmap
 
-See [ROADMAP.md](ROADMAP.md) for completed features and planned improvements across six phases.
+See [ROADMAP.md](ROADMAP.md) for completed features and planned improvements, organized by theme rather than build order.
 
 ## Changelog
 
