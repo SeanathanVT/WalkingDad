@@ -9,5 +9,7 @@
   "history_display_limit": 10,
   "host": "0.0.0.0",
   "port": 5001,
-  "waitress_threads": 16
+  "waitress_threads": 16,
+  "apple_health_shortcut_name": "Log WalkingDad Workout",
+  "apple_health_export_enabled": false
 }
