@@ -65,6 +65,7 @@ _stats_monitor_task: asyncio.Task | None = None  # Track the stats monitor task
 _idle_watchdog_task: asyncio.Task | None = None  # Track the paused/idle connection watchdog
 _belt_sequence_task: asyncio.Task | None = None  # Track an in-flight start/resume/pause belt sequence
 _belt_transitioning = False  # True while a belt sequence is in flight; exposed in /stats for UI
+_auto_reconnect_task: asyncio.Task | None = None  # Track an in-flight auto-reconnect retry loop
 _history_lock = threading.Lock()  # Protect session_history.json reads/writes
 HISTORY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "session_history.json")
 _CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
@@ -96,6 +97,14 @@ _IDLE_WATCHDOG_PING_INTERVAL_SECONDS = 10
 # gets its own, much more forgiving threshold instead of sharing the active
 # one -- roughly 4-5 missed pings before disconnecting.
 _IDLE_STALE_STATUS_TIMEOUT_SECONDS = 45
+# Auto-reconnect after an unexpected disconnect (see _handle_disconnect()/
+# _auto_reconnect()): capped exponential backoff, generous enough to cover
+# walking out of BLE range for a few minutes, bounded so a genuinely
+# powered-off pad still reaches the manual "Try Again" screen instead of an
+# endless spinner with no escape.
+_MAX_RECONNECT_ATTEMPTS = 8
+_RECONNECT_BASE_DELAY_SECONDS = 5
+_RECONNECT_MAX_DELAY_SECONDS = 30
 # Serializes every controller read/write -- the idle watchdog's ask_stats()
 # ping, belt sequences' start_belt()/stop_belt()/change_speed() commands, the
 # active stats monitor's ask_stats() poll, and the manual speed-adjustment
@@ -495,6 +504,18 @@ async def _connect_to_pad() -> bool:
     _device_ble_address = dev.address
     logging.info(f"Device found! Address: {_device_ble_address}")
 
+    # Best-effort: disconnect any live client left over from a previous
+    # attempt in this same retry loop (e.g. controller.run() succeeded but a
+    # later step below raised) before discarding the reference below --
+    # otherwise a retry loop can leak one open BLE connection per failed
+    # attempt, which can make the pad refuse new connections.
+    if controller and getattr(controller, "client", None):
+        try:
+            if controller.client.is_connected:
+                await asyncio.wait_for(controller.client.disconnect(), timeout=_BLE_WRITE_TIMEOUT_SECONDS)
+        except Exception as exc:
+            logging.debug(f"Error disconnecting stale controller before reconnect: {exc}")
+
     controller = Controller()
     await asyncio.wait_for(controller.run(dev.address), timeout=_BLE_WRITE_TIMEOUT_SECONDS)
 
@@ -618,6 +639,14 @@ async def _graceful_shutdown():
     """Safely stop the treadmill, cancel monitors, and disconnect BLE before exit."""
     global connected, belt_running, session_active
     try:
+        # Step 0: Cancel any in-flight auto-reconnect / belt sequence first,
+        # before anything below touches `controller` -- both can reassign
+        # or act on it concurrently on this same loop (auto-reconnect via
+        # _connect_to_pad()'s `controller = Controller()`), and would
+        # otherwise race every step that follows.
+        await _cancel_task(_auto_reconnect_task)
+        await _cancel_task(_belt_sequence_task)
+
         # Step 0.5: Save in-progress session to history before cleanup
         if session_active:
             _save_session()
@@ -1047,6 +1076,47 @@ def _start_ble_thread():
     threading.Thread(target=_ble_thread, daemon=True).start()
 
 
+async def _auto_reconnect():
+    """Retries _connect_to_pad() with capped exponential backoff after an
+    unexpected disconnect. Runs on the same (still-alive) ble_loop rather
+    than spawning a new thread/loop: _ble_thread() leaves that loop idling
+    in run_forever() after a disconnect specifically so this has somewhere
+    to run without a fresh event loop or _ble_command_lock. Gives up after
+    _MAX_RECONNECT_ATTEMPTS and falls back to the existing manual "Try
+    Again" screen -- there's no way to tell a powered-off pad apart from
+    one temporarily out of BLE range, so a bounded retry is the one
+    behavior that's reasonable for both.
+    """
+    global connected, connecting, connection_failed, _auto_reconnect_task
+    _auto_reconnect_task = asyncio.current_task()
+
+    for attempt in range(_MAX_RECONNECT_ATTEMPTS):
+        with _shutting_down_lock:
+            if _shutting_down:
+                return
+        if attempt > 0:
+            delay = min(_RECONNECT_BASE_DELAY_SECONDS * 2 ** (attempt - 1), _RECONNECT_MAX_DELAY_SECONDS)
+            await asyncio.sleep(delay)
+            with _shutting_down_lock:
+                if _shutting_down:
+                    return
+        logging.info(f"Auto-reconnect attempt {attempt + 1}/{_MAX_RECONNECT_ATTEMPTS}")
+        try:
+            ok = await _connect_to_pad()
+        except Exception as exc:
+            logging.warning(f"Auto-reconnect attempt failed: {exc}")
+            ok = False
+        if ok:
+            connected = True
+            connecting = False
+            logging.info("Auto-reconnect succeeded")
+            return
+
+    logging.error(f"Auto-reconnect gave up after {_MAX_RECONNECT_ATTEMPTS} attempts")
+    connecting = False
+    connection_failed = True
+
+
 def _handle_disconnect(client):
     """Callback function to handle unexpected disconnections. Safe to call
     from any thread -- both the stats monitor and the idle watchdog call this
@@ -1055,23 +1125,49 @@ def _handle_disconnect(client):
     depending on platform/backend.
     """
     global connected, belt_running, connecting, connection_failed
-    global _stats_monitor_task, _idle_watchdog_task
-    if connected:
+    global _stats_monitor_task, _idle_watchdog_task, _belt_sequence_task
+
+    with _start_ble_thread_lock:
+        # Idempotent: this can legitimately fire 2-3 times for the same
+        # physical drop (bleak's own callback, a belt-sequence exception
+        # handler, and a watchdog can all detect it independently). Without
+        # this guard, each call after the first would re-schedule its own
+        # _auto_reconnect() below, stacking up concurrent reconnect attempts
+        # that race each other over controller/_device_ble_address.
+        if not connected:
+            return
         logging.warning("Device has disconnected unexpectedly.")
-    connected = False
-    belt_running = False
-    connecting = False
-    connection_failed = True
+        connected = False
+        belt_running = False
+        with _shutting_down_lock:
+            shutting_down = _shutting_down
+        # Only promise the "CONNECTING" spinner if _auto_reconnect() below is
+        # actually going to be scheduled -- otherwise (shutting down, or the
+        # BLE loop is already gone) there is nothing left to flip connecting
+        # back to False, and the UI would be stuck on the spinner forever
+        # with no route to the manual "Try Again" screen.
+        will_auto_reconnect = not shutting_down and ble_loop is not None and not ble_loop.is_closed()
+        connecting = will_auto_reconnect
+        connection_failed = not will_auto_reconnect
 
     try:
         current = asyncio.current_task()
     except RuntimeError:
         current = None  # no running event loop in this thread
 
-    # Cancel any running watchdog tasks, skipping self-cancellation: cancelling
-    # a task from inside its own currently-running step still marks it
-    # cancelled() even after it exits cleanly via `break`, which is misleading
-    # -- that task is already unwinding on its own, no cancellation needed.
+    # Cancel any running watchdog/sequence tasks, skipping self-cancellation:
+    # cancelling a task from inside its own currently-running step still
+    # marks it cancelled() even after it exits cleanly via `break`, which is
+    # misleading -- that task is already unwinding on its own, no
+    # cancellation needed.
+    #
+    # The in-flight belt sequence (if any) must be cancelled here too, not
+    # just the two watchdogs: _auto_reconnect() below can reconnect and
+    # reassign the global `controller` to a brand-new client while a stale
+    # sequence is still suspended mid-await on the OLD controller (e.g.
+    # between the sleep()s in a wake sequence) -- left alone, it would
+    # resume by issuing belt commands against whichever controller happens
+    # to be current by the time it wakes up, not the one it started with.
     #
     # task.cancel() itself is only safe to call from the thread running the
     # task's own event loop -- routed through call_soon_threadsafe() so this
@@ -1079,13 +1175,20 @@ def _handle_disconnect(client):
     # (per the docstring above, that's not guaranteed to be ble_loop's own
     # thread). Falls back to a direct call only if ble_loop is already gone,
     # in which case there's no loop left to schedule onto anyway.
-    for name, task in (("stats monitor", _stats_monitor_task), ("idle watchdog", _idle_watchdog_task)):
+    for name, task in (
+        ("stats monitor", _stats_monitor_task),
+        ("idle watchdog", _idle_watchdog_task),
+        ("belt sequence", _belt_sequence_task),
+    ):
         if task and not task.done() and task is not current:
             logging.info(f"Cancelling {name} due to disconnect")
             if ble_loop and not ble_loop.is_closed():
                 ble_loop.call_soon_threadsafe(task.cancel)
             else:
                 task.cancel()
+
+    if will_auto_reconnect:
+        asyncio.run_coroutine_threadsafe(_auto_reconnect(), ble_loop)
 
 
 def _handle_signal_shutdown(signum, frame):
