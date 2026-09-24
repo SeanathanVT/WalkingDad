@@ -18,20 +18,19 @@ from flask import Flask, render_template, redirect, url_for, jsonify, make_respo
 from ph4_walkingpad.pad import Controller, WalkingPad
 
 import config
+import storage
 from config import (
     BLE_DEVICE_NAME, KCAL_PER_MILE, MAX_SPEED_KMH, MIN_SPEED_KMH,
     SPEED_STEP, SLOW_WALK_SPEED_KMH, RESUME_GRACE_PERIOD_SECONDS,
     HISTORY_DISPLAY_LIMIT, APPLE_HEALTH_SHORTCUT_NAME, APPLE_HEALTH_EXPORT_ENABLED,
 )
+from units import KM_TO_MI, legacy_record
 
 # ── Logging Setup ────────────────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
 )
-
-# ── Conversion constants ─────────────────────────────────────────────────
-KM_TO_MI = 0.621371
 
 
 def kcal_estimate(miles: float) -> float:
@@ -67,8 +66,7 @@ _belt_sequence_task: asyncio.Task | None = None  # Track an in-flight start/resu
 _belt_transitioning = False  # True while a belt sequence is in flight; exposed in /stats for UI
 _auto_reconnect_task: asyncio.Task | None = None  # Track an in-flight auto-reconnect retry loop
 _speed_change_task: asyncio.Task | None = None  # Track an in-flight _locked_change_speed() call
-_history_lock = threading.Lock()  # Protect session_history.json reads/writes
-HISTORY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "session_history.json")
+HISTORY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "session_history.json")  # legacy; migrated into the DB at startup
 _CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
 
 _session_state_file_lock = threading.Lock()  # Protect session_state.json reads/writes
@@ -208,7 +206,7 @@ _last_dev_dist = _last_dev_steps = 0
 
 # ── SSE broadcaster state ────────────────────────────────────────────────
 _sse_subscribers: list[queue.Queue] = []
-_sse_subscribers_lock = threading.Lock()  # Protect _sse_subscribers list mutations, mirrors _history_lock convention
+_sse_subscribers_lock = threading.Lock()  # Protect _sse_subscribers list mutations
 _SSE_BROADCAST_INTERVAL_SECONDS = 1
 # Bounds how long a subscriber's generator can block on q.get() with nothing
 # to send. Well above the normal ~1s broadcast cadence, so this only ever
@@ -220,114 +218,58 @@ _SSE_KEEPALIVE_TIMEOUT_SECONDS = 20
 
 # ── Session History Persistence ────────────────────────────────────────
 
-def _build_session_record() -> dict:
-    """Build a session record dict from current global state."""
-    start = _session_start_time
-    end = datetime.now()
-    distance_mi = current_distance_km * KM_TO_MI
-    duration = max(current_session_active_seconds, 1)  # avoid div-by-zero
-    avg_speed_kmh = current_distance_km / (duration / 3600.0)
-    avg_speed_mph = avg_speed_kmh * KM_TO_MI
-
-    return {
-        "date": start.strftime("%Y-%m-%d"),
-        "start_time": start.strftime("%H:%M:%S"),
-        "end_time": end.strftime("%H:%M:%S"),
-        "duration_seconds": current_session_active_seconds,
-        "distance_km": round(current_distance_km, 3),
-        "distance_mi": round(distance_mi, 3),
-        "steps": current_steps,
-        "calories": round(current_calories),
-        "avg_speed_kmh": round(avg_speed_kmh, 1),
-        "avg_speed_mph": round(avg_speed_mph, 1),
-        "health_logged": False,
-    }
-
-
 def _save_session():
-    """Append the current session to session_history.json (thread-safe, atomic)."""
+    """Write the current session to the database as a completed session."""
     if not session_active:
         return
 
-    record = _build_session_record()
-
-    with _history_lock:
-        history = []
-        try:
-            if os.path.exists(HISTORY_FILE):
-                with open(HISTORY_FILE, "r") as f:
-                    history = json.load(f)
-                if not isinstance(history, list):
-                    history = []
-        except (json.JSONDecodeError, IOError) as exc:
-            logging.warning(f"Failed to read {HISTORY_FILE}, starting fresh: {exc}")
-            history = []
-
-        history.append(record)
-
-        # Atomic (temp file + rename), matching _save_session_state(): a
-        # crash mid-write must never leave session_history.json truncated or
-        # otherwise corrupted -- that history is otherwise unrecoverable.
-        tmp_path = f"{HISTORY_FILE}.tmp"
-        try:
-            with open(tmp_path, "w") as f:
-                json.dump(history, f, indent=2)
-            os.replace(tmp_path, HISTORY_FILE)
-            logging.info(f"Session saved to {HISTORY_FILE} ({len(history)} total sessions)")
-        except IOError as exc:
-            logging.error(f"Failed to write session history: {exc}")
+    try:
+        start = _session_start_time.astimezone()
+        end = datetime.now().astimezone()
+        distance_m = current_distance_km * 1000
+        # ponytail: created at end, not start; slice 3 moves create_session to /start.
+        session_id = storage.create_session(
+            start.isoformat(timespec="seconds"), BLE_DEVICE_NAME, None,
+        )
+        storage.complete_session(session_id, {
+            "end_time": end.isoformat(timespec="seconds"),
+            "elapsed_s": (end - start).total_seconds(),
+            "moving_s": current_session_active_seconds,
+            "distance_m": distance_m,
+            "steps": current_steps,
+            "calories_kcal": current_calories,
+            "avg_speed_mps": distance_m / max(current_session_active_seconds, 1),
+        })
+        logging.info(f"Session {session_id} saved to database")
+    except Exception:
+        logging.exception("Failed to save session to database")
 
 
 def _load_session_history(limit: int | None = None) -> list:
-    """Load session history from disk, most recent first (thread-safe). Pass limit=None for all."""
-    with _history_lock:
-        if not os.path.exists(HISTORY_FILE):
-            return []
-        try:
-            with open(HISTORY_FILE, "r") as f:
-                history = json.load(f)
-            if not isinstance(history, list):
-                return []
-            result = list(reversed(history))
-            return result[:limit] if limit is not None else result
-        except (json.JSONDecodeError, IOError) as exc:
-            logging.warning(f"Failed to read session history: {exc}")
-            return []
+    """Completed sessions, most recent first, in the legacy record shape. Pass limit=None for all."""
+    try:
+        return [legacy_record(row) for row in storage.list_sessions(limit=limit)]
+    except Exception:
+        logging.exception("Failed to load session history")
+        return []
 
 
 def _clear_session_history():
-    """Delete or truncate the session history file (thread-safe, atomic)."""
-    with _history_lock:
-        tmp_path = f"{HISTORY_FILE}.tmp"
-        try:
-            with open(tmp_path, "w") as f:
-                json.dump([], f)
-            os.replace(tmp_path, HISTORY_FILE)
-            logging.info("Session history cleared")
-        except IOError as exc:
-            logging.error(f"Failed to clear session history: {exc}")
+    try:
+        storage.clear_history()
+        logging.info("Session history cleared")
+    except Exception:
+        logging.exception("Failed to clear session history")
 
 
 def _dismiss_health_export():
-    """Mark the most recent session as no longer pending an Apple Health export
-    (thread-safe, atomic). session_history.json stores oldest-first, so the most
-    recent record is the last element -- not history[0], which is only true of
-    _load_session_history()'s reversed-for-display copy."""
-    with _history_lock:
-        if not os.path.exists(HISTORY_FILE):
-            return
-        try:
-            with open(HISTORY_FILE, "r") as f:
-                history = json.load(f)
-            if not isinstance(history, list) or not history:
-                return
-            history[-1]["health_logged"] = True
-            tmp_path = f"{HISTORY_FILE}.tmp"
-            with open(tmp_path, "w") as f:
-                json.dump(history, f, indent=2)
-            os.replace(tmp_path, HISTORY_FILE)
-        except (json.JSONDecodeError, IOError) as exc:
-            logging.warning(f"Failed to dismiss health export flag: {exc}")
+    """Mark the most recent session as no longer pending an Apple Health export."""
+    try:
+        recent = storage.list_sessions(limit=1)
+        if recent:
+            storage.mark_health_logged(recent[0]["id"])
+    except Exception:
+        logging.exception("Failed to dismiss health export flag")
 
 
 # ── Session State Persistence (crash/restart recovery) ──────────────────
@@ -398,6 +340,9 @@ def _write_config(updates: dict) -> None:
     with open(_CONFIG_FILE, "w") as f:
         json.dump(existing, f, indent=2)
 
+
+storage.init_db(os.path.join(os.path.dirname(os.path.abspath(__file__)), config.DATABASE_PATH))
+storage.migrate_json(HISTORY_FILE)
 
 _pending_restore = _load_session_state()  # Check for an interrupted session at startup
 
@@ -1390,14 +1335,13 @@ def export_csv():
     history = _load_session_history()
     si = io.StringIO()
     writer = csv.writer(si)
-    writer.writerow(["date", "start_time", "end_time", "duration_seconds",
-                      "distance_km", "distance_mi", "steps", "calories",
-                      "avg_speed_kmh", "avg_speed_mph"])
+    # Legacy columns first, in their original order, so existing spreadsheets keep working.
+    columns = ["date", "start_time", "end_time", "duration_seconds",
+               "distance_km", "distance_mi", "steps", "calories",
+               "avg_speed_kmh", "avg_speed_mph", "id", "has_samples"]
+    writer.writerow(columns)
     for row in history:
-        writer.writerow([row.get("date"), row.get("start_time"), row.get("end_time"),
-                         row.get("duration_seconds"), row.get("distance_km"),
-                         row.get("distance_mi"), row.get("steps"), row.get("calories"),
-                         row.get("avg_speed_kmh"), row.get("avg_speed_mph")])
+        writer.writerow([row[c] for c in columns])
 
     resp = make_response(si.getvalue())
     resp.headers["Content-Disposition"] = "attachment; filename=walkingdad_history.csv"

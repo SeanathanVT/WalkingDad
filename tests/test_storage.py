@@ -213,6 +213,15 @@ def test_clear_history_by_profile(db):
     assert storage.get_session(b) is not None
 
 
+def test_mark_health_logged(db):
+    session_id = storage.create_session("2026-01-01T08:00:00", None, None)
+    assert storage.get_session(session_id)["health_logged"] == 0
+
+    storage.mark_health_logged(session_id)
+
+    assert storage.get_session(session_id)["health_logged"] == 1
+
+
 def test_concurrent_writes(db):
     errors = []
 
