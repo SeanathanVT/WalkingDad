@@ -128,8 +128,9 @@ All settings can be changed from the **Settings page** (gear icon in the header)
 | `port` | `5001` | Server port |
 | `waitress_threads` | `16` | Server worker thread count (4-128) |
 | `apple_health_shortcut_name` | `"Log WalkingDad Workout"` | Must match the installed Shortcut's name exactly; see [Apple Health Export](#apple-health-export) |
+| `database_path` | `"walkingdad.db"` | SQLite database file (relative to the app directory) |
 
-Changes to most settings take effect immediately via the Settings page. `host`, `port`, and `waitress_threads` require restarting the app.
+Changes to most settings take effect immediately via the Settings page. `host`, `port`, `waitress_threads`, and `database_path` require restarting the app.
 
 ## Troubleshooting
 
