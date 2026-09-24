@@ -1,7 +1,12 @@
 """SQLite session storage. All SQL lives in this module; app.py must not issue SQL directly."""
+import json
+import logging
+import os
+import shutil
 import sqlite3
 import threading
 import uuid
+from datetime import datetime, timedelta
 
 _write_lock = threading.Lock()
 _db_path = None
@@ -35,7 +40,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   device_model       TEXT,
   app_version        TEXT,
   source             TEXT NOT NULL DEFAULT 'walkingdad',
-  has_samples        INTEGER NOT NULL DEFAULT 0
+  has_samples        INTEGER NOT NULL DEFAULT 0,
+  health_logged      INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS pauses (
@@ -227,3 +233,101 @@ def clear_history(profile=None):
                 conn.execute(query, params)
         finally:
             conn.close()
+
+
+def mark_health_logged(session_id):
+    with _write_lock:
+        conn = _connect(_db_path)
+        try:
+            with conn:
+                conn.execute("UPDATE sessions SET health_logged = 1 WHERE id = ?", (session_id,))
+        finally:
+            conn.close()
+
+
+def _legacy_json_row(record, tz):
+    def parse(time_str):
+        return datetime.strptime(f"{record['date']} {time_str}", "%Y-%m-%d %H:%M:%S").replace(tzinfo=tz)
+
+    start = parse(record["start_time"])
+    moving_s = float(record["duration_seconds"])
+    try:
+        end = parse(record["end_time"])
+        if end < start:
+            end += timedelta(days=1)
+        elapsed_s = (end - start).total_seconds()
+        end_iso = end.isoformat(timespec="seconds")
+    except (KeyError, TypeError, ValueError):
+        elapsed_s, end_iso = moving_s, None
+    return (
+        str(uuid.uuid4()),
+        start.isoformat(timespec="seconds"),
+        end_iso,
+        elapsed_s,
+        moving_s,
+        float(record["distance_km"]) * 1000,
+        int(record["steps"]),
+        float(record["calories"]),
+        float(record["avg_speed_kmh"]) / 3.6,
+        int(bool(record.get("health_logged", False))),
+    )
+
+
+def migrate_json(json_path):
+    """One-time import of legacy session_history.json. No-op once meta.migrated_from_json is set."""
+    if not os.path.exists(json_path):
+        return
+    conn = _connect(_db_path)
+    try:
+        done = conn.execute("SELECT 1 FROM meta WHERE key = 'migrated_from_json'").fetchone()
+    finally:
+        conn.close()
+    if done:
+        return
+
+    try:
+        with open(json_path) as f:
+            text = f.read()
+        records = json.loads(text) if text.strip() else []
+        if not isinstance(records, list):
+            raise ValueError("top level is not a list")
+    except (OSError, ValueError) as exc:
+        logging.error(f"Cannot migrate {json_path}, leaving it untouched: {exc}")
+        return
+
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    shutil.copy2(json_path, f"{json_path}.bak-{stamp}")
+
+    # Legacy records have no offset; assume the machine's current one (tz_assumed=1).
+    tz = datetime.now().astimezone().tzinfo
+    rows = []
+    for record in records:
+        try:
+            rows.append(_legacy_json_row(record, tz))
+        except (KeyError, TypeError, ValueError) as exc:
+            logging.warning(f"Skipping unparseable history record {record!r}: {exc}")
+
+    with _write_lock:
+        conn = _connect(_db_path)
+        try:
+            with conn:
+                conn.executemany(
+                    """INSERT INTO sessions
+                       (id, start_time, end_time, elapsed_s, moving_s, distance_m, steps,
+                        calories_kcal, avg_speed_mps, health_logged,
+                        status, source, tz_assumed)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', 'migrated_json', 1)""",
+                    rows,
+                )
+                conn.execute(
+                    "INSERT INTO meta(key, value) VALUES ('migrated_from_json', ?)",
+                    (datetime.now().astimezone().isoformat(timespec="seconds"),),
+                )
+        finally:
+            conn.close()
+
+    try:
+        os.replace(json_path, f"{json_path}.migrated")
+    except OSError as exc:
+        logging.warning(f"Migrated {json_path} but could not rename it: {exc}")
+    logging.info(f"Migrated {len(rows)} sessions from {json_path}, skipped {len(records) - len(rows)}")
