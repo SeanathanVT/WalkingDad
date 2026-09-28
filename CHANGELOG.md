@@ -7,6 +7,17 @@ All notable changes to WalkingDad will be documented in this file.
 ### Added
 
 - **Apple Health export**. Off by default (Settings page toggle). Once enabled, a "Log to Apple Health" prompt appears on the start screen after a session ends; scanning the QR it shows runs a Shortcut on your iPhone that logs the session as a Workout via `Log Workout`, no manual re-entry. A separate one-time setup QR (Settings page) installs the Shortcut itself via an iCloud share link. No Apple Developer account, no network fetch back to WalkingDad's server for either QR. See the README's Apple Health Export section.
+- **Per-second session samples and pause log**. Every session now records speed, distance, and steps about once per second while walking (sparser while paused), plus each pause with its reason: manual, auto (stepped off or Bluetooth dropped), or shutdown (crash downtime). Nothing displays these yet; they're the data future TCX/FIT export, charts, and personal records will read.
+- **`database_path` setting**. Where the new database lives (default `walkingdad.db` in the app directory). Requires a restart.
+
+### Changed
+
+- **Session history moved from `session_history.json` to SQLite (`walkingdad.db`)**. On first launch after updating, your existing history is imported automatically: the original file is first copied to `session_history.json.bak-<timestamp>`, then renamed to `session_history.json.migrated` once the import succeeds. A history file that can't be read is left untouched and not marked as imported, so fixing it and restarting retries the import. The start-screen table, Apple Health prompt, and Clear History behave as before. CSV export keeps its existing columns in the same order and adds two at the end: `id` and `has_samples`.
+- **Crash recovery keeps sessions whole**. Restoring an interrupted session continues the same database record instead of starting over, and Discard removes it completely. A session interrupted by a crash and never restored is no longer lost: on the next launch it's saved from its last recorded sample, or dropped if it crashed before recording any.
+
+### Internal
+
+- **First automated tests**. `pytest` suite under `tests/` covering storage, the JSON migration, unit conversions, and sample capture. Install with `requirements-dev.txt`; see the README.
 
 ---
 
