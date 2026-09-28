@@ -213,6 +213,43 @@ def test_clear_history_by_profile(db):
     assert storage.get_session(b) is not None
 
 
+def test_add_pause_is_noop_while_one_is_open(db):
+    session_id = storage.create_session("2026-01-01T08:00:00", None, None)
+    storage.add_pause(session_id, "2026-01-01T08:05:00", "manual")
+    storage.add_pause(session_id, "2026-01-01T08:05:02", "auto")
+    assert _raw_pauses(db, session_id) == [("2026-01-01T08:05:00", None, "manual")]
+
+    storage.end_pause(session_id, "2026-01-01T08:06:00")
+    storage.add_pause(session_id, "2026-01-01T08:10:00", "auto")
+
+    assert len(_raw_pauses(db, session_id)) == 2
+
+
+def test_complete_session_derives_samples_fields(db):
+    session_id = storage.create_session("2026-01-01T08:00:00", None, None)
+    storage.append_samples(session_id, [
+        (0, 1.0, 0.0, 0, 1, None),
+        (1000, 1.6, 1.3, 2, 1, None),
+        (2000, 0.0, 1.3, 2, 0, None),
+    ])
+
+    storage.complete_session(session_id, {"end_time": "2026-01-01T08:05:00"})
+
+    session = storage.get_session(session_id)
+    assert session["has_samples"] == 1
+    assert session["max_speed_mps"] == 1.6
+
+
+def test_complete_session_explicit_max_speed_wins_and_no_samples(db):
+    session_id = storage.create_session("2026-01-01T08:00:00", None, None)
+
+    storage.complete_session(session_id, {"end_time": "2026-01-01T08:05:00", "max_speed_mps": 2.0})
+
+    session = storage.get_session(session_id)
+    assert session["has_samples"] == 0
+    assert session["max_speed_mps"] == 2.0
+
+
 def test_mark_health_logged(db):
     session_id = storage.create_session("2026-01-01T08:00:00", None, None)
     assert storage.get_session(session_id)["health_logged"] == 0

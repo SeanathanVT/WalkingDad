@@ -24,6 +24,7 @@ from config import (
     SPEED_STEP, SLOW_WALK_SPEED_KMH, RESUME_GRACE_PERIOD_SECONDS,
     HISTORY_DISPLAY_LIMIT, APPLE_HEALTH_SHORTCUT_NAME, APPLE_HEALTH_EXPORT_ENABLED,
 )
+from samples import SampleBuffer
 from units import KM_TO_MI, legacy_record
 
 # ── Logging Setup ────────────────────────────────────────────────────────
@@ -184,6 +185,9 @@ _pending_restore: dict | None = None  # Loaded at startup; cleared once restored
 
 session_active = belt_running = False
 _session_start_time: datetime | None = None
+_session_id: str | None = None  # DB row for the in-progress session
+_session_start_monotonic = 0.0  # monotonic clock at _session_start_time; sample t_ms origin
+_samples = SampleBuffer()
 _session_state_lock = threading.Lock()  # Protect session_active/belt_running check-then-set transitions
 _shutting_down = False
 _server_stopping = False  # Flag for UI to detect Ctrl+C / signal shutdown
@@ -218,20 +222,86 @@ _SSE_KEEPALIVE_TIMEOUT_SECONDS = 20
 
 # ── Session History Persistence ────────────────────────────────────────
 
+# Every storage call below is wrapped: a database failure must never stop
+# the belt, block BLE handling, or break End Session / shutdown.
+
+def _now_iso() -> str:
+    return datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def _begin_db_session(existing_id: str | None = None):
+    """Attach the in-progress session to a DB row: reuse existing_id if it still
+    exists (crash restore), else create one. Measures the sample clock from
+    _session_start_time, so restored sessions keep counting from the real start."""
+    global _session_id, _session_start_monotonic
+    _session_start_monotonic = time.monotonic() - (datetime.now() - _session_start_time).total_seconds()
+    _samples.reset()
+    try:
+        if existing_id and storage.get_session(existing_id):
+            _session_id = existing_id
+        else:
+            _session_id = storage.create_session(
+                _session_start_time.astimezone().isoformat(timespec="seconds"), BLE_DEVICE_NAME, None,
+            )
+    except Exception:
+        _session_id = None
+        logging.exception("Failed to create session row")
+
+
+def _record_sample(force: bool = False):
+    if not session_active or _session_id is None:
+        return
+    t_ms = int((time.monotonic() - _session_start_monotonic) * 1000)
+    speed_mps = current_speed_kmh / 3.6 if belt_running else 0.0
+    _samples.add(t_ms, speed_mps, current_distance_km * 1000, current_steps, belt_running, force)
+
+
+def _flush_samples():
+    rows = _samples.drain()
+    if not rows or _session_id is None:
+        return
+    try:
+        storage.append_samples(_session_id, rows)
+    except Exception:
+        logging.exception(f"Failed to write {len(rows)} samples")
+
+
+def _record_pause(reason: str):
+    if _session_id is None:
+        return
+    try:
+        storage.add_pause(_session_id, _now_iso(), reason)
+    except Exception:
+        logging.exception("Failed to record pause")
+
+
+def _record_resume():
+    if _session_id is None:
+        return
+    try:
+        storage.end_pause(_session_id, _now_iso())
+    except Exception:
+        logging.exception("Failed to record resume")
+
+
 def _save_session():
-    """Write the current session to the database as a completed session."""
+    """Complete the in-progress session's DB row with its final totals."""
+    global _session_id
     if not session_active:
         return
 
     try:
+        if _session_id is None:
+            _begin_db_session()  # row creation failed at Start; try once more
+        if _session_id is None:
+            logging.error("Session not saved: no database row")
+            return
+        _record_sample(force=True)
+        _flush_samples()
         start = _session_start_time.astimezone()
         end = datetime.now().astimezone()
         distance_m = current_distance_km * 1000
-        # ponytail: created at end, not start; slice 3 moves create_session to /start.
-        session_id = storage.create_session(
-            start.isoformat(timespec="seconds"), BLE_DEVICE_NAME, None,
-        )
-        storage.complete_session(session_id, {
+        storage.complete_session(_session_id, {
             "end_time": end.isoformat(timespec="seconds"),
             "elapsed_s": (end - start).total_seconds(),
             "moving_s": current_session_active_seconds,
@@ -240,9 +310,11 @@ def _save_session():
             "calories_kcal": current_calories,
             "avg_speed_mps": distance_m / max(current_session_active_seconds, 1),
         })
-        logging.info(f"Session {session_id} saved to database")
+        logging.info(f"Session {_session_id} saved to database")
     except Exception:
         logging.exception("Failed to save session to database")
+    finally:
+        _session_id = None
 
 
 def _load_session_history(limit: int | None = None) -> list:
@@ -278,6 +350,7 @@ def _build_session_state_snapshot() -> dict:
     """Build a dict of the in-progress session's live state for crash recovery."""
     return {
         "session_active": session_active,
+        "session_id": _session_id,
         "session_start_time": _session_start_time.isoformat() if _session_start_time else None,
         "current_distance_km": current_distance_km,
         "current_steps": current_steps,
@@ -290,9 +363,12 @@ def _build_session_state_snapshot() -> dict:
 
 
 def _save_session_state():
-    """Write the current in-progress session to session_state.json (thread-safe, atomic)."""
+    """Write the current in-progress session to session_state.json (thread-safe, atomic).
+    Also flushes buffered samples: this already runs every 5 s while walking and on
+    every pause/resume, which is exactly the sample flush cadence we want."""
     if not session_active:
         return
+    _flush_samples()
     snapshot = _build_session_state_snapshot()
     with _session_state_file_lock:
         tmp_path = f"{SESSION_STATE_FILE}.tmp"
@@ -590,6 +666,7 @@ def process_status_packet(dev_dist: float, dev_steps: int, dev_speed: float):
 
     current_speed_kmh = new_reported_speed_kmh
     current_calories = kcal_estimate(current_distance_km * KM_TO_MI)
+    _record_sample()
 
     # Stamped last, after all accumulation above has succeeded, so a
     # mid-function exception (e.g. malformed packet data) can't mark the
@@ -599,6 +676,7 @@ def process_status_packet(dev_dist: float, dev_steps: int, dev_speed: float):
 
     # Persist immediately on auto-pause, same guarantee as the manual /pause route.
     if just_auto_paused:
+        _record_pause("auto")
         _save_session_state()
 
 
@@ -1125,6 +1203,11 @@ def _handle_disconnect(client):
         connecting = will_auto_reconnect
         connection_failed = not will_auto_reconnect
 
+    # A drop stops the belt, so a walking session is now paused. No-op if a
+    # pause is already open (e.g. the drop happened while paused).
+    if session_active:
+        _record_pause("auto")
+
     try:
         current = asyncio.current_task()
     except RuntimeError:
@@ -1516,6 +1599,8 @@ def restore_session():
         start_str = state.get("session_start_time")
         _session_start_time = datetime.fromisoformat(start_str) if start_str else datetime.now()
         speed_history.clear()
+        # Reuses the crashed session's row; state files from before session_id existed get a new one.
+        _begin_db_session(state.get("session_id"))
 
         # Restored in paused state. The belt isn't actually running; user hits
         # Resume to reconnect the belt sequence and stats monitor.
@@ -1536,8 +1621,14 @@ def discard_session():
             # A restore (or a fresh start) already claimed this session; don't
             # delete its live state file out from under it.
             return redirect(url_for("root"))
+        discarded_id = (_pending_restore or {}).get("session_id")
         _pending_restore = None
         _clear_session_state()
+    if discarded_id:
+        try:
+            storage.delete_session(discarded_id)
+        except Exception:
+            logging.exception("Failed to delete discarded session row")
     return redirect(url_for("root"))
 
 
@@ -1563,6 +1654,7 @@ def start_session():
         speed_history.clear()
         _session_start_time = datetime.now()
         _resume_grace_deadline = time.time() + RESUME_GRACE_PERIOD_SECONDS
+        _begin_db_session()
 
         session_active = True
         belt_running = True
@@ -1629,6 +1721,7 @@ def pause_session():
             resume_speed_kmh = speed_history[-1]
 
         belt_running = False
+        _record_pause("manual")
         _save_session_state()
 
         # Single ordered sequence on ble_loop: cancel monitor before stop_belt()
@@ -1681,6 +1774,7 @@ def resume_session():
         logging.info("Resume button clicked. Setting app state to active.")
         belt_running = True
         _resume_grace_deadline = time.time() + RESUME_GRACE_PERIOD_SECONDS
+        _record_resume()
         _save_session_state()
 
         async def _resume_belt_sequence():

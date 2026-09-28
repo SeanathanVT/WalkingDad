@@ -108,13 +108,18 @@ def create_session(start_time, device_model, app_version, profile="default"):
 
 
 def add_pause(session_id, start_time, reason):
+    """Open a pause; no-op if one is already open, so every pause path can call it blindly."""
     with _write_lock:
         conn = _connect(_db_path)
         try:
             with conn:
                 conn.execute(
-                    "INSERT INTO pauses(session_id, start_time, reason) VALUES (?, ?, ?)",
-                    (session_id, start_time, reason),
+                    """INSERT INTO pauses(session_id, start_time, reason)
+                       SELECT ?, ?, ?
+                       WHERE NOT EXISTS (
+                         SELECT 1 FROM pauses WHERE session_id = ? AND end_time IS NULL
+                       )""",
+                    (session_id, start_time, reason, session_id),
                 )
         finally:
             conn.close()
@@ -151,9 +156,11 @@ def append_samples(session_id, rows):
 
 
 def complete_session(session_id, summary):
+    """Mark completed with the given totals. has_samples, and max_speed_mps unless given,
+    come from the samples table so they stay right across a crash-restore."""
     fields = (
         "end_time", "elapsed_s", "moving_s", "distance_m", "steps",
-        "calories_kcal", "calories_estimated", "avg_speed_mps", "max_speed_mps",
+        "calories_kcal", "calories_estimated", "avg_speed_mps",
     )
     values = [summary.get(f) for f in fields]
     values[fields.index("calories_estimated")] = summary.get("calories_estimated", 1)
@@ -164,9 +171,11 @@ def complete_session(session_id, summary):
                 conn.execute(
                     f"""UPDATE sessions SET
                         status = 'completed',
-                        {", ".join(f"{f} = ?" for f in fields)}
+                        {", ".join(f"{f} = ?" for f in fields)},
+                        max_speed_mps = COALESCE(?, (SELECT MAX(speed_mps) FROM samples WHERE session_id = ?)),
+                        has_samples = EXISTS (SELECT 1 FROM samples WHERE session_id = ?)
                         WHERE id = ?""",
-                    (*values, session_id),
+                    (*values, summary.get("max_speed_mps"), session_id, session_id, session_id),
                 )
         finally:
             conn.close()
