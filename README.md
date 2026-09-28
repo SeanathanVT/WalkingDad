@@ -17,7 +17,7 @@ The official WalkingPad experience is a bloated mobile app that wants your email
 - **Smart pause & resume**: Auto-detects when you step off; remembers your speed; configurable grace period prevents re-triggering on restart
 - **Speed presets**: Slow (speed floor), Moderate, and Max buttons, plus incremental increase/decrease steppers
 - **Console-style interface**: Active, Paused, and Start screens read like the WalkingPad's own onboard display, with one large tabular-digit reading up top and secondary stats in a compact readout strip below
-- **Session history**: Completed sessions saved to `session_history.json` with full stats; last 10 shown on the start screen. Includes CSV export and history clearing.
+- **Session history**: Sessions saved to a local SQLite database (`walkingdad.db`) with full stats, pauses, and per-second speed/distance/steps samples; last 10 shown on the start screen. Includes CSV export and history clearing. An existing `session_history.json` from an older version is imported automatically on first launch (the original is kept as `session_history.json.bak-<timestamp>`).
 - **Crash recovery**: If the server crashes or restarts mid-session, your stats aren't lost. The start screen offers to restore the interrupted session (paused, ready to resume) or discard it.
 - **Settings page**: Gear icon in the header lets you change any setting (device name, speed limits, port, and more) from the browser without editing files
 - **Dark mode**: Three-state toggle (Light → Dark → System) with localStorage persistence
@@ -78,6 +78,8 @@ python run.py
 The app opens your browser automatically at `http://127.0.0.1:5001`. A console window streams timestamped logs; keep it open while the app runs.
 
 **Windows shortcut:** Double-click `start_app.bat` instead of running the commands manually.
+
+**Running tests:** `pip install -r requirements-dev.txt`, then `python -m pytest`. The tests never import `app.py` (importing it opens the real database and migrates `session_history.json`), and need no treadmill.
 
 ## Usage
 

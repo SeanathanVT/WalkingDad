@@ -70,7 +70,8 @@ Cumulative session stats now survive a server crash or restart. In-progress sess
 | **Restore Banner** | Start screen shows a summary (distance, steps, calories, time) of the interrupted session with **Restore Session** / **Discard** actions |
 | **Restore Session** | `/restore_session` reinstates the session in **paused** state (belt physically stopped); user hits Resume to reconnect and continue, matching the existing pause/resume flow |
 | **Clean-Exit Cleanup** | `session_state.json` is removed once a session is finalized normally: on `/end_session` (after saving to history) and during graceful shutdown (Ctrl+C / signal / `/shutdown`). A clean exit never triggers a restore prompt |
-| **Fault Tolerant** | Corrupted or missing `session_state.json` is ignored gracefully, same pattern as `session_history.json` |
+| **Fault Tolerant** | Corrupted or missing `session_state.json` is ignored gracefully |
+| **Database Link** | The state file carries the session's database `session_id`, so Restore continues the same record and Discard deletes it; see 2.9 |
 
 ---
 
@@ -143,14 +144,14 @@ All user-tunable settings are now loaded from an optional `config.json` file, wi
 ---
 
 ### 2.5 Unit Tests
-- **Status:** Planned
+- **Status:** In Progress
 - **Priority:** Medium
-- **Problem:** No automated tests exist, making refactoring risky.
-- **Solution:** Write unit tests for pure functions and stateless logic:
+- **Problem:** `app.py` itself has no automated tests, making refactoring risky. (`pytest` under `tests/` already covers `storage.py`, the JSON migration, `units.py`, and `samples.py`, added with 2.9.)
+- **Solution:** Extend the suite to `app.py`'s logic:
     - `format_seconds_to_hms()` - time formatting edge cases
     - `kcal_estimate()` - calorie calculation
     - `process_status_packet()` - stat accumulation, auto-pause detection, speed history management (mock BLE data)
-- **Implementation:** Use `pytest` with fixtures for mock status packets. Place tests in a new `tests/` directory.
+- **Implementation:** Importing `app.py` has side effects (opens `walkingdad.db` next to it, migrates `session_history.json`, starts the BLE thread), so tests can't import it as-is. Either move the pure pieces into importable modules, as 2.9 did with `samples.py`, or make those startup steps run from `run.py`/a `main()` instead of at import time.
 
 ---
 
@@ -166,9 +167,9 @@ All user-tunable settings are now loaded from an optional `config.json` file, wi
 ### 2.7 Continuous Integration
 - **Status:** Planned
 - **Priority:** Medium
-- **Problem:** There's no GitHub Actions workflow; nothing runs automatically on push/PR. Most valuable once 2.5 (Unit Tests) exists, but even a lint/import-check job has value before that.
-- **Solution:** A GitHub Actions workflow that installs dependencies and runs the test suite (once 2.5 lands) plus a linter, on every push and PR.
-- **Implementation:** `.github/workflows/ci.yml` running on `ubuntu-latest`, `pip install -r requirements.txt`, then `pytest` and a linter (e.g. `ruff`).
+- **Problem:** There's no GitHub Actions workflow; nothing runs automatically on push/PR, even though a `pytest` suite now exists (2.5).
+- **Solution:** A GitHub Actions workflow that installs dependencies and runs the test suite plus a linter, on every push and PR.
+- **Implementation:** `.github/workflows/ci.yml` running on `ubuntu-latest`, `pip install -r requirements.txt -r requirements-dev.txt`, then `pytest` and a linter (e.g. `ruff`).
 
 ---
 
@@ -181,21 +182,31 @@ All user-tunable settings are now loaded from an optional `config.json` file, wi
 
 ---
 
-### 2.9 SQLite for Session History
-- **Status:** Planned
-- **Priority:** Medium
-- **Problem:** `_save_session()` reads and rewrites the entire `session_history.json` file on every session end. Fine at hundreds of sessions, but the file only grows, so the full-file rewrite cost grows with it, and years of daily walks is exactly the intended use case.
-- **Solution:** Move session history storage to a local SQLite database (`session_history.db`), keeping the same record shape as columns.
-- **Implementation:** `sqlite3` (stdlib, no new dependency), a thin data-access layer replacing `_save_session()`/`_load_session_history()`/`_clear_session_history()`/`_dismiss_health_export()`. A one-time migration reads the existing `session_history.json` and inserts its rows on first run. Also simplifies the date-range/aggregation queries 4.2-4.4 (Personal Records, Goals, Trends) need.
+### ✅ 2.9 SQLite Session Storage
+**Status:** ✅ Complete
+**Priority:** Medium
+**Files Modified:** `app.py`, `storage.py`, `units.py`, `samples.py`, `config.py`, `config.json.example`, `.gitignore`, `tests/`
+
+Session data lives in a local SQLite database (`walkingdad.db`, configurable via `database_path`) instead of a JSON file that was fully rewritten on every session end. The schema stores SI units and timezone-aware timestamps and maps onto FIT/TCX concepts, so it doubles as the groundwork for 3.10, 4.2-4.5, 5.2, and 5.3.
+
+| Feature | Description |
+|---|---|
+| **Storage Module** | `storage.py` (stdlib `sqlite3`, no ORM) is the only place SQL lives. Short-lived connection per call, WAL mode, a module lock for writes |
+| **Schema** | `sessions` (UUID `id`, `status` active/completed, `profile`, SI totals, moving vs. elapsed time, `health_logged`, `has_samples`), `pauses` (start/end, reason `manual`/`auto`/`shutdown`), `samples` (per-second `t_ms`, speed, cumulative distance/steps, belt state, reserved `hr_bpm`), `meta` (`schema_version`, migration marker) |
+| **Live Lifecycle** | Row created at Start; pauses recorded at manual pause, step-off auto-pause, and Bluetooth drop; completed at End or graceful shutdown |
+| **Samples** | ~1/s while walking, at most 1 per 5 s while paused (in practice every idle-watchdog ping, ~10 s), buffered in memory and flushed on the existing 5 s `_save_session_state()` cadence, so a crash loses at most ~5 s. Storage failures are logged, never allowed to stop the belt or block BLE handling |
+| **Crash Recovery Link** | `session_state.json` carries the `session_id`: Restore continues the same row (downtime recorded as a `shutdown` pause), Discard deletes it. Unreferenced `active` rows are swept at startup: completed from their last sample, or deleted if they have none |
+| **JSON Migration** | One-time, automatic, single transaction: backup to `session_history.json.bak-<timestamp>`, then rename to `.migrated`. Unparseable records are logged and skipped; an unreadable file is left untouched for a later retry |
+| **Unchanged Surface** | `units.legacy_record()` rebuilds the pre-SQLite record shape, so the history table, Apple Health export, and CSV columns are identical (CSV gains trailing `id`, `has_samples`) |
 
 ---
 
 ### 2.10 Config / History Schema Versioning
 - **Status:** Planned
 - **Priority:** Medium
-- **Problem:** `config.json` and `session_history.json` have no format version. Every past field addition has been handled ad hoc via `.get(key, default)`, which works but leaves no clean way to detect "this file predates feature X" versus "this field is just legitimately absent."
-- **Solution:** Add a `schema_version` field to both files, bumped whenever the record shape changes, checked on load so a future migration has a clear branch point instead of guessing from field presence.
-- **Implementation:** A constant per file (`_CONFIG_SCHEMA_VERSION`, `_HISTORY_SCHEMA_VERSION`) written on save; on load, missing/older versions are treated as version 1 (today's implicit shape) and upgraded in place if a migration exists.
+- **Problem:** `config.json` has no format version. Every past field addition has been handled ad hoc via `.get(key, default)`, which works but leaves no clean way to detect "this file predates feature X" versus "this field is just legitimately absent." (Session history already has one: 2.9's `meta.schema_version`.)
+- **Solution:** Add a `schema_version` field to `config.json`, bumped whenever its shape changes, checked on load so a future migration has a clear branch point instead of guessing from field presence.
+- **Implementation:** A `_CONFIG_SCHEMA_VERSION` constant written on save; on load, a missing/older version is treated as version 1 (today's implicit shape) and upgraded in place if a migration exists. The database side needs a migration runner only once `schema_version` 3 exists.
 
 ---
 
@@ -280,19 +291,18 @@ Shipping this surfaced a real gap it needed to close first: a dead BLE connectio
 **Priority:** Medium
 **Files Modified:** `app.py`, `templates/start_session.html`, `templates/active_session.html`, `templates/paused_session.html`, `templates/base.html`, `.gitignore`
 
-Stores completed sessions in a local JSON file (`session_history.json`) and displays a summary table on the start screen. Includes CSV export and history clearing.
+Stores completed sessions and displays a summary table on the start screen. Includes CSV export and history clearing. Storage is SQLite (see 2.9); it began as a JSON file, `session_history.json`, which is imported automatically.
 
 | Feature | Description |
 |---|---|
-| **Session Persistence** | On session end (explicit "End Session" button or graceful shutdown), all session stats are written to `session_history.json` as a JSON array of record objects |
-| **Thread-Safe I/O** | All file reads/writes protected by `threading.Lock()` (`_history_lock`) to prevent corruption across Flask request threads and the BLE thread |
-| **Session Record** | Each record stores: date, start_time, end_time, duration_seconds, distance_km, distance_mi, steps, calories, avg_speed_kmh, avg_speed_mph |
+| **Session Persistence** | On session end (explicit "End Session" button or graceful shutdown), the session's database record is completed with its final stats |
+| **Session Record** | The UI and CSV see: date, start_time, end_time, duration_seconds, distance_km, distance_mi, steps, calories, avg_speed_kmh, avg_speed_mph, rebuilt from SI columns by `units.legacy_record()` |
 | **Recent Sessions Table** | Start screen displays last 10 sessions (configurable via `HISTORY_DISPLAY_LIMIT`) in a responsive table with date, time, duration, distance, steps, calories, and avg speed |
 | **End Session Button** | Red "End Session" button on Active and Paused screens: stops belt, cancels monitor, saves session to history, resets all counters, returns to start screen |
 | **CSV Export** | `/export_csv` route generates a downloadable CSV with all historical sessions (full history, no limit) |
-| **Clear History** | "Clear" button on start screen with confirmation dialog, calls `/clear_history` POST endpoint to truncate the history file |
+| **Clear History** | "Clear" button on start screen with confirmation dialog, calls `/clear_history` POST endpoint to delete completed sessions (never an in-progress one) |
 | **Graceful Shutdown Hook** | `_save_session()` called at the start of `_graceful_shutdown()` so in-progress sessions are captured even on Ctrl+C or server Close |
-| **Fault Tolerant** | Corrupted or missing `session_history.json` is handled gracefully: starts fresh with empty array and logs warning |
+| **Fault Tolerant** | A storage error is logged and shows an empty history rather than breaking the start screen |
 
 ---
 
@@ -337,7 +347,8 @@ Active, Paused, and Start screens redesigned to read like the WalkingPad's own o
 - **Priority:** Low
 - **Problem:** Some WalkingPad models have hand-held heart rate sensors, but the data is not exposed in the UI.
 - **Solution:** If `ph4-walkingpad` provides heart rate data in status packets, display it as an additional item in the instrument strip during active sessions.
-- **Dependency:** Verify heart rate data availability via `ph4-walkingpad` library and device firmware support.
+- **Dependency:** Verify heart rate data availability via `ph4-walkingpad` library and device firmware support. If the pad doesn't expose it, a watch or chest strap via the standard BLE Heart Rate Service (0x180D / 0x2A37) is the alternative source.
+- **Storage:** `samples.hr_bpm` already exists (2.9, always NULL today), so recording heart rate needs no schema change.
 
 ---
 
@@ -418,9 +429,9 @@ Active, Paused, and Start screens redesigned to read like the WalkingPad's own o
 ### 4.2 Personal Records
 - **Status:** Planned
 - **Priority:** Medium
-- **Problem:** `session_history.json` already has everything needed to highlight records, but nothing surfaces them. Every session looks the same as the last.
-- **Solution:** Compute and display "bests" on the start screen: longest session, farthest distance, most steps in a day, fastest avg speed.
-- **Implementation:** A `_compute_records()` helper over `_load_session_history(limit=None)`, rendered as a small stat row near the history table.
+- **Problem:** Session history already has everything needed to highlight records, but nothing surfaces them. Every session looks the same as the last.
+- **Solution:** Compute and display "bests" on the start screen: longest session, farthest distance, most steps in a day, fastest avg speed (or `max_speed_mps` for top speed, recorded since 2.9).
+- **Implementation:** SQL aggregates over completed `sessions` rows in `storage.py` (`MAX(distance_m)`, per-day `SUM(steps)` grouped on the date part of `start_time`), rendered as a small stat row near the history table.
 
 ---
 
@@ -429,7 +440,7 @@ Active, Paused, and Start screens redesigned to read like the WalkingPad's own o
 - **Priority:** Medium
 - **Problem:** There's no way to set a target and see progress toward it beyond a single session. Unlike 4.1's live per-session ETA, this tracks progress across multiple sessions over time.
 - **Solution:** Let the user set a daily or weekly step/distance goal in Settings; show a progress bar on the start screen summing today's/this week's sessions from history.
-- **Implementation:** New config keys (`goal_type`, `goal_target`, `goal_period`); an aggregation function filtering `session_history.json` by date range; progress bar on `start_session.html`.
+- **Implementation:** New config keys (`goal_type`, `goal_target`, `goal_period`); a date-range `SUM` over completed `sessions` rows in `storage.py` (`idx_sessions_start` already indexes `start_time`); progress bar on `start_session.html`.
 
 ---
 
@@ -438,16 +449,16 @@ Active, Paused, and Start screens redesigned to read like the WalkingPad's own o
 - **Priority:** Low
 - **Problem:** History is a flat list of individual sessions. There's no sense of trend (more or less active than last week/month).
 - **Solution:** Add a compact summary comparing this week's/month's totals (distance, steps, sessions) against the previous period.
-- **Implementation:** Aggregate `session_history.json` by ISO week/month; render as text deltas or a minimal inline sparkline. No new charting dependency needed for a first pass.
+- **Implementation:** Aggregate completed `sessions` rows by ISO week/month in `storage.py`; render as text deltas or a minimal inline sparkline. No new charting dependency needed for a first pass.
 
 ---
 
 ### 4.5 Per-User Profiles
 - **Status:** Planned
 - **Priority:** Low
-- **Problem:** WalkingDad is built for a household to share, but `session_history.json` mixes everyone's sessions together. History, records (4.2), and goals (4.3) can't be attributed to a person.
-- **Solution:** A lightweight profile selector (name only, no accounts/auth) that tags each session with a `profile` field; history, CSV export, personal records (4.2), and goals (4.3) all filter by the active profile.
-- **Implementation:** Add `profile` to the session record schema (`_build_session_record()`); update 4.2's `_compute_records()` and 4.3's date-range aggregation to filter by the active profile; a profile switcher in the header or start screen; default to a single "default" profile so existing history isn't invalidated.
+- **Problem:** WalkingDad is built for a household to share, but history mixes everyone's sessions together. History, records (4.2), and goals (4.3) can't be attributed to a person.
+- **Solution:** A lightweight profile selector (name only, no accounts/auth) that tags each session with a profile; history, CSV export, personal records (4.2), and goals (4.3) all filter by the active profile.
+- **Implementation:** The storage side exists since 2.9: `sessions.profile` (every existing row is `'default'`), an `(profile, start_time)` index, and `profile=` filters on `storage.create_session()`, `list_sessions()`, and `clear_history()`. Remaining: a profile switcher in the header or start screen, passing the active profile through those calls, and filtering 4.2/4.3's aggregates the same way.
 
 ---
 
@@ -484,16 +495,16 @@ This also gave 3.6 (QR Code for LAN Access) a proven client-side QR-rendering ap
 - **Priority:** Low
 - **Problem:** CSV covers spreadsheets, but most fitness platforms and importers (Strava, RunGap, Health Connect-integrated apps) expect a GPX or TCX file.
 - **Solution:** Add a per-session GPX/TCX export alongside the existing CSV export, so users on any platform can hand the file to whatever importer they already use. No direct API integration on WalkingDad's side.
-- **Implementation:** Requires first adding a stable identifier to the session record schema: `_build_session_record()`/`session_history.json` have none today (an index or ISO timestamp key would work). Then an `/export_gpx/<session_id>`-style route generating a minimal GPX/TCX document (timestamp, distance, duration; no GPS track since the treadmill doesn't produce one).
+- **Implementation:** The prerequisites exist since 2.9: a stable UUID `sessions.id` (already a CSV column) and per-second `samples`. An `/export/<session_id>.tcx`-style route built from `storage.get_session()` + `get_samples()`: sport Walking (treadmill), distance-only trackpoints from the samples (no GPS since the treadmill doesn't produce one), total time from `elapsed_s` and timer time from `moving_s`. Sessions imported from the old JSON have no samples (`has_samples = 0`), so they'd export as a single summary lap.
 
 ---
 
 ### 5.3 Session History Import
 - **Status:** Planned
 - **Priority:** Medium
-- **Problem:** `/export_csv` gets history out, but there's no way back in. Migrating to a new machine or restoring from a backup CSV means hand-editing `session_history.json`.
-- **Solution:** An import action on the Settings or start-screen "Recent Sessions" area that accepts a previously-exported CSV and merges it into `session_history.json`.
-- **Implementation:** An `/import_history` route parsing the uploaded CSV back into session record dicts (mirroring `export_csv()`'s column order), validating required fields, and appending via the same atomic-write path `_save_session()` uses. Duplicate detection (matching date/start_time) is worth a pass before appending.
+- **Problem:** `/export_csv` gets history out, but there's no way back in. Migrating to a new machine currently means copying `walkingdad.db` by hand; restoring from a backup CSV isn't possible at all.
+- **Solution:** An import action on the Settings or start-screen "Recent Sessions" area that accepts a previously-exported CSV and merges it into the database.
+- **Implementation:** An `/import_history` route parsing the uploaded CSV (mirroring `export_csv()`'s column order), validating required fields, and inserting through `storage.py`. The row-to-SI mapping is the same one `storage.migrate_json()` already does for legacy records, so reuse it. Exported CSVs carry each session's `id`, which makes duplicate detection exact; fall back to date/start_time matching for CSVs exported before 2.9.
 
 ---
 
