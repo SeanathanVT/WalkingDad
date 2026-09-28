@@ -1,4 +1,26 @@
-from samples import SampleBuffer
+import pytest
+
+from samples import SampleBuffer, summary_from_samples
+
+
+def test_summary_from_samples():
+    rows = [
+        {"t_ms": 1000, "distance_m": 0.0, "steps": 0, "belt_running": 1},
+        {"t_ms": 2000, "distance_m": 1.5, "steps": 2, "belt_running": 1},
+        {"t_ms": 3000, "distance_m": 3.0, "steps": 4, "belt_running": 1},
+        {"t_ms": 8000, "distance_m": 3.0, "steps": 4, "belt_running": 0},
+        {"t_ms": 61_000, "distance_m": 1609.344, "steps": 2000, "belt_running": 1},
+    ]
+
+    s = summary_from_samples("2026-07-20T23:59:30-04:00", rows, kcal_per_mile=95)
+
+    assert s["end_time"] == "2026-07-21T00:00:31-04:00"
+    assert s["elapsed_s"] == 61
+    assert s["moving_s"] == 4
+    assert s["distance_m"] == 1609.344
+    assert s["steps"] == 2000
+    assert s["calories_kcal"] == pytest.approx(95, rel=1e-5)
+    assert s["avg_speed_mps"] == pytest.approx(1609.344 / 4)
 
 
 def test_walking_throttled_to_one_per_second():

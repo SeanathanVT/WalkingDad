@@ -11,7 +11,7 @@ import threading
 import time
 import urllib.parse
 from collections import deque
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from bleak import BleakScanner
 from flask import Flask, render_template, redirect, url_for, jsonify, make_response, request, Response
@@ -24,7 +24,7 @@ from config import (
     SPEED_STEP, SLOW_WALK_SPEED_KMH, RESUME_GRACE_PERIOD_SECONDS,
     HISTORY_DISPLAY_LIMIT, APPLE_HEALTH_SHORTCUT_NAME, APPLE_HEALTH_EXPORT_ENABLED,
 )
-from samples import SampleBuffer
+from samples import SampleBuffer, summary_from_samples
 from units import KM_TO_MI, legacy_record
 
 # ── Logging Setup ────────────────────────────────────────────────────────
@@ -266,13 +266,46 @@ def _flush_samples():
         logging.exception(f"Failed to write {len(rows)} samples")
 
 
-def _record_pause(reason: str):
+def _record_pause(reason: str, at: str | None = None):
     if _session_id is None:
         return
     try:
-        storage.add_pause(_session_id, _now_iso(), reason)
+        storage.add_pause(_session_id, at or _now_iso(), reason)
     except Exception:
         logging.exception("Failed to record pause")
+
+
+def _last_sample_time() -> str | None:
+    """Wall-clock time of the session's last stored sample: the last moment a
+    crashed session is known to have been alive."""
+    try:
+        rows = storage.get_samples(_session_id) if _session_id else []
+    except Exception:
+        logging.exception("Failed to read samples")
+        return None
+    if not rows:
+        return None
+    at = _session_start_time.astimezone() + timedelta(milliseconds=rows[-1]["t_ms"])
+    return at.isoformat(timespec="seconds")
+
+
+def _sweep_orphaned_sessions(keep_id: str | None):
+    """An 'active' row that session_state.json doesn't point at can never be
+    restored (crash followed by Start or Discard-less restart). Complete it
+    from its samples, or delete it if it has none."""
+    try:
+        for s in storage.list_active_sessions():
+            if s["id"] == keep_id:
+                continue
+            rows = storage.get_samples(s["id"])
+            if rows:
+                storage.complete_session(s["id"], summary_from_samples(s["start_time"], rows, KCAL_PER_MILE))
+                logging.info(f"Completed orphaned session {s['id']} from its last sample")
+            else:
+                storage.delete_session(s["id"])
+                logging.info(f"Deleted orphaned session {s['id']} (no samples)")
+    except Exception:
+        logging.exception("Orphaned session sweep failed")
 
 
 def _record_resume():
@@ -421,6 +454,7 @@ storage.init_db(os.path.join(os.path.dirname(os.path.abspath(__file__)), config.
 storage.migrate_json(HISTORY_FILE)
 
 _pending_restore = _load_session_state()  # Check for an interrupted session at startup
+_sweep_orphaned_sessions((_pending_restore or {}).get("session_id"))
 
 
 # ── Apple Health export (Shortcuts QR codes) ─────────────────────────────
@@ -1601,6 +1635,7 @@ def restore_session():
         speed_history.clear()
         # Reuses the crashed session's row; state files from before session_id existed get a new one.
         _begin_db_session(state.get("session_id"))
+        _record_pause("shutdown", at=_last_sample_time())
 
         # Restored in paused state. The belt isn't actually running; user hits
         # Resume to reconnect the belt sequence and stats monitor.
