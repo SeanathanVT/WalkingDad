@@ -209,6 +209,15 @@ def list_sessions(limit=None, profile=None):
     return [dict(row) for row in rows]
 
 
+def list_active_sessions():
+    conn = _connect(_db_path)
+    try:
+        rows = conn.execute("SELECT * FROM sessions WHERE status = 'active'").fetchall()
+    finally:
+        conn.close()
+    return [dict(row) for row in rows]
+
+
 def get_session(session_id):
     conn = _connect(_db_path)
     try:

@@ -180,6 +180,14 @@ def test_list_sessions_profile_filter(db):
     assert [s["id"] for s in sessions] == [a]
 
 
+def test_list_active_sessions(db):
+    active = storage.create_session("2026-01-01T08:00:00", None, None)
+    done = storage.create_session("2026-01-01T09:00:00", None, None)
+    storage.complete_session(done, {"end_time": "2026-01-01T09:05:00"})
+
+    assert [s["id"] for s in storage.list_active_sessions()] == [active]
+
+
 def test_get_session_missing_returns_none(db):
     assert storage.get_session("nonexistent-id") is None
 
