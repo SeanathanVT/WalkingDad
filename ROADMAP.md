@@ -120,7 +120,7 @@ A session left paused (manual, auto, Bluetooth drop, or restored after a crash) 
 |---|---|
 | **Mirrors Waitress** | `_listen_addrs()` resolves `host` the way Waitress does (`getaddrinfo` with `AF_UNSPEC`/`AI_PASSIVE`, `[...]` stripped, `*` as wildcard, zone-index dedupe) and test-binds every result, so `*`, `localhost`, and IPv6 hosts are probed on each address Waitress will bind, not just the first |
 | **Bind, Not Connect** | A `bind()` probe rather than `connect_ex()`, so it also catches Windows-reserved ports and listeners on other interfaces. `create_server()` omits `SO_REUSEADDR` on Windows (Waitress sets it, which would let a second WalkingDad bind over a live listener) and sets it on POSIX, so a TIME_WAIT port from the last run counts as free |
-| **Specific Messages** | Separate messages for a port in use (likely a second WalkingDad), a port the OS won't allow (privileged or Windows-reserved), a `host` that doesn't resolve, and a `port` outside 1-65535 (checked up front, since `getaddrinfo` silently wraps 70000 to 4464) |
+| **Specific Messages** | Separate messages for a port in use (likely a second WalkingDad), a port the OS won't allow (below 1024 on Linux without root, or Windows-reserved), a `host` that doesn't resolve, and a `port` outside 1-65535 (checked up front, since `getaddrinfo` silently wraps 70000 to 4464) |
 | **Readable on Windows** | `start_app.bat` pauses on a non-zero exit so the message stays open |
 
 ---

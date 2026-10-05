@@ -57,8 +57,8 @@ def check_port():
                 hint = ("Another program, possibly another WalkingDad window, is using it. "
                         'Close it, or set a different "port" in config.json and restart.')
             elif exc.errno in (errno.EACCES, getattr(errno, "WSAEACCES", None)):
-                hint = ("The OS doesn't allow this port (below 1024 without admin rights, or "
-                        'reserved by Windows). Set a different "port" in config.json and restart.')
+                hint = ("The OS doesn't allow this port (on Linux, ports below 1024 need root; "
+                        'on Windows, it may be reserved). Set a different "port" in config.json and restart.')
             else:
                 hint = 'Check "host" and "port" in config.json, then restart.'
             sys.exit(f"Can't start: can't listen on {sockaddr[0]} port {PORT} ({exc}).\n{hint}")
