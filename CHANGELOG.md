@@ -7,6 +7,7 @@ All notable changes to WalkingDad will be documented in this file.
 ### Added
 
 - **Apple Health export**. Off by default (Settings page toggle). Once enabled, a "Log to Apple Health" prompt appears on the start screen after a session ends; scanning the QR it shows runs a Shortcut on your iPhone that logs the session as a Workout via `Log Workout`, no manual re-entry. A separate one-time setup QR (Settings page) installs the Shortcut itself via an iCloud share link. No Apple Developer account, no network fetch back to WalkingDad's server for either QR. See the README's Apple Health Export section.
+- **Automatic reconnect**. When the Bluetooth connection drops unexpectedly, the app now retries on its own (up to 8 attempts over about 7-8 minutes) instead of going straight to **Connection Failed, Try Again**. Walking briefly out of range or a transient glitch no longer needs a click. A session that was walking is paused by the drop; press Resume once reconnected. **Try Again** still appears if every attempt fails, for example when the pad is switched off.
 - **Per-second session samples and pause log**. Every session now records speed, distance, and steps about once per second while walking (sparser while paused), plus each pause with its reason: manual, auto (stepped off or Bluetooth dropped), or shutdown (crash downtime). Nothing displays these yet; they're the data future TCX/FIT export, charts, and personal records will read.
 - **`database_path` setting**. Where the new database lives (default `walkingdad.db` in the app directory). Requires a restart.
 

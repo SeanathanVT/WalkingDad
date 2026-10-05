@@ -75,12 +75,22 @@ Cumulative session stats now survive a server crash or restart. In-progress sess
 
 ---
 
-### 1.4 Automatic Reconnect on Disconnection
-- **Status:** Planned
-- **Priority:** High
-- **Problem:** When the BLE connection drops unexpectedly, the user must manually click "Try Again" to reconnect.
-- **Solution:** Implement automatic reconnection with configurable retry interval (e.g., attempt every 5 seconds for up to 60 seconds), while still showing a "Disconnected" state in the UI.
-- **Implementation:** Add a background reconnect task that monitors `connected` state and triggers `_start_ble_thread()` after a delay when disconnection is detected.
+### ✅ 1.4 Automatic Reconnect on Disconnection
+**Status:** ✅ Complete
+**Priority:** High
+**Files Modified:** `app.py`
+
+An unexpected Bluetooth drop no longer goes straight to the manual "Try Again" screen. The app retries on its own, so walking briefly out of range or a transient glitch heals itself.
+
+| Feature | Description |
+|---|---|
+| **Bounded Retry** | `_auto_reconnect()` retries `_connect_to_pad()` up to 8 times (`_MAX_RECONNECT_ATTEMPTS`): first attempt immediately, then waits of 5, 10, 20, then 30 s (capped). With each attempt's own scan, about 7-8 minutes in total before falling back to **Connection Failed / Try Again**. Bounded because a powered-off pad and one temporarily out of range look identical |
+| **Same Event Loop** | Runs on the existing `ble_loop`, which `_ble_thread()` leaves idling after a disconnect; no new thread, loop, or lock |
+| **UI State** | Reuses the existing `connecting` flag, so the console shows the connecting state during retries; no new template state |
+| **Session Survives** | The drop pauses a walking session (recorded as an `auto` pause, see 2.9); after reconnecting, Resume continues it |
+| **Race Safety** | In-flight belt sequences, speed changes, and reconnect attempts are cancelled before shutdown or before a new connection replaces `controller`, so a stale coroutine can't send commands to the wrong client |
+
+Not configurable: retry counts and delays are module constants in `app.py`.
 
 ---
 
@@ -318,7 +328,7 @@ Stores completed sessions and displays a summary table on the start screen. Incl
 ### 3.7 Touch / Swipe Gesture Speed Controls
 - **Status:** Planned
 - **Priority:** Low
-- **Problem:** The primary interaction is a desktop/laptop browser at the desk the WalkingPad sits under, which 3.3 (Keyboard Shortcuts) already serves well. On the occasions the control page is pulled up on a phone or tablet as a secondary device, though, every speed change is still a full button tap.
+- **Problem:** The primary interaction is a desktop/laptop browser at the desk the WalkingPad sits under, which 3.3 (Keyboard Shortcuts) is meant to serve. On the occasions the control page is pulled up on a phone or tablet as a secondary device, though, every speed change is still a full button tap.
 - **Solution:** Add swipe-up/swipe-down gestures over the speed readout on `active_session.html` as a touch-friendly alternative to button taps whenever a touchscreen is in use.
 - **Implementation:** `touchstart`/`touchend` delta listeners on the console hero, calling the same `/increase_speed` and `/decrease_speed` routes as the buttons.
 
