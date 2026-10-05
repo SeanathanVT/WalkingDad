@@ -79,3 +79,15 @@ def test_not_counted_while_paused(walking, monkeypatch):
     walking(4)
     walking(4)
     assert app.current_session_active_seconds == 0
+
+
+def test_stop_moment_sampled_despite_paused_throttle(walking, monkeypatch):
+    monkeypatch.setattr(app, "_session_id", "s")
+    monkeypatch.setattr(app, "_session_start_monotonic", 0.0)
+    monkeypatch.setattr(app, "_record_pause", lambda *a, **k: None)
+    app._samples.reset()
+
+    walking(4)
+    walking(0)  # auto-pause, 1 s after the last walking sample
+    rows = app._samples.drain()
+    assert [r[4] for r in rows] == [1, 0]  # belt_running column

@@ -731,7 +731,8 @@ def process_status_packet(dev_dist: float, dev_steps: int, dev_speed: float):
     current_speed_kmh = new_reported_speed_kmh
     current_calories = kcal_estimate(current_distance_km * KM_TO_MI)
     _last_moving_packet_monotonic = now if walking and new_reported_speed_kmh > 0 else None
-    _record_sample()
+    # Forced on auto-pause: the paused-rate throttle would otherwise drop the stop moment.
+    _record_sample(force=just_auto_paused)
 
     # Stamped last, after all accumulation above has succeeded, so a
     # mid-function exception (e.g. malformed packet data) can't mark the
@@ -1812,6 +1813,7 @@ def pause_session():
 
         belt_running = False
         _record_pause("manual")
+        _record_sample(force=True)  # mark the stop moment before the paused-rate throttle applies
         _save_session_state()
 
         # Single ordered sequence on ble_loop: cancel monitor before stop_belt()
