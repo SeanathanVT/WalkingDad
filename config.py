@@ -10,9 +10,13 @@ _DEFAULTS = {
     "kcal_per_mile": 95,
     "resume_grace_period_seconds": 7,
     "history_display_limit": 10,
+    "stale_pause_timeout_minutes": 30,
     "host": "0.0.0.0",
     "port": 5001,
     "waitress_threads": 16,
+    "apple_health_shortcut_name": "Log WalkingDad Workout",
+    "apple_health_export_enabled": False,
+    "database_path": "walkingdad.db",
 }
 
 _path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
@@ -34,6 +38,10 @@ SLOW_WALK_SPEED_KMH: float        = _get("slow_walk_speed_kmh")
 KCAL_PER_MILE: int                = _get("kcal_per_mile")
 RESUME_GRACE_PERIOD_SECONDS: int  = _get("resume_grace_period_seconds")
 HISTORY_DISPLAY_LIMIT: int        = _get("history_display_limit")
+STALE_PAUSE_TIMEOUT_MINUTES: int  = _get("stale_pause_timeout_minutes")
 HOST: str                         = _get("host")
 PORT: int                         = _get("port")
 WAITRESS_THREADS: int             = _get("waitress_threads")
+APPLE_HEALTH_SHORTCUT_NAME: str   = _get("apple_health_shortcut_name")
+APPLE_HEALTH_EXPORT_ENABLED: bool = _get("apple_health_export_enabled")
+DATABASE_PATH: str               = _get("database_path")

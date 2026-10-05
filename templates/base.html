@@ -980,6 +980,17 @@
             color: white;
         }
 
+        /* Toggle switches (Bootstrap's .form-switch): checked state defaults
+           to a fixed blue that doesn't follow the color theme. */
+        .form-check-input:checked {
+            background-color: var(--accent-color);
+            border-color: var(--accent-color);
+        }
+        .form-check-input:focus {
+            border-color: var(--accent-color);
+            box-shadow: 0 0 0 0.25rem color-mix(in srgb, var(--accent-color) 25%, transparent);
+        }
+
         /* Accent-colored text/spinners (Bootstrap's .text-primary is a fixed
            color and doesn't follow the color theme) */
         .text-accent {

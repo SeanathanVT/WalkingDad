@@ -48,6 +48,10 @@
   disableButtonsOnSubmit('transitioning-hint', pausedButtons);
 
   startStatsStream(function(data) {
+    if (data.session_active === false) {
+      window.location.reload();
+      return;
+    }
     setTransitioning('transitioning-hint', pausedButtons, data.belt_transitioning === true);
   });
 </script>

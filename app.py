@@ -9,28 +9,30 @@ import queue
 import signal
 import threading
 import time
+import urllib.parse
 from collections import deque
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from bleak import BleakScanner
 from flask import Flask, render_template, redirect, url_for, jsonify, make_response, request, Response
 from ph4_walkingpad.pad import Controller, WalkingPad
 
 import config
+import storage
 from config import (
     BLE_DEVICE_NAME, KCAL_PER_MILE, MAX_SPEED_KMH, MIN_SPEED_KMH,
     SPEED_STEP, SLOW_WALK_SPEED_KMH, RESUME_GRACE_PERIOD_SECONDS,
-    HISTORY_DISPLAY_LIMIT,
+    HISTORY_DISPLAY_LIMIT, APPLE_HEALTH_SHORTCUT_NAME, APPLE_HEALTH_EXPORT_ENABLED,
+    STALE_PAUSE_TIMEOUT_MINUTES,
 )
+from samples import SampleBuffer, summary_from_samples
+from units import KM_TO_MI, legacy_record
 
 # ── Logging Setup ────────────────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
 )
-
-# ── Conversion constants ─────────────────────────────────────────────────
-KM_TO_MI = 0.621371
 
 
 def kcal_estimate(miles: float) -> float:
@@ -39,6 +41,7 @@ def kcal_estimate(miles: float) -> float:
 
 def format_seconds_to_hms(total_seconds: int) -> str:
     """Converts total seconds to H:MM:SS string format."""
+    total_seconds = int(total_seconds)
     hours = total_seconds // 3600
     minutes = (total_seconds % 3600) // 60
     seconds = total_seconds % 60
@@ -60,12 +63,19 @@ controller: Controller | None = None
 _device_ble_address: str | None = None
 _resume_grace_deadline = 0
 speed_history = deque(maxlen=15)
+# Monotonic time of the last status packet that showed the belt moving during a
+# walking segment; active time accrues from it. None = no open moving interval.
+_last_moving_packet_monotonic: float | None = None
+# A longer gap between packets is counted only up to this, so a stall or a
+# report that arrives late after the belt stopped can't add much phantom time.
+_MAX_MOVING_GAP_SECONDS = 5
 _stats_monitor_task: asyncio.Task | None = None  # Track the stats monitor task
 _idle_watchdog_task: asyncio.Task | None = None  # Track the paused/idle connection watchdog
 _belt_sequence_task: asyncio.Task | None = None  # Track an in-flight start/resume/pause belt sequence
 _belt_transitioning = False  # True while a belt sequence is in flight; exposed in /stats for UI
-_history_lock = threading.Lock()  # Protect session_history.json reads/writes
-HISTORY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "session_history.json")
+_auto_reconnect_task: asyncio.Task | None = None  # Track an in-flight auto-reconnect retry loop
+_speed_change_task: asyncio.Task | None = None  # Track an in-flight _locked_change_speed() call
+HISTORY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "session_history.json")  # legacy; migrated into the DB at startup
 _CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
 
 _session_state_file_lock = threading.Lock()  # Protect session_state.json reads/writes
@@ -95,6 +105,16 @@ _IDLE_WATCHDOG_PING_INTERVAL_SECONDS = 10
 # gets its own, much more forgiving threshold instead of sharing the active
 # one -- roughly 4-5 missed pings before disconnecting.
 _IDLE_STALE_STATUS_TIMEOUT_SECONDS = 45
+# Auto-reconnect after an unexpected disconnect (see _handle_disconnect()/
+# _auto_reconnect()): capped exponential backoff between attempts, bounded
+# so a genuinely powered-off pad still reaches the manual "Try Again"
+# screen instead of an endless spinner with no escape. Each attempt is
+# itself a full _connect_to_pad() call with its own internal 3-scan retry
+# (up to ~30s), so worst-case time to give up is the sum of both layers --
+# roughly 7-8 minutes, not just the delays below on their own.
+_MAX_RECONNECT_ATTEMPTS = 8
+_RECONNECT_BASE_DELAY_SECONDS = 5
+_RECONNECT_MAX_DELAY_SECONDS = 30
 # Serializes every controller read/write -- the idle watchdog's ask_stats()
 # ping, belt sequences' start_belt()/stop_belt()/change_speed() commands, the
 # active stats monitor's ask_stats() poll, and the manual speed-adjustment
@@ -173,10 +193,20 @@ _pending_restore: dict | None = None  # Loaded at startup; cleared once restored
 
 session_active = belt_running = False
 _session_start_time: datetime | None = None
+_session_id: str | None = None  # DB row for the in-progress session
+_session_start_monotonic = 0.0  # monotonic clock at _session_start_time; sample t_ms origin
+_samples = SampleBuffer()
 _session_state_lock = threading.Lock()  # Protect session_active/belt_running check-then-set transitions
 _shutting_down = False
 _server_stopping = False  # Flag for UI to detect Ctrl+C / signal shutdown
 _shutting_down_lock = threading.Lock()  # Protect shutdown state mutations
+
+
+def _is_shutting_down() -> bool:
+    with _shutting_down_lock:
+        return _shutting_down
+
+
 resume_speed_kmh = 2.0  # default if none yet
 
 current_speed_kmh = current_distance_km = 0.0
@@ -188,7 +218,7 @@ _last_dev_dist = _last_dev_steps = 0
 
 # ── SSE broadcaster state ────────────────────────────────────────────────
 _sse_subscribers: list[queue.Queue] = []
-_sse_subscribers_lock = threading.Lock()  # Protect _sse_subscribers list mutations, mirrors _history_lock convention
+_sse_subscribers_lock = threading.Lock()  # Protect _sse_subscribers list mutations
 _SSE_BROADCAST_INTERVAL_SECONDS = 1
 # Bounds how long a subscriber's generator can block on q.get() with nothing
 # to send. Well above the normal ~1s broadcast cadence, so this only ever
@@ -200,91 +230,163 @@ _SSE_KEEPALIVE_TIMEOUT_SECONDS = 20
 
 # ── Session History Persistence ────────────────────────────────────────
 
-def _build_session_record() -> dict:
-    """Build a session record dict from current global state."""
-    start = _session_start_time
-    end = datetime.now()
-    distance_mi = current_distance_km * KM_TO_MI
-    duration = max(current_session_active_seconds, 1)  # avoid div-by-zero
-    avg_speed_kmh = current_distance_km / (duration / 3600.0)
-    avg_speed_mph = avg_speed_kmh * KM_TO_MI
+# Every storage call below is wrapped: a database failure must never stop
+# the belt, block BLE handling, or break End Session / shutdown.
 
-    return {
-        "date": start.strftime("%Y-%m-%d"),
-        "start_time": start.strftime("%H:%M:%S"),
-        "end_time": end.strftime("%H:%M:%S"),
-        "duration_seconds": current_session_active_seconds,
-        "distance_km": round(current_distance_km, 3),
-        "distance_mi": round(distance_mi, 3),
-        "steps": current_steps,
-        "calories": round(current_calories),
-        "avg_speed_kmh": round(avg_speed_kmh, 1),
-        "avg_speed_mph": round(avg_speed_mph, 1),
-    }
+def _now_iso() -> str:
+    return datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def _begin_db_session(existing_id: str | None = None):
+    """Attach the in-progress session to a DB row: reuse existing_id if it still
+    exists (crash restore), else create one. Measures the sample clock from
+    _session_start_time, so restored sessions keep counting from the real start."""
+    global _session_id, _session_start_monotonic
+    # Aware arithmetic: a naive difference is off by an hour if a DST change falls between a crash and its restore.
+    elapsed_s = (datetime.now().astimezone() - _session_start_time.astimezone()).total_seconds()
+    _session_start_monotonic = time.monotonic() - elapsed_s
+    _samples.reset()
+    try:
+        if existing_id and storage.get_session(existing_id):
+            _session_id = existing_id
+        else:
+            _session_id = storage.create_session(
+                _session_start_time.astimezone().isoformat(timespec="seconds"), BLE_DEVICE_NAME, None,
+            )
+    except Exception:
+        _session_id = None
+        logging.exception("Failed to create session row")
+
+
+def _record_sample(force: bool = False):
+    if not session_active or _session_id is None:
+        return
+    t_ms = int((time.monotonic() - _session_start_monotonic) * 1000)
+    speed_mps = current_speed_kmh / 3.6 if belt_running else 0.0
+    _samples.add(t_ms, speed_mps, current_distance_km * 1000, current_steps, belt_running, force)
+
+
+def _flush_samples():
+    # Read once: End can clear _session_id on another thread mid-flush.
+    session_id = _session_id
+    rows = _samples.drain()
+    if not rows or session_id is None:
+        return
+    try:
+        storage.append_samples(session_id, rows)
+    except Exception:
+        logging.exception(f"Failed to write {len(rows)} samples")
+
+
+def _record_pause(reason: str, at: str | None = None):
+    if _session_id is None:
+        return
+    try:
+        storage.add_pause(_session_id, at or _now_iso(), reason)
+    except Exception:
+        logging.exception("Failed to record pause")
+
+
+def _last_sample_time() -> str | None:
+    """Wall-clock time of the session's last stored sample: the last moment a
+    crashed session is known to have been alive."""
+    try:
+        rows = storage.get_samples(_session_id) if _session_id else []
+    except Exception:
+        logging.exception("Failed to read samples")
+        return None
+    if not rows:
+        return None
+    at = _session_start_time.astimezone() + timedelta(milliseconds=rows[-1]["t_ms"])
+    return at.isoformat(timespec="seconds")
+
+
+def _sweep_orphaned_sessions(keep_id: str | None):
+    """An 'active' row that session_state.json doesn't point at can never be
+    restored (crash followed by Start or Discard-less restart). Complete it
+    from its samples, or delete it if it has none."""
+    try:
+        for s in storage.list_active_sessions():
+            if s["id"] == keep_id:
+                continue
+            rows = storage.get_samples(s["id"])
+            if rows:
+                storage.complete_session(s["id"], summary_from_samples(s["start_time"], rows, KCAL_PER_MILE))
+                logging.info(f"Completed orphaned session {s['id']} from its last sample")
+            else:
+                storage.delete_session(s["id"])
+                logging.info(f"Deleted orphaned session {s['id']} (no samples)")
+    except Exception:
+        logging.exception("Orphaned session sweep failed")
+
+
+def _record_resume():
+    if _session_id is None:
+        return
+    try:
+        storage.end_pause(_session_id, _now_iso())
+    except Exception:
+        logging.exception("Failed to record resume")
 
 
 def _save_session():
-    """Append the current session to session_history.json (thread-safe, atomic)."""
+    """Complete the in-progress session's DB row with its final totals."""
+    global _session_id
     if not session_active:
         return
 
-    record = _build_session_record()
-
-    with _history_lock:
-        history = []
-        try:
-            if os.path.exists(HISTORY_FILE):
-                with open(HISTORY_FILE, "r") as f:
-                    history = json.load(f)
-                if not isinstance(history, list):
-                    history = []
-        except (json.JSONDecodeError, IOError) as exc:
-            logging.warning(f"Failed to read {HISTORY_FILE}, starting fresh: {exc}")
-            history = []
-
-        history.append(record)
-
-        # Atomic (temp file + rename), matching _save_session_state(): a
-        # crash mid-write must never leave session_history.json truncated or
-        # otherwise corrupted -- that history is otherwise unrecoverable.
-        tmp_path = f"{HISTORY_FILE}.tmp"
-        try:
-            with open(tmp_path, "w") as f:
-                json.dump(history, f, indent=2)
-            os.replace(tmp_path, HISTORY_FILE)
-            logging.info(f"Session saved to {HISTORY_FILE} ({len(history)} total sessions)")
-        except IOError as exc:
-            logging.error(f"Failed to write session history: {exc}")
+    try:
+        if _session_id is None:
+            _begin_db_session()  # row creation failed at Start; try once more
+        if _session_id is None:
+            logging.error("Session not saved: no database row")
+            return
+        _record_sample(force=True)
+        _flush_samples()
+        start = _session_start_time.astimezone()
+        end = datetime.now().astimezone()
+        distance_m = current_distance_km * 1000
+        storage.complete_session(_session_id, {
+            "end_time": end.isoformat(timespec="seconds"),
+            "elapsed_s": (end - start).total_seconds(),
+            "moving_s": current_session_active_seconds,
+            "distance_m": distance_m,
+            "steps": current_steps,
+            "calories_kcal": current_calories,
+            "avg_speed_mps": distance_m / max(current_session_active_seconds, 1),
+        })
+        logging.info(f"Session {_session_id} saved to database")
+    except Exception:
+        logging.exception("Failed to save session to database")
+    finally:
+        _session_id = None
 
 
 def _load_session_history(limit: int | None = None) -> list:
-    """Load session history from disk, most recent first (thread-safe). Pass limit=None for all."""
-    with _history_lock:
-        if not os.path.exists(HISTORY_FILE):
-            return []
-        try:
-            with open(HISTORY_FILE, "r") as f:
-                history = json.load(f)
-            if not isinstance(history, list):
-                return []
-            result = list(reversed(history))
-            return result[:limit] if limit is not None else result
-        except (json.JSONDecodeError, IOError) as exc:
-            logging.warning(f"Failed to read session history: {exc}")
-            return []
+    """Completed sessions, most recent first, in the legacy record shape. Pass limit=None for all."""
+    try:
+        return [legacy_record(row) for row in storage.list_sessions(limit=limit)]
+    except Exception:
+        logging.exception("Failed to load session history")
+        return []
 
 
 def _clear_session_history():
-    """Delete or truncate the session history file (thread-safe, atomic)."""
-    with _history_lock:
-        tmp_path = f"{HISTORY_FILE}.tmp"
-        try:
-            with open(tmp_path, "w") as f:
-                json.dump([], f)
-            os.replace(tmp_path, HISTORY_FILE)
-            logging.info("Session history cleared")
-        except IOError as exc:
-            logging.error(f"Failed to clear session history: {exc}")
+    try:
+        storage.clear_history()
+        logging.info("Session history cleared")
+    except Exception:
+        logging.exception("Failed to clear session history")
+
+
+def _dismiss_health_export():
+    """Mark the most recent session as no longer pending an Apple Health export."""
+    try:
+        recent = storage.list_sessions(limit=1)
+        if recent:
+            storage.mark_health_logged(recent[0]["id"])
+    except Exception:
+        logging.exception("Failed to dismiss health export flag")
 
 
 # ── Session State Persistence (crash/restart recovery) ──────────────────
@@ -293,6 +395,7 @@ def _build_session_state_snapshot() -> dict:
     """Build a dict of the in-progress session's live state for crash recovery."""
     return {
         "session_active": session_active,
+        "session_id": _session_id,
         "session_start_time": _session_start_time.isoformat() if _session_start_time else None,
         "current_distance_km": current_distance_km,
         "current_steps": current_steps,
@@ -305,9 +408,12 @@ def _build_session_state_snapshot() -> dict:
 
 
 def _save_session_state():
-    """Write the current in-progress session to session_state.json (thread-safe, atomic)."""
+    """Write the current in-progress session to session_state.json (thread-safe, atomic).
+    Also flushes buffered samples: this already runs every 5 s while walking and on
+    every pause/resume, which is exactly the sample flush cadence we want."""
     if not session_active:
         return
+    _flush_samples()
     snapshot = _build_session_state_snapshot()
     with _session_state_file_lock:
         tmp_path = f"{SESSION_STATE_FILE}.tmp"
@@ -356,13 +462,68 @@ def _write_config(updates: dict) -> None:
         json.dump(existing, f, indent=2)
 
 
-_pending_restore = _load_session_state()  # Check for an interrupted session at startup
+# Tests set this so importing app can't touch the real database or Bluetooth pad.
+_STARTUP_ENABLED = os.environ.get("WALKINGDAD_NO_STARTUP") != "1"
+
+if _STARTUP_ENABLED:
+    storage.init_db(os.path.join(os.path.dirname(os.path.abspath(__file__)), config.DATABASE_PATH))
+    storage.migrate_json(HISTORY_FILE)
+
+    _pending_restore = _load_session_state()  # Check for an interrupted session at startup
+    _sweep_orphaned_sessions((_pending_restore or {}).get("session_id"))
+
+
+# ── Apple Health export (Shortcuts QR codes) ─────────────────────────────
+# The setup QR points at an iCloud share link, not a repo-hosted file.
+# Confirmed by hand (repeated Safari address-bar testing, every url=/name=
+# encoding and ordering tried): shortcuts://import-shortcut?url=<raw GitHub
+# file> reliably fails with "shortcut URL provided was invalid", a known,
+# documented unreliability of GitHub-hosted .shortcut files with this scheme,
+# not an encoding bug on WalkingDad's end. An iCloud share link (Share ->
+# Copy iCloud Link in the Shortcuts app) is Apple's actual supported
+# distribution path; every shortcut-sharing community, including RoutineHub,
+# ultimately hands off to one of these under the hood. It's also just a
+# plain https:// link, not the shortcuts:// scheme -- Apple's own "Get
+# Shortcut" page at the other end handles the import itself.
+_APPLE_HEALTH_SHORTCUT_ICLOUD_LINK = "https://www.icloud.com/shortcuts/c832ad7548ac425898fae31920bcb8c3"
+
+
+def _build_setup_shortcut_url() -> str:
+    """URL for the one-time setup QR that installs the Shortcut. See the
+    module-level comment above for why this is an iCloud link rather than a
+    shortcuts://import-shortcut URL pointed at the repo's .shortcut file."""
+    return _APPLE_HEALTH_SHORTCUT_ICLOUD_LINK
+
+
+def _build_log_shortcut_url(session_record: dict) -> str:
+    """shortcuts://run-shortcut runs the already-installed Shortcut with that
+    session's data embedded directly in the URL -- no fetch back to this server
+    needed. Percent-encodes name= and the JSON text= payload (which has its own
+    unsafe characters -- spaces, quotes, braces), but leaves ":" and "/" alone:
+    a raw, un-percent-encoded space isn't valid inside a URI at all (unlike :
+    and /, which are allowed unencoded in a query component per RFC 3986), and
+    a literal space broke this scheme's name= handling during testing."""
+    payload = json.dumps({
+        "date": session_record["date"],
+        "start_time": session_record["start_time"],
+        "duration_seconds": session_record["duration_seconds"],
+        "distance_km": session_record["distance_km"],
+        "distance_mi": session_record["distance_mi"],
+        "calories": session_record["calories"],
+    })
+    name = urllib.parse.quote(APPLE_HEALTH_SHORTCUT_NAME, safe=":/")
+    text = urllib.parse.quote(payload, safe=":/")
+    return f"shortcuts://run-shortcut?name={name}&input=text&text={text}"
 
 
 # ── Context processor so templates always know flags ────────────────────
 @app.context_processor
 def inject_flags():
-    return dict(connected=connected, connecting=connecting, connection_failed=connection_failed)
+    return dict(
+        connected=connected, connecting=connecting, connection_failed=connection_failed,
+        apple_health_shortcut_name=APPLE_HEALTH_SHORTCUT_NAME,
+        setup_shortcut_url=_build_setup_shortcut_url(),
+    )
 
 
 # ── BLE helpers ─────────────────────────────────────────────────────────
@@ -390,6 +551,23 @@ async def _scan_for_device(timeout: int = 10):
     except Exception as exc:
         logging.warning(f"Scanner error: {exc}")
         return None
+
+
+async def _safe_disconnect_client(client, context: str) -> None:
+    """Best-effort BleakClient disconnect, shared by _connect_to_pad() (a
+    stale client left over from a previous failed attempt) and
+    _graceful_shutdown() (the live client on exit) -- same shape, same
+    failure handling, just a different caller. Never raises: a disconnect
+    failing here is logged, not fatal, since the caller is either about to
+    replace the client anyway or the process is exiting regardless.
+    """
+    if not client:
+        return
+    try:
+        if client.is_connected:
+            await asyncio.wait_for(client.disconnect(), timeout=_BLE_WRITE_TIMEOUT_SECONDS)
+    except Exception as exc:
+        logging.warning(f"BLE disconnect error ({context}, non-fatal): {exc}")
 
 
 async def _connect_to_pad() -> bool:
@@ -423,6 +601,13 @@ async def _connect_to_pad() -> bool:
 
     _device_ble_address = dev.address
     logging.info(f"Device found! Address: {_device_ble_address}")
+
+    # Disconnect any live client left over from a previous attempt in this
+    # same retry loop (e.g. controller.run() succeeded but a later step
+    # below raised) before discarding the reference below -- otherwise a
+    # retry loop can leak one open BLE connection per failed attempt, which
+    # can make the pad refuse new connections.
+    await _safe_disconnect_client(getattr(controller, "client", None), "stale controller before reconnect")
 
     controller = Controller()
     await asyncio.wait_for(controller.run(dev.address), timeout=_BLE_WRITE_TIMEOUT_SECONDS)
@@ -484,9 +669,19 @@ def process_status_packet(dev_dist: float, dev_steps: int, dev_speed: float):
     global belt_running, resume_speed_kmh, _resume_grace_deadline
     global current_speed_kmh, current_distance_km, current_steps, current_calories
     global _last_dev_dist, _last_dev_steps, _last_status_update_monotonic
+    global current_session_active_seconds, _last_moving_packet_monotonic
 
     new_reported_speed_kmh = dev_speed / 10.0
     just_auto_paused = False
+
+    # Active time is measured from the device's own reports, not from how long
+    # the app believes the belt is running: an interval counts only if the
+    # packet that opened it showed the belt moving. Evaluated before auto-pause
+    # below so the interval ending in the stop is still counted.
+    now = time.monotonic()
+    walking = session_active and belt_running
+    if walking and _last_moving_packet_monotonic is not None:
+        current_session_active_seconds += min(now - _last_moving_packet_monotonic, _MAX_MOVING_GAP_SECONDS)
 
     # Continuously populate the speed history with stable, non-zero speeds.
     if belt_running and new_reported_speed_kmh > MIN_SPEED_KMH:
@@ -504,16 +699,20 @@ def process_status_packet(dev_dist: float, dev_steps: int, dev_speed: float):
     # weaken real detection, since normal walking (the only time this needs
     # to catch someone actually stepping off) always has
     # _belt_transitioning=False.
+    # Fires on any zero reading once the grace window has passed, not only on a
+    # moving-to-zero transition: a belt that stopped (or never started) inside
+    # the window would otherwise leave the session "walking" indefinitely.
     if time.time() > _resume_grace_deadline and not _belt_transitioning:
-        if belt_running and new_reported_speed_kmh == 0 and current_speed_kmh > 0:
+        if belt_running and new_reported_speed_kmh == 0:
             logging.info("Belt has stopped unexpectedly. Auto-pausing session.")
 
             # Use the OLDEST speed from history to ignore the deceleration phase.
             if speed_history:
                 resume_speed_kmh = speed_history[0] # Use the first (oldest) item
-            else:
-                # Fallback if pause happens too quickly after starting
+            elif current_speed_kmh > 0:
+                # Walked only at or below MIN_SPEED_KMH, so nothing was recorded in history
                 resume_speed_kmh = MIN_SPEED_KMH
+            # else the belt never moved this segment: keep the speed it was asked for
 
             belt_running = False
             just_auto_paused = True
@@ -531,6 +730,9 @@ def process_status_packet(dev_dist: float, dev_steps: int, dev_speed: float):
 
     current_speed_kmh = new_reported_speed_kmh
     current_calories = kcal_estimate(current_distance_km * KM_TO_MI)
+    _last_moving_packet_monotonic = now if walking and new_reported_speed_kmh > 0 else None
+    # Forced on auto-pause: the paused-rate throttle would otherwise drop the stop moment.
+    _record_sample(force=just_auto_paused)
 
     # Stamped last, after all accumulation above has succeeded, so a
     # mid-function exception (e.g. malformed packet data) can't mark the
@@ -540,6 +742,7 @@ def process_status_packet(dev_dist: float, dev_steps: int, dev_speed: float):
 
     # Persist immediately on auto-pause, same guarantee as the manual /pause route.
     if just_auto_paused:
+        _record_pause("auto")
         _save_session_state()
 
 
@@ -547,6 +750,15 @@ async def _graceful_shutdown():
     """Safely stop the treadmill, cancel monitors, and disconnect BLE before exit."""
     global connected, belt_running, session_active
     try:
+        # Step 0: Cancel any in-flight auto-reconnect / belt sequence / speed
+        # change first, before anything below touches `controller` -- all
+        # three can reassign or act on it concurrently on this same loop
+        # (auto-reconnect via _connect_to_pad()'s `controller = Controller()`),
+        # and would otherwise race every step that follows.
+        await _cancel_task(_auto_reconnect_task)
+        await _cancel_task(_belt_sequence_task)
+        await _cancel_task(_speed_change_task)
+
         # Step 0.5: Save in-progress session to history before cleanup
         if session_active:
             _save_session()
@@ -586,12 +798,9 @@ async def _graceful_shutdown():
             await asyncio.sleep(0.5)
 
         # Step 4: Disconnect BLE client gracefully
-        if controller and hasattr(controller, 'client') and controller.client:
+        if controller and getattr(controller, "client", None):
             logging.info("Disconnecting BLE client...")
-            try:
-                await asyncio.wait_for(controller.client.disconnect(), timeout=_BLE_WRITE_TIMEOUT_SECONDS)
-            except Exception as exc:
-                logging.warning(f"BLE disconnect error (non-fatal): {exc}")
+            await _safe_disconnect_client(controller.client, "shutdown")
     except Exception as exc:
         logging.error(f"Graceful shutdown error (continuing exit): {exc}")
     finally:
@@ -719,18 +928,14 @@ async def _stats_monitor():
     which process_status_packet() stamps on every successful update from
     either path (active poll or passive notification).
     """
-    global current_session_active_seconds, _last_status_update_monotonic
+    global _last_status_update_monotonic
     logging.info("Stats monitor started")
 
-    _base_seconds = current_session_active_seconds
-    _monitor_start = time.monotonic()
     _ticks_since_save = 0
     _last_status_update_monotonic = time.monotonic()  # fresh grace period for this session
 
     try:
         while belt_running:
-            current_session_active_seconds = _base_seconds + int(time.monotonic() - _monitor_start)
-
             try:
                 status = await _run_locked(lambda: asyncio.wait_for(controller.ask_stats(), timeout=_BLE_READ_TIMEOUT_SECONDS))
                 if status:
@@ -871,13 +1076,18 @@ async def _locked_change_speed(dev_speed: int):
     concurrent ask_stats() poll on the same ble_loop.
 
     Fire-and-forget from the caller's side (scheduled via
-    run_coroutine_threadsafe() with the returned Future discarded, not
-    tracked in any task variable) -- so unlike the belt sequences, nothing
-    else will ever observe or retry a failure here. Handle it the same way
-    _start_belt_sequence()/_resume_belt_sequence() treat any failed BLE
-    write: log it and declare the connection dead rather than leaving it
-    silently swallowed.
+    run_coroutine_threadsafe() with the returned Future discarded) -- so
+    unlike the belt sequences, nothing else will ever observe or retry a
+    failure here. Self-registers into _speed_change_task purely so
+    _handle_disconnect() can cancel it if it's still waiting on the lock
+    when a disconnect happens; otherwise, once auto-reconnect reassigns
+    `controller` to a new client, this could wake up and send change_speed()
+    to the wrong (newly-reconnected) device instead of failing safely as
+    the paragraph above assumes.
     """
+    global _speed_change_task
+    await _cancel_task(_speed_change_task)
+    _speed_change_task = asyncio.current_task()
     try:
         await _run_locked(
             lambda: asyncio.wait_for(controller.change_speed(dev_speed), timeout=_BLE_WRITE_TIMEOUT_SECONDS),
@@ -976,6 +1186,45 @@ def _start_ble_thread():
     threading.Thread(target=_ble_thread, daemon=True).start()
 
 
+async def _auto_reconnect():
+    """Retries _connect_to_pad() with capped exponential backoff after an
+    unexpected disconnect. Runs on the same (still-alive) ble_loop rather
+    than spawning a new thread/loop: _ble_thread() leaves that loop idling
+    in run_forever() after a disconnect specifically so this has somewhere
+    to run without a fresh event loop or _ble_command_lock. Gives up after
+    _MAX_RECONNECT_ATTEMPTS and falls back to the existing manual "Try
+    Again" screen -- there's no way to tell a powered-off pad apart from
+    one temporarily out of BLE range, so a bounded retry is the one
+    behavior that's reasonable for both.
+    """
+    global connected, connecting, connection_failed, _auto_reconnect_task
+    _auto_reconnect_task = asyncio.current_task()
+
+    for attempt in range(_MAX_RECONNECT_ATTEMPTS):
+        if _is_shutting_down():
+            return
+        if attempt > 0:
+            delay = min(_RECONNECT_BASE_DELAY_SECONDS * 2 ** (attempt - 1), _RECONNECT_MAX_DELAY_SECONDS)
+            await asyncio.sleep(delay)
+            if _is_shutting_down():
+                return
+        logging.info(f"Auto-reconnect attempt {attempt + 1}/{_MAX_RECONNECT_ATTEMPTS}")
+        try:
+            ok = await _connect_to_pad()
+        except Exception as exc:
+            logging.warning(f"Auto-reconnect attempt failed: {exc}")
+            ok = False
+        if ok:
+            connected = True
+            connecting = False
+            logging.info("Auto-reconnect succeeded")
+            return
+
+    logging.error(f"Auto-reconnect gave up after {_MAX_RECONNECT_ATTEMPTS} attempts")
+    connecting = False
+    connection_failed = True
+
+
 def _handle_disconnect(client):
     """Callback function to handle unexpected disconnections. Safe to call
     from any thread -- both the stats monitor and the idle watchdog call this
@@ -984,23 +1233,61 @@ def _handle_disconnect(client):
     depending on platform/backend.
     """
     global connected, belt_running, connecting, connection_failed
-    global _stats_monitor_task, _idle_watchdog_task
-    if connected:
+    global _stats_monitor_task, _idle_watchdog_task, _belt_sequence_task, _speed_change_task
+
+    with _start_ble_thread_lock:
+        # Idempotent: this can legitimately fire 2-3 times for the same
+        # physical drop (bleak's own callback, a belt-sequence exception
+        # handler, and a watchdog can all detect it independently). Without
+        # this guard, each call after the first would re-schedule its own
+        # _auto_reconnect() below, stacking up concurrent reconnect attempts
+        # that race each other over controller/_device_ble_address.
+        if not connected:
+            return
+        # Reject a stale callback from a superseded client -- bleak's own
+        # callback can fire late for a client a fresh reconnect attempt has
+        # already replaced; internal callers always pass client=None.
+        if client is not None and client is not getattr(controller, "client", None):
+            return
         logging.warning("Device has disconnected unexpectedly.")
-    connected = False
-    belt_running = False
-    connecting = False
-    connection_failed = True
+        connected = False
+        belt_running = False
+        # Only promise the "CONNECTING" spinner if _auto_reconnect() below is
+        # actually going to be scheduled -- otherwise (shutting down, or the
+        # BLE loop is already gone/not running) there is nothing left to
+        # flip connecting back to False, and the UI would be stuck on the
+        # spinner forever with no route to the manual "Try Again" screen.
+        will_auto_reconnect = (
+            not _is_shutting_down()
+            and ble_loop is not None
+            and ble_loop.is_running()  # implies not closed
+        )
+        connecting = will_auto_reconnect
+        connection_failed = not will_auto_reconnect
+
+    # A drop stops the belt, so a walking session is now paused. No-op if a
+    # pause is already open (e.g. the drop happened while paused).
+    if session_active:
+        _record_pause("auto")
 
     try:
         current = asyncio.current_task()
     except RuntimeError:
         current = None  # no running event loop in this thread
 
-    # Cancel any running watchdog tasks, skipping self-cancellation: cancelling
-    # a task from inside its own currently-running step still marks it
-    # cancelled() even after it exits cleanly via `break`, which is misleading
-    # -- that task is already unwinding on its own, no cancellation needed.
+    # Cancel any running watchdog/sequence tasks, skipping self-cancellation:
+    # cancelling a task from inside its own currently-running step still
+    # marks it cancelled() even after it exits cleanly via `break`, which is
+    # misleading -- that task is already unwinding on its own, no
+    # cancellation needed.
+    #
+    # The in-flight belt sequence (if any) must be cancelled here too, not
+    # just the two watchdogs: _auto_reconnect() below can reconnect and
+    # reassign the global `controller` to a brand-new client while a stale
+    # sequence is still suspended mid-await on the OLD controller (e.g.
+    # between the sleep()s in a wake sequence) -- left alone, it would
+    # resume by issuing belt commands against whichever controller happens
+    # to be current by the time it wakes up, not the one it started with.
     #
     # task.cancel() itself is only safe to call from the thread running the
     # task's own event loop -- routed through call_soon_threadsafe() so this
@@ -1008,13 +1295,31 @@ def _handle_disconnect(client):
     # (per the docstring above, that's not guaranteed to be ble_loop's own
     # thread). Falls back to a direct call only if ble_loop is already gone,
     # in which case there's no loop left to schedule onto anyway.
-    for name, task in (("stats monitor", _stats_monitor_task), ("idle watchdog", _idle_watchdog_task)):
+    for name, task in (
+        ("stats monitor", _stats_monitor_task),
+        ("idle watchdog", _idle_watchdog_task),
+        ("belt sequence", _belt_sequence_task),
+        ("speed change", _speed_change_task),
+    ):
         if task and not task.done() and task is not current:
             logging.info(f"Cancelling {name} due to disconnect")
             if ble_loop and not ble_loop.is_closed():
                 ble_loop.call_soon_threadsafe(task.cancel)
             else:
                 task.cancel()
+
+    if will_auto_reconnect:
+        try:
+            asyncio.run_coroutine_threadsafe(_auto_reconnect(), ble_loop)
+        except Exception as exc:
+            # Scheduling itself failed (e.g. the loop closed between the
+            # check above and here) -- fall back to the manual screen rather
+            # than leaving `connecting` stuck True with nothing left to
+            # ever flip it back.
+            logging.error(f"Failed to schedule auto-reconnect: {exc}")
+            with _start_ble_thread_lock:
+                connecting = False
+                connection_failed = True
 
 
 def _handle_signal_shutdown(signum, frame):
@@ -1064,6 +1369,18 @@ def root():
     if not session_active:
         # For start_session, show history (last N sessions)
         history = _load_session_history(limit=HISTORY_DISPLAY_LIMIT)
+        # Deliberately a separate query rather than reusing history[0]: with
+        # history_display_limit set to 0, history is [] and would silently
+        # (and wrongly) disable the Apple Health prompt too, an unrelated
+        # display-count setting reaching into a feature it has nothing to do
+        # with.
+        most_recent_session = _load_session_history(limit=1)
+        pending_health_export = (
+            APPLE_HEALTH_EXPORT_ENABLED
+            and bool(most_recent_session)
+            and not most_recent_session[0].get("health_logged", False)
+        )
+        log_shortcut_url = _build_log_shortcut_url(most_recent_session[0]) if pending_health_export else None
 
         pending_restore = None
         if _pending_restore:
@@ -1076,6 +1393,7 @@ def root():
 
         return render_template(
             "start_session.html", time_active="0:00:00", history=history, pending_restore=pending_restore,
+            pending_health_export=pending_health_export, log_shortcut_url=log_shortcut_url,
         )
 
     template = "active_session.html" if belt_running else "paused_session.html"
@@ -1091,15 +1409,15 @@ def root():
 
 
 # ── End Session ────────────────────────────────────────────────────────
-@app.route("/end_session", methods=["POST"])
-def end_session():
-    """End the current session: save to history, reset counters, return to start."""
+def _end_session(stale: bool = False):
+    """Save the session to history, reset counters. stale=True (auto-end of a long
+    pause) re-checks under the lock so a Resume racing the timer wins."""
     global session_active, belt_running, current_distance_km, current_steps, current_speed_kmh
     global current_calories, current_session_active_seconds, _session_start_time
 
     with _session_state_lock:
-        if not session_active:
-            return redirect(url_for("root"))
+        if not session_active or (stale and belt_running):
+            return
 
         was_running = belt_running
         belt_running = False
@@ -1136,12 +1454,14 @@ def end_session():
                 _belt_sequence_task = None
                 _belt_transitioning = False
 
-        asyncio.run_coroutine_threadsafe(_end_belt_sequence(), ble_loop)
+        # Guarded so a dead loop can't skip the history save below.
+        if ble_loop and not ble_loop.is_closed():
+            asyncio.run_coroutine_threadsafe(_end_belt_sequence(), ble_loop)
 
         # Save session to history
         _save_session()
         _clear_session_state()
-        logging.info("Session ended by user, saved to history")
+        logging.info(f"Session ended {'after stale pause' if stale else 'by user'}, saved to history")
 
         # Reset all counters
         current_distance_km = current_calories = 0.0
@@ -1152,7 +1472,31 @@ def end_session():
         session_active = False
         _session_start_time = None
 
+
+@app.route("/end_session", methods=["POST"])
+def end_session():
+    _end_session()
     return redirect(url_for("root"))
+
+
+_paused_since: float | None = None
+
+
+def _end_session_if_stale_pause():
+    """Called every broadcaster tick. Covers every way a session ends up paused
+    (manual, auto, disconnect, restore) without hooking each one."""
+    global _paused_since
+    if not session_active or belt_running:
+        _paused_since = None
+        return
+    # Wall clock, not monotonic: monotonic stops during system sleep, and a laptop
+    # closed overnight with a paused session is the main case this exists for.
+    now = time.time()
+    if _paused_since is None:
+        _paused_since = now
+    elif STALE_PAUSE_TIMEOUT_MINUTES > 0 and now - _paused_since >= STALE_PAUSE_TIMEOUT_MINUTES * 60:
+        _paused_since = None
+        _end_session(stale=True)
 
 
 # ── Export CSV ──────────────────────────────────────────────────────────
@@ -1162,14 +1506,13 @@ def export_csv():
     history = _load_session_history()
     si = io.StringIO()
     writer = csv.writer(si)
-    writer.writerow(["date", "start_time", "end_time", "duration_seconds",
-                      "distance_km", "distance_mi", "steps", "calories",
-                      "avg_speed_kmh", "avg_speed_mph"])
+    # Legacy columns first, in their original order, so existing spreadsheets keep working.
+    columns = ["date", "start_time", "end_time", "duration_seconds",
+               "distance_km", "distance_mi", "steps", "calories",
+               "avg_speed_kmh", "avg_speed_mph", "id", "has_samples"]
+    writer.writerow(columns)
     for row in history:
-        writer.writerow([row.get("date"), row.get("start_time"), row.get("end_time"),
-                         row.get("duration_seconds"), row.get("distance_km"),
-                         row.get("distance_mi"), row.get("steps"), row.get("calories"),
-                         row.get("avg_speed_kmh"), row.get("avg_speed_mph")])
+        writer.writerow([row[c] for c in columns])
 
     resp = make_response(si.getvalue())
     resp.headers["Content-Disposition"] = "attachment; filename=walkingdad_history.csv"
@@ -1183,6 +1526,14 @@ def clear_history():
     """Clear all session history."""
     _clear_session_history()
     return jsonify({"status": "cleared"})
+
+
+# ── Dismiss Apple Health Export Prompt ───────────────────────────────────
+@app.route("/dismiss_health_export", methods=["POST"])
+def dismiss_health_export():
+    """Mark the most recent session as dismissed from the Apple Health export prompt."""
+    _dismiss_health_export()
+    return jsonify({"status": "dismissed"})
 
 
 # Waitress won't necessarily start (or will be unusably starved) with too
@@ -1239,14 +1590,17 @@ _SETTINGS_SCHEMA = [
     ("kcal_per_mile", "KCAL_PER_MILE", lambda v, cur: int(v), True),
     ("resume_grace_period_seconds", "RESUME_GRACE_PERIOD_SECONDS", _clamp_resume_grace_period, True),
     ("history_display_limit", "HISTORY_DISPLAY_LIMIT", lambda v, cur: int(v), True),
+    ("stale_pause_timeout_minutes", "STALE_PAUSE_TIMEOUT_MINUTES", lambda v, cur: max(int(v), 0), True),
     ("host", "HOST", lambda v, cur: v.strip() or cur, False),
     ("port", "PORT", lambda v, cur: int(v), False),
     ("waitress_threads", "WAITRESS_THREADS", _clamp_waitress_threads, False),
+    ("apple_health_shortcut_name", "APPLE_HEALTH_SHORTCUT_NAME", lambda v, cur: v.strip() or cur, True),
 ]
 
 
 @app.route("/settings", methods=["GET", "POST"])
 def settings_page():
+    global APPLE_HEALTH_EXPORT_ENABLED
     if request.method == "POST":
         updates = {}
         for form_key, const_name, cast, _live in _SETTINGS_SCHEMA:
@@ -1258,15 +1612,43 @@ def settings_page():
                 logging.warning(f"Invalid value for {form_key} ({raw!r}); keeping current value.")
                 updates[form_key] = current
 
+        # Unlike every field above, a checkbox is absent from form data
+        # entirely when unchecked rather than submitting a falsy value, so
+        # the generic default-to-current-value loop above can't handle it --
+        # this is the one boolean setting, handled as a one-off rather than
+        # complicating _SETTINGS_SCHEMA's cast-function contract for it.
+        was_enabled = APPLE_HEALTH_EXPORT_ENABLED
+        updates["apple_health_export_enabled"] = "apple_health_export_enabled" in request.form
+
         _write_config(updates)
         for form_key, const_name, _cast, live in _SETTINGS_SCHEMA:
             setattr(config, const_name, updates[form_key])
             if live:
                 globals()[const_name] = updates[form_key]
+        config.APPLE_HEALTH_EXPORT_ENABLED = updates["apple_health_export_enabled"]
+        APPLE_HEALTH_EXPORT_ENABLED = updates["apple_health_export_enabled"]
+
+        # Turning the feature on shouldn't retroactively surface a session
+        # that predates it being enabled (pending_health_export only checks
+        # whether the most recent session has ever been logged/dismissed,
+        # with no notion of "before vs. after enabling"). But don't
+        # blanket-suppress on every enable either -- someone finishing a walk
+        # and enabling the feature specifically to log THAT walk shouldn't
+        # have it silently marked as already handled before they ever see
+        # the banner. Split the difference: only pre-dismiss if the most
+        # recent session isn't from today, since "today's most recent
+        # session" is the one case where enabling right after a walk is a
+        # plausible, common reason to be here at all.
+        if updates["apple_health_export_enabled"] and not was_enabled:
+            recent = _load_session_history(limit=1)
+            if recent and recent[0].get("date") != datetime.now().strftime("%Y-%m-%d"):
+                _dismiss_health_export()
+
         return redirect(url_for("root", saved=1))
 
     return render_template(
         "settings.html",
+        apple_health_export_enabled=APPLE_HEALTH_EXPORT_ENABLED,
         **{form_key: getattr(config, const_name) for form_key, const_name, _, _ in _SETTINGS_SCHEMA},
     )
 
@@ -1306,6 +1688,9 @@ def restore_session():
         start_str = state.get("session_start_time")
         _session_start_time = datetime.fromisoformat(start_str) if start_str else datetime.now()
         speed_history.clear()
+        # Reuses the crashed session's row; state files from before session_id existed get a new one.
+        _begin_db_session(state.get("session_id"))
+        _record_pause("shutdown", at=_last_sample_time())
 
         # Restored in paused state. The belt isn't actually running; user hits
         # Resume to reconnect the belt sequence and stats monitor.
@@ -1326,8 +1711,14 @@ def discard_session():
             # A restore (or a fresh start) already claimed this session; don't
             # delete its live state file out from under it.
             return redirect(url_for("root"))
+        discarded_id = (_pending_restore or {}).get("session_id")
         _pending_restore = None
         _clear_session_state()
+    if discarded_id:
+        try:
+            storage.delete_session(discarded_id)
+        except Exception:
+            logging.exception("Failed to delete discarded session row")
     return redirect(url_for("root"))
 
 
@@ -1336,7 +1727,7 @@ def start_session():
     """Begin a new session: reset counters, start belt, launch stats monitor."""
     global session_active, belt_running, current_distance_km, current_steps, current_calories, resume_speed_kmh
     global current_session_active_seconds, _stats_monitor_task, _session_start_time, current_speed_kmh
-    global _resume_grace_deadline, _pending_restore
+    global _resume_grace_deadline, _pending_restore, _last_moving_packet_monotonic
 
     if not connected:
         return redirect(url_for("root"))
@@ -1349,10 +1740,12 @@ def start_session():
         current_steps = 0
         current_speed_kmh = 0.0
         current_session_active_seconds = 0
+        _last_moving_packet_monotonic = None
         resume_speed_kmh = 2.0
         speed_history.clear()
         _session_start_time = datetime.now()
         _resume_grace_deadline = time.time() + RESUME_GRACE_PERIOD_SECONDS
+        _begin_db_session()
 
         session_active = True
         belt_running = True
@@ -1419,6 +1812,8 @@ def pause_session():
             resume_speed_kmh = speed_history[-1]
 
         belt_running = False
+        _record_pause("manual")
+        _record_sample(force=True)  # mark the stop moment before the paused-rate throttle applies
         _save_session_state()
 
         # Single ordered sequence on ble_loop: cancel monitor before stop_belt()
@@ -1458,6 +1853,7 @@ def pause_session():
 @app.route("/resume_session", methods=["POST"], endpoint="resume_session")
 def resume_session():
     global belt_running, _resume_grace_deadline, session_active, _stats_monitor_task
+    global _last_moving_packet_monotonic
 
     with _session_state_lock:
         if not session_active:
@@ -1469,8 +1865,12 @@ def resume_session():
             return redirect(url_for("root"))
 
         logging.info("Resume button clicked. Setting app state to active.")
+        # Clear any marker left from before the pause, so the paused gap isn't
+        # counted when the first post-resume packet arrives.
+        _last_moving_packet_monotonic = None
         belt_running = True
         _resume_grace_deadline = time.time() + RESUME_GRACE_PERIOD_SECONDS
+        _record_resume()
         _save_session_state()
 
         async def _resume_belt_sequence():
@@ -1580,6 +1980,7 @@ def _build_stats_payload() -> dict:
     return dict(
         is_connected=connected,
         connection_failed=connection_failed,
+        session_active=session_active,
         is_running=belt_running,
         belt_transitioning=_belt_transitioning,
         speed=round(current_speed_kmh * KM_TO_MI, 1),
@@ -1620,6 +2021,10 @@ def _sse_broadcast_loop():
     """
     while True:
         time.sleep(_SSE_BROADCAST_INTERVAL_SECONDS)
+        try:
+            _end_session_if_stale_pause()
+        except Exception as exc:
+            logging.error(f"Stale-pause check failed (continuing): {exc}")
         try:
             # Serialize once here rather than in each subscriber's own generator,
             # since every subscriber gets the identical frame this tick.
@@ -1737,5 +2142,6 @@ atexit.register(_atexit_cleanup)
 
 # ── Kick off BLE thread ──────────────────────────────────────────────────
 # The server is no longer started here. This just pre-starts the BLE thread.
-_start_ble_thread()
-_start_sse_broadcaster()
+if _STARTUP_ENABLED:
+    _start_ble_thread()
+    _start_sse_broadcaster()
