@@ -11,27 +11,27 @@ import threading
 import time
 import urllib.parse
 from collections import deque
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from bleak import BleakScanner
 from flask import Flask, render_template, redirect, url_for, jsonify, make_response, request, Response
 from ph4_walkingpad.pad import Controller, WalkingPad
 
 import config
+import storage
 from config import (
     BLE_DEVICE_NAME, KCAL_PER_MILE, MAX_SPEED_KMH, MIN_SPEED_KMH,
     SPEED_STEP, SLOW_WALK_SPEED_KMH, RESUME_GRACE_PERIOD_SECONDS,
     HISTORY_DISPLAY_LIMIT, APPLE_HEALTH_SHORTCUT_NAME, APPLE_HEALTH_EXPORT_ENABLED,
 )
+from samples import SampleBuffer, summary_from_samples
+from units import KM_TO_MI, legacy_record
 
 # ── Logging Setup ────────────────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
 )
-
-# ── Conversion constants ─────────────────────────────────────────────────
-KM_TO_MI = 0.621371
 
 
 def kcal_estimate(miles: float) -> float:
@@ -67,8 +67,7 @@ _belt_sequence_task: asyncio.Task | None = None  # Track an in-flight start/resu
 _belt_transitioning = False  # True while a belt sequence is in flight; exposed in /stats for UI
 _auto_reconnect_task: asyncio.Task | None = None  # Track an in-flight auto-reconnect retry loop
 _speed_change_task: asyncio.Task | None = None  # Track an in-flight _locked_change_speed() call
-_history_lock = threading.Lock()  # Protect session_history.json reads/writes
-HISTORY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "session_history.json")
+HISTORY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "session_history.json")  # legacy; migrated into the DB at startup
 _CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
 
 _session_state_file_lock = threading.Lock()  # Protect session_state.json reads/writes
@@ -186,6 +185,9 @@ _pending_restore: dict | None = None  # Loaded at startup; cleared once restored
 
 session_active = belt_running = False
 _session_start_time: datetime | None = None
+_session_id: str | None = None  # DB row for the in-progress session
+_session_start_monotonic = 0.0  # monotonic clock at _session_start_time; sample t_ms origin
+_samples = SampleBuffer()
 _session_state_lock = threading.Lock()  # Protect session_active/belt_running check-then-set transitions
 _shutting_down = False
 _server_stopping = False  # Flag for UI to detect Ctrl+C / signal shutdown
@@ -208,7 +210,7 @@ _last_dev_dist = _last_dev_steps = 0
 
 # ── SSE broadcaster state ────────────────────────────────────────────────
 _sse_subscribers: list[queue.Queue] = []
-_sse_subscribers_lock = threading.Lock()  # Protect _sse_subscribers list mutations, mirrors _history_lock convention
+_sse_subscribers_lock = threading.Lock()  # Protect _sse_subscribers list mutations
 _SSE_BROADCAST_INTERVAL_SECONDS = 1
 # Bounds how long a subscriber's generator can block on q.get() with nothing
 # to send. Well above the normal ~1s broadcast cadence, so this only ever
@@ -220,114 +222,163 @@ _SSE_KEEPALIVE_TIMEOUT_SECONDS = 20
 
 # ── Session History Persistence ────────────────────────────────────────
 
-def _build_session_record() -> dict:
-    """Build a session record dict from current global state."""
-    start = _session_start_time
-    end = datetime.now()
-    distance_mi = current_distance_km * KM_TO_MI
-    duration = max(current_session_active_seconds, 1)  # avoid div-by-zero
-    avg_speed_kmh = current_distance_km / (duration / 3600.0)
-    avg_speed_mph = avg_speed_kmh * KM_TO_MI
+# Every storage call below is wrapped: a database failure must never stop
+# the belt, block BLE handling, or break End Session / shutdown.
 
-    return {
-        "date": start.strftime("%Y-%m-%d"),
-        "start_time": start.strftime("%H:%M:%S"),
-        "end_time": end.strftime("%H:%M:%S"),
-        "duration_seconds": current_session_active_seconds,
-        "distance_km": round(current_distance_km, 3),
-        "distance_mi": round(distance_mi, 3),
-        "steps": current_steps,
-        "calories": round(current_calories),
-        "avg_speed_kmh": round(avg_speed_kmh, 1),
-        "avg_speed_mph": round(avg_speed_mph, 1),
-        "health_logged": False,
-    }
+def _now_iso() -> str:
+    return datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def _begin_db_session(existing_id: str | None = None):
+    """Attach the in-progress session to a DB row: reuse existing_id if it still
+    exists (crash restore), else create one. Measures the sample clock from
+    _session_start_time, so restored sessions keep counting from the real start."""
+    global _session_id, _session_start_monotonic
+    # Aware arithmetic: a naive difference is off by an hour if a DST change falls between a crash and its restore.
+    elapsed_s = (datetime.now().astimezone() - _session_start_time.astimezone()).total_seconds()
+    _session_start_monotonic = time.monotonic() - elapsed_s
+    _samples.reset()
+    try:
+        if existing_id and storage.get_session(existing_id):
+            _session_id = existing_id
+        else:
+            _session_id = storage.create_session(
+                _session_start_time.astimezone().isoformat(timespec="seconds"), BLE_DEVICE_NAME, None,
+            )
+    except Exception:
+        _session_id = None
+        logging.exception("Failed to create session row")
+
+
+def _record_sample(force: bool = False):
+    if not session_active or _session_id is None:
+        return
+    t_ms = int((time.monotonic() - _session_start_monotonic) * 1000)
+    speed_mps = current_speed_kmh / 3.6 if belt_running else 0.0
+    _samples.add(t_ms, speed_mps, current_distance_km * 1000, current_steps, belt_running, force)
+
+
+def _flush_samples():
+    # Read once: End can clear _session_id on another thread mid-flush.
+    session_id = _session_id
+    rows = _samples.drain()
+    if not rows or session_id is None:
+        return
+    try:
+        storage.append_samples(session_id, rows)
+    except Exception:
+        logging.exception(f"Failed to write {len(rows)} samples")
+
+
+def _record_pause(reason: str, at: str | None = None):
+    if _session_id is None:
+        return
+    try:
+        storage.add_pause(_session_id, at or _now_iso(), reason)
+    except Exception:
+        logging.exception("Failed to record pause")
+
+
+def _last_sample_time() -> str | None:
+    """Wall-clock time of the session's last stored sample: the last moment a
+    crashed session is known to have been alive."""
+    try:
+        rows = storage.get_samples(_session_id) if _session_id else []
+    except Exception:
+        logging.exception("Failed to read samples")
+        return None
+    if not rows:
+        return None
+    at = _session_start_time.astimezone() + timedelta(milliseconds=rows[-1]["t_ms"])
+    return at.isoformat(timespec="seconds")
+
+
+def _sweep_orphaned_sessions(keep_id: str | None):
+    """An 'active' row that session_state.json doesn't point at can never be
+    restored (crash followed by Start or Discard-less restart). Complete it
+    from its samples, or delete it if it has none."""
+    try:
+        for s in storage.list_active_sessions():
+            if s["id"] == keep_id:
+                continue
+            rows = storage.get_samples(s["id"])
+            if rows:
+                storage.complete_session(s["id"], summary_from_samples(s["start_time"], rows, KCAL_PER_MILE))
+                logging.info(f"Completed orphaned session {s['id']} from its last sample")
+            else:
+                storage.delete_session(s["id"])
+                logging.info(f"Deleted orphaned session {s['id']} (no samples)")
+    except Exception:
+        logging.exception("Orphaned session sweep failed")
+
+
+def _record_resume():
+    if _session_id is None:
+        return
+    try:
+        storage.end_pause(_session_id, _now_iso())
+    except Exception:
+        logging.exception("Failed to record resume")
 
 
 def _save_session():
-    """Append the current session to session_history.json (thread-safe, atomic)."""
+    """Complete the in-progress session's DB row with its final totals."""
+    global _session_id
     if not session_active:
         return
 
-    record = _build_session_record()
-
-    with _history_lock:
-        history = []
-        try:
-            if os.path.exists(HISTORY_FILE):
-                with open(HISTORY_FILE, "r") as f:
-                    history = json.load(f)
-                if not isinstance(history, list):
-                    history = []
-        except (json.JSONDecodeError, IOError) as exc:
-            logging.warning(f"Failed to read {HISTORY_FILE}, starting fresh: {exc}")
-            history = []
-
-        history.append(record)
-
-        # Atomic (temp file + rename), matching _save_session_state(): a
-        # crash mid-write must never leave session_history.json truncated or
-        # otherwise corrupted -- that history is otherwise unrecoverable.
-        tmp_path = f"{HISTORY_FILE}.tmp"
-        try:
-            with open(tmp_path, "w") as f:
-                json.dump(history, f, indent=2)
-            os.replace(tmp_path, HISTORY_FILE)
-            logging.info(f"Session saved to {HISTORY_FILE} ({len(history)} total sessions)")
-        except IOError as exc:
-            logging.error(f"Failed to write session history: {exc}")
+    try:
+        if _session_id is None:
+            _begin_db_session()  # row creation failed at Start; try once more
+        if _session_id is None:
+            logging.error("Session not saved: no database row")
+            return
+        _record_sample(force=True)
+        _flush_samples()
+        start = _session_start_time.astimezone()
+        end = datetime.now().astimezone()
+        distance_m = current_distance_km * 1000
+        storage.complete_session(_session_id, {
+            "end_time": end.isoformat(timespec="seconds"),
+            "elapsed_s": (end - start).total_seconds(),
+            "moving_s": current_session_active_seconds,
+            "distance_m": distance_m,
+            "steps": current_steps,
+            "calories_kcal": current_calories,
+            "avg_speed_mps": distance_m / max(current_session_active_seconds, 1),
+        })
+        logging.info(f"Session {_session_id} saved to database")
+    except Exception:
+        logging.exception("Failed to save session to database")
+    finally:
+        _session_id = None
 
 
 def _load_session_history(limit: int | None = None) -> list:
-    """Load session history from disk, most recent first (thread-safe). Pass limit=None for all."""
-    with _history_lock:
-        if not os.path.exists(HISTORY_FILE):
-            return []
-        try:
-            with open(HISTORY_FILE, "r") as f:
-                history = json.load(f)
-            if not isinstance(history, list):
-                return []
-            result = list(reversed(history))
-            return result[:limit] if limit is not None else result
-        except (json.JSONDecodeError, IOError) as exc:
-            logging.warning(f"Failed to read session history: {exc}")
-            return []
+    """Completed sessions, most recent first, in the legacy record shape. Pass limit=None for all."""
+    try:
+        return [legacy_record(row) for row in storage.list_sessions(limit=limit)]
+    except Exception:
+        logging.exception("Failed to load session history")
+        return []
 
 
 def _clear_session_history():
-    """Delete or truncate the session history file (thread-safe, atomic)."""
-    with _history_lock:
-        tmp_path = f"{HISTORY_FILE}.tmp"
-        try:
-            with open(tmp_path, "w") as f:
-                json.dump([], f)
-            os.replace(tmp_path, HISTORY_FILE)
-            logging.info("Session history cleared")
-        except IOError as exc:
-            logging.error(f"Failed to clear session history: {exc}")
+    try:
+        storage.clear_history()
+        logging.info("Session history cleared")
+    except Exception:
+        logging.exception("Failed to clear session history")
 
 
 def _dismiss_health_export():
-    """Mark the most recent session as no longer pending an Apple Health export
-    (thread-safe, atomic). session_history.json stores oldest-first, so the most
-    recent record is the last element -- not history[0], which is only true of
-    _load_session_history()'s reversed-for-display copy."""
-    with _history_lock:
-        if not os.path.exists(HISTORY_FILE):
-            return
-        try:
-            with open(HISTORY_FILE, "r") as f:
-                history = json.load(f)
-            if not isinstance(history, list) or not history:
-                return
-            history[-1]["health_logged"] = True
-            tmp_path = f"{HISTORY_FILE}.tmp"
-            with open(tmp_path, "w") as f:
-                json.dump(history, f, indent=2)
-            os.replace(tmp_path, HISTORY_FILE)
-        except (json.JSONDecodeError, IOError) as exc:
-            logging.warning(f"Failed to dismiss health export flag: {exc}")
+    """Mark the most recent session as no longer pending an Apple Health export."""
+    try:
+        recent = storage.list_sessions(limit=1)
+        if recent:
+            storage.mark_health_logged(recent[0]["id"])
+    except Exception:
+        logging.exception("Failed to dismiss health export flag")
 
 
 # ── Session State Persistence (crash/restart recovery) ──────────────────
@@ -336,6 +387,7 @@ def _build_session_state_snapshot() -> dict:
     """Build a dict of the in-progress session's live state for crash recovery."""
     return {
         "session_active": session_active,
+        "session_id": _session_id,
         "session_start_time": _session_start_time.isoformat() if _session_start_time else None,
         "current_distance_km": current_distance_km,
         "current_steps": current_steps,
@@ -348,9 +400,12 @@ def _build_session_state_snapshot() -> dict:
 
 
 def _save_session_state():
-    """Write the current in-progress session to session_state.json (thread-safe, atomic)."""
+    """Write the current in-progress session to session_state.json (thread-safe, atomic).
+    Also flushes buffered samples: this already runs every 5 s while walking and on
+    every pause/resume, which is exactly the sample flush cadence we want."""
     if not session_active:
         return
+    _flush_samples()
     snapshot = _build_session_state_snapshot()
     with _session_state_file_lock:
         tmp_path = f"{SESSION_STATE_FILE}.tmp"
@@ -399,7 +454,11 @@ def _write_config(updates: dict) -> None:
         json.dump(existing, f, indent=2)
 
 
+storage.init_db(os.path.join(os.path.dirname(os.path.abspath(__file__)), config.DATABASE_PATH))
+storage.migrate_json(HISTORY_FILE)
+
 _pending_restore = _load_session_state()  # Check for an interrupted session at startup
+_sweep_orphaned_sessions((_pending_restore or {}).get("session_id"))
 
 
 # ── Apple Health export (Shortcuts QR codes) ─────────────────────────────
@@ -645,6 +704,7 @@ def process_status_packet(dev_dist: float, dev_steps: int, dev_speed: float):
 
     current_speed_kmh = new_reported_speed_kmh
     current_calories = kcal_estimate(current_distance_km * KM_TO_MI)
+    _record_sample()
 
     # Stamped last, after all accumulation above has succeeded, so a
     # mid-function exception (e.g. malformed packet data) can't mark the
@@ -654,6 +714,7 @@ def process_status_packet(dev_dist: float, dev_steps: int, dev_speed: float):
 
     # Persist immediately on auto-pause, same guarantee as the manual /pause route.
     if just_auto_paused:
+        _record_pause("auto")
         _save_session_state()
 
 
@@ -1180,6 +1241,11 @@ def _handle_disconnect(client):
         connecting = will_auto_reconnect
         connection_failed = not will_auto_reconnect
 
+    # A drop stops the belt, so a walking session is now paused. No-op if a
+    # pause is already open (e.g. the drop happened while paused).
+    if session_active:
+        _record_pause("auto")
+
     try:
         current = asyncio.current_task()
     except RuntimeError:
@@ -1390,14 +1456,13 @@ def export_csv():
     history = _load_session_history()
     si = io.StringIO()
     writer = csv.writer(si)
-    writer.writerow(["date", "start_time", "end_time", "duration_seconds",
-                      "distance_km", "distance_mi", "steps", "calories",
-                      "avg_speed_kmh", "avg_speed_mph"])
+    # Legacy columns first, in their original order, so existing spreadsheets keep working.
+    columns = ["date", "start_time", "end_time", "duration_seconds",
+               "distance_km", "distance_mi", "steps", "calories",
+               "avg_speed_kmh", "avg_speed_mph", "id", "has_samples"]
+    writer.writerow(columns)
     for row in history:
-        writer.writerow([row.get("date"), row.get("start_time"), row.get("end_time"),
-                         row.get("duration_seconds"), row.get("distance_km"),
-                         row.get("distance_mi"), row.get("steps"), row.get("calories"),
-                         row.get("avg_speed_kmh"), row.get("avg_speed_mph")])
+        writer.writerow([row[c] for c in columns])
 
     resp = make_response(si.getvalue())
     resp.headers["Content-Disposition"] = "attachment; filename=walkingdad_history.csv"
@@ -1572,6 +1637,9 @@ def restore_session():
         start_str = state.get("session_start_time")
         _session_start_time = datetime.fromisoformat(start_str) if start_str else datetime.now()
         speed_history.clear()
+        # Reuses the crashed session's row; state files from before session_id existed get a new one.
+        _begin_db_session(state.get("session_id"))
+        _record_pause("shutdown", at=_last_sample_time())
 
         # Restored in paused state. The belt isn't actually running; user hits
         # Resume to reconnect the belt sequence and stats monitor.
@@ -1592,8 +1660,14 @@ def discard_session():
             # A restore (or a fresh start) already claimed this session; don't
             # delete its live state file out from under it.
             return redirect(url_for("root"))
+        discarded_id = (_pending_restore or {}).get("session_id")
         _pending_restore = None
         _clear_session_state()
+    if discarded_id:
+        try:
+            storage.delete_session(discarded_id)
+        except Exception:
+            logging.exception("Failed to delete discarded session row")
     return redirect(url_for("root"))
 
 
@@ -1619,6 +1693,7 @@ def start_session():
         speed_history.clear()
         _session_start_time = datetime.now()
         _resume_grace_deadline = time.time() + RESUME_GRACE_PERIOD_SECONDS
+        _begin_db_session()
 
         session_active = True
         belt_running = True
@@ -1685,6 +1760,7 @@ def pause_session():
             resume_speed_kmh = speed_history[-1]
 
         belt_running = False
+        _record_pause("manual")
         _save_session_state()
 
         # Single ordered sequence on ble_loop: cancel monitor before stop_belt()
@@ -1737,6 +1813,7 @@ def resume_session():
         logging.info("Resume button clicked. Setting app state to active.")
         belt_running = True
         _resume_grace_deadline = time.time() + RESUME_GRACE_PERIOD_SECONDS
+        _record_resume()
         _save_session_state()
 
         async def _resume_belt_sequence():

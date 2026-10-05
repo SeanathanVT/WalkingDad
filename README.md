@@ -17,7 +17,7 @@ The official WalkingPad experience is a bloated mobile app that wants your email
 - **Smart pause & resume**: Auto-detects when you step off; remembers your speed; configurable grace period prevents re-triggering on restart
 - **Speed presets**: Slow (speed floor), Moderate, and Max buttons, plus incremental increase/decrease steppers
 - **Console-style interface**: Active, Paused, and Start screens read like the WalkingPad's own onboard display, with one large tabular-digit reading up top and secondary stats in a compact readout strip below
-- **Session history**: Completed sessions saved to `session_history.json` with full stats; last 10 shown on the start screen. Includes CSV export and history clearing.
+- **Session history**: Sessions saved to a local SQLite database (`walkingdad.db`) with full stats, pauses, and per-second speed/distance/steps samples; last 10 shown on the start screen. Includes CSV export and history clearing. An existing `session_history.json` from an older version is imported automatically on first launch (the original is kept as `session_history.json.bak-<timestamp>`).
 - **Crash recovery**: If the server crashes or restarts mid-session, your stats aren't lost. The start screen offers to restore the interrupted session (paused, ready to resume) or discard it.
 - **Settings page**: Gear icon in the header lets you change any setting (device name, speed limits, port, and more) from the browser without editing files
 - **Dark mode**: Three-state toggle (Light → Dark → System) with localStorage persistence
@@ -79,6 +79,8 @@ The app opens your browser automatically at `http://127.0.0.1:5001`. A console w
 
 **Windows shortcut:** Double-click `start_app.bat` instead of running the commands manually.
 
+**Running tests:** `pip install -r requirements-dev.txt`, then `python -m pytest`. The tests never import `app.py` (importing it opens the real database and migrates `session_history.json`), and need no treadmill.
+
 ## Usage
 
 1. Power on your WalkingPad. The app connects automatically on startup (up to 3 retries with exponential backoff).
@@ -128,14 +130,15 @@ All settings can be changed from the **Settings page** (gear icon in the header)
 | `port` | `5001` | Server port |
 | `waitress_threads` | `16` | Server worker thread count (4-128) |
 | `apple_health_shortcut_name` | `"Log WalkingDad Workout"` | Must match the installed Shortcut's name exactly; see [Apple Health Export](#apple-health-export) |
+| `database_path` | `"walkingdad.db"` | SQLite database file (relative to the app directory) |
 
-Changes to most settings take effect immediately via the Settings page. `host`, `port`, and `waitress_threads` require restarting the app.
+Changes to most settings take effect immediately via the Settings page. `host`, `port`, `waitress_threads`, and `database_path` require restarting the app.
 
 ## Troubleshooting
 
 - **Won't connect:** Make sure your WalkingPad is powered on and not paired to another device (like your phone). Check the console for log details.
 - **Icons missing:** Bootstrap Icons load from a CDN. Make sure your browser has internet access.
-- **Stats stop updating:** The app detects a dead BLE connection automatically (during an active session and while paused/idle) and shows a **Connection Failed** screen with a **Try Again** button instead of freezing silently. If stats stay stuck without that screen appearing, check the console for `ask_stats` errors and restart the app.
+- **Stats stop updating:** The app detects a dead BLE connection automatically (during an active session and while paused/idle) and reconnects on its own, retrying for about 7-8 minutes. Only if every attempt fails does it show a **Connection Failed** screen with a **Try Again** button, instead of freezing silently. If stats stay stuck without that screen appearing, check the console for `ask_stats` errors and restart the app.
 - **macOS BLE quirks:** See [ROADMAP.md](ROADMAP.md) 1.1 (Reliability & Safety) for the full list of cross-platform reliability fixes.
 
 ## Credits
