@@ -138,6 +138,7 @@ Changes to most settings take effect immediately via the Settings page. `host`, 
 ## Troubleshooting
 
 - **Won't connect:** Make sure your WalkingPad is powered on and not paired to another device (like your phone). Check the console for log details.
+- **"Can't start: ..." in the console:** The message says what's wrong and how to fix it. Most often another program, usually a second WalkingDad, is using the port: close it, or set a different `port` in `config.json` and restart. It also catches a `port` outside 1-65535, a `host` that doesn't resolve, and ports the OS won't allow.
 - **Icons missing:** Bootstrap Icons load from a CDN. Make sure your browser has internet access.
 - **Stats stop updating:** The app detects a dead BLE connection automatically (during an active session and while paused/idle) and reconnects on its own, retrying for about 7-8 minutes. Only if every attempt fails does it show a **Connection Failed** screen with a **Try Again** button, instead of freezing silently. If stats stay stuck without that screen appearing, check the console for `ask_stats` errors and restart the app.
 - **macOS BLE quirks:** See [ROADMAP.md](ROADMAP.md) 1.1 (Reliability & Safety) for the full list of cross-platform reliability fixes.

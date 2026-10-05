@@ -11,3 +11,6 @@ ECHO Starting WalkingDad...
 
 REM Run the application
 python "%~dp0run.py"
+
+REM Keep the window open on failure (e.g. port in use) so the error is readable
+if errorlevel 1 pause

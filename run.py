@@ -1,5 +1,8 @@
+import errno
 import os
+import socket
 import subprocess
+import sys
 import time
 import urllib.request
 import webbrowser
@@ -12,6 +15,53 @@ def open_browser():
     """Opens the web browser to the application."""
     print(f"Opening browser to http://127.0.0.1:{PORT}")
     webbrowser.open_new(f"http://127.0.0.1:{PORT}")
+
+
+def _listen_addrs():
+    """(family, sockaddr) for every socket Waitress will bind for HOST/PORT,
+    resolved the same way as waitress.adjustments.Adjustments."""
+    host = HOST
+    if "[" in host and "]" in host:
+        host = host.strip("[").rstrip("]")
+    if host == "*":
+        host = None
+    addrs = {}
+    for family, _, _, _, sockaddr in socket.getaddrinfo(
+        host, PORT, socket.AF_UNSPEC, socket.SOCK_STREAM, socket.IPPROTO_TCP, socket.AI_PASSIVE
+    ):
+        # Zone index dropped: macOS can return one link-local address twice
+        # with different zones, which still collide on bind().
+        addrs.setdefault((sockaddr[0].split("%", 1)[0], sockaddr[1]), (family, sockaddr))
+    return list(addrs.values())
+
+
+def check_port():
+    """Exit with a clear message if Waitress won't be able to listen on
+    HOST:PORT, instead of a bare traceback after the browser opens."""
+    # getaddrinfo wraps out-of-range ports (70000 -> 4464), so check first.
+    if type(PORT) is not int or not 1 <= PORT <= 65535:
+        sys.exit(f'Can\'t start: "port" in config.json must be a whole number from 1 to 65535, got {PORT!r}.')
+    try:
+        addrs = _listen_addrs()
+    except socket.gaierror as exc:
+        sys.exit(f'Can\'t start: "host" {HOST!r} in config.json doesn\'t resolve ({exc}).')
+
+    for family, sockaddr in addrs:
+        try:
+            # Waitress sets SO_REUSEADDR everywhere; create_server only on POSIX.
+            # On Windows that option lets a second listener bind over a live one,
+            # so probing without it is what catches a second WalkingDad there.
+            socket.create_server(sockaddr, family=family).close()
+        except OSError as exc:
+            if exc.errno in (errno.EADDRINUSE, getattr(errno, "WSAEADDRINUSE", None)):
+                hint = ("Another program, possibly another WalkingDad window, is using it. "
+                        'Close it, or set a different "port" in config.json and restart.')
+            elif exc.errno in (errno.EACCES, getattr(errno, "WSAEACCES", None)):
+                hint = ("The OS doesn't allow this port (below 1024 without admin rights, or "
+                        'reserved by Windows). Set a different "port" in config.json and restart.')
+            else:
+                hint = 'Check "host" and "port" in config.json, then restart.'
+            sys.exit(f"Can't start: can't listen on {sockaddr[0]} port {PORT} ({exc}).\n{hint}")
 
 
 def http_shutdown():
@@ -37,6 +87,7 @@ def http_shutdown():
 
 
 if __name__ == "__main__":
+    check_port()
     print("Starting production server with Waitress...")
 
     # Start the Waitress server as a subprocess in its own process group
