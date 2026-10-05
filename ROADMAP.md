@@ -109,12 +109,19 @@ A session left paused (manual, auto, Bluetooth drop, or restored after a crash) 
 
 ---
 
-### 1.6 Port-in-Use Check on Startup
-- **Status:** Planned
-- **Priority:** Medium
-- **Problem:** If port 5001 (or a configured alternate) is already taken, Waitress fails with an opaque bind error in the console instead of a clear explanation.
-- **Solution:** Check the configured port is free before launching Waitress; if not, fail fast with a clear message naming the port and suggesting a fix (change `port` in Settings/`config.json`).
-- **Implementation:** A quick `socket.bind()`/`connect_ex()` probe in `run.py` before spawning the Waitress subprocess.
+### ✅ 1.6 Port-in-Use Check on Startup
+**Status:** ✅ Complete
+**Priority:** Medium
+**Files Modified:** `run.py`, `start_app.bat`, `README.md`, `tests/test_port_check.py`
+
+`run.py` checks `host`/`port` before spawning Waitress (or opening the browser), exiting with the OS error and the fix on failure.
+
+| Feature | Description |
+|---|---|
+| **Mirrors Waitress** | `_listen_addrs()` resolves `host` the way Waitress does (`getaddrinfo` with `AF_UNSPEC`/`AI_PASSIVE`, `[...]` stripped, `*` as wildcard, zone-index dedupe) and test-binds every result, so `*`, `localhost`, and IPv6 hosts are probed on each address Waitress will bind, not just the first |
+| **Bind, Not Connect** | A `bind()` probe rather than `connect_ex()`, so it also catches Windows-reserved ports and listeners on other interfaces. `create_server()` omits `SO_REUSEADDR` on Windows (Waitress sets it, which would let a second WalkingDad bind over a live listener) and sets it on POSIX, so a TIME_WAIT port from the last run counts as free |
+| **Specific Messages** | Separate messages for a port in use (likely a second WalkingDad), a port the OS won't allow (below 1024 on Linux without root, or Windows-reserved), a `host` that doesn't resolve, and a `port` outside 1-65535 (checked up front, since `getaddrinfo` silently wraps 70000 to 4464) |
+| **Readable on Windows** | `start_app.bat` pauses on a non-zero exit so the message stays open |
 
 ---
 
@@ -162,7 +169,7 @@ All user-tunable settings are now loaded from an optional `config.json` file, wi
 ### 2.5 Unit Tests
 - **Status:** In Progress
 - **Priority:** Medium
-- **Problem:** Most of `app.py` has no automated tests, making refactoring risky. Covered so far: `storage.py`, the JSON migration, `units.py`, `samples.py` (2.9), and in `app.py` the stale-pause check (1.5) plus `process_status_packet()`'s active-time accrual and auto-pause detection.
+- **Problem:** Most of `app.py` has no automated tests, making refactoring risky. Covered so far: `storage.py`, the JSON migration, `units.py`, `samples.py` (2.9), and in `app.py` the stale-pause check (1.5) plus `process_status_packet()`'s active-time accrual and auto-pause detection, and `run.py`'s port-in-use check (1.6).
 - **Solution:** Extend the suite to `app.py`'s logic:
     - `format_seconds_to_hms()` - time formatting edge cases
     - `kcal_estimate()` - calorie calculation

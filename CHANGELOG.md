@@ -21,10 +21,11 @@ All notable changes to WalkingDad will be documented in this file.
 
 - **Active walking time now comes from the treadmill's own speed reports**, counting only stretches where the belt was actually moving, instead of a stopwatch running whenever the app thought you were walking. This affects the history duration, CSV export, Apple Health export, and average speed. The startup countdown no longer counts, and time is no longer lost rounding at each pause.
 - **A belt that stops (or never starts) right after Start or Resume now auto-pauses.** Before, stepping off within the first few seconds left the session showing as walking indefinitely, with time still accumulating.
+- **Clear error when the port is taken.** If port 5001 (or your configured `port`) is already in use, often by a second WalkingDad, startup now stops with a message naming the port and how to fix it, instead of a Waitress traceback after the browser opens. A `port` outside 1-65535, a `host` that doesn't resolve, and ports the OS won't allow (below 1024 on Linux without root, or reserved by Windows) get their own messages. The Windows launcher window stays open so you can read it.
 
 ### Internal
 
-- **First automated tests**. `pytest` suite under `tests/` covering storage, the JSON migration, unit conversions, sample capture, and in `app.py` active-time accrual, auto-pause detection, and the stale-pause check. Importing `app.py` with `WALKINGDAD_NO_STARTUP=1` (set by `tests/conftest.py`) skips its startup, so tests never touch the real database or treadmill. Install with `requirements-dev.txt`; see the README.
+- **First automated tests**. `pytest` suite under `tests/` covering storage, the JSON migration, unit conversions, sample capture, and in `app.py` active-time accrual, auto-pause detection, and the stale-pause check, plus `run.py`'s port-in-use check. Importing `app.py` with `WALKINGDAD_NO_STARTUP=1` (set by `tests/conftest.py`) skips its startup, so tests never touch the real database or treadmill. Install with `requirements-dev.txt`; see the README.
 
 ---
 
