@@ -79,7 +79,7 @@ The app opens your browser automatically at `http://127.0.0.1:5001`. A console w
 
 **Windows shortcut:** Double-click `start_app.bat` instead of running the commands manually.
 
-**Running tests:** `pip install -r requirements-dev.txt`, then `python -m pytest`. The tests never import `app.py` (importing it opens the real database and migrates `session_history.json`), and need no treadmill.
+**Running tests:** `pip install -r requirements-dev.txt`, then `python -m pytest`. No treadmill needed. Tests that import `app.py` run with `WALKINGDAD_NO_STARTUP=1` (set in `tests/conftest.py`), which skips its import-time startup: opening the real database, migrating `session_history.json`, and the Bluetooth scan.
 
 ## Usage
 

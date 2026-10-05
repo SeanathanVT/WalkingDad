@@ -24,7 +24,7 @@ All notable changes to WalkingDad will be documented in this file.
 
 ### Internal
 
-- **First automated tests**. `pytest` suite under `tests/` covering storage, the JSON migration, unit conversions, and sample capture. Install with `requirements-dev.txt`; see the README.
+- **First automated tests**. `pytest` suite under `tests/` covering storage, the JSON migration, unit conversions, sample capture, and in `app.py` active-time accrual, auto-pause detection, and the stale-pause check. Importing `app.py` with `WALKINGDAD_NO_STARTUP=1` (set by `tests/conftest.py`) skips its startup, so tests never touch the real database or treadmill. Install with `requirements-dev.txt`; see the README.
 
 ---
 
