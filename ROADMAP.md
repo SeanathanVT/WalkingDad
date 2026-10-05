@@ -456,6 +456,20 @@ Active, Paused, and Start screens redesigned to read like the WalkingPad's own o
 
 ---
 
+### 3.18 Transition Hint Shows on Every Button Press
+- **Status:** Planned
+- **Priority:** Medium
+- **Problem:** Clicking a speed preset or stepper on the active screen briefly shows "Getting the belt moving…" with a spinner, and the buttons jump down while it's visible. Every button has a variant of this, and the text is wrong for most of them:
+    - Pause and End flash "Getting the belt moving…"
+    - Start flashes "Stopping belt…"
+    - Resume flashes "Pausing belt…"
+
+  Each page's `#transitioning-hint` text describes the transition *into* that page (active: after Start/Resume; paused: after Pause; start: after End), and the `belt_transitioning` flag in the SSE stats payload is meant to drive it. But `disableButtonsOnSubmit()` in `templates/base.html` also calls `setTransitioning(hintId, …, true)` on every form submit, so the hint appears for the request round-trip. The page then reloads with it hidden again, because speed changes never set `_belt_transitioning`. The hint toggles `display: none`, so showing it reflows the layout.
+- **Solution:** On submit, only disable and dim the buttons, which is all the double-tap guard needs. Leave the hint to the server's `belt_transitioning` flag, so it only ever shows during a real start/pause/resume/end belt sequence, with text that matches. Optionally reserve the hint's space (toggle `visibility` instead of `display`) so the legitimate post-Start/Resume hint doesn't shift the layout either.
+- **Implementation:** Drop the hint from `disableButtonsOnSubmit()` (`templates/base.html`; it can take just `buttons`, or call `setTransitioning(null, buttons, true)`, which `getElementById(null)` already tolerates). Update its three call sites in `active_session.html`, `paused_session.html` and `start_session.html`, plus the comments there that describe the behavior. No backend change. Verify by hand in the browser: presets and steppers show no hint or shift, and the correct hint still appears after Start, Pause, Resume and End while the belt sequence runs. Template JS has no automated tests (see 2.12).
+
+---
+
 ## Stats & Motivation
 
 ### 4.1 Estimated Time to Distance Goal
