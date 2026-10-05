@@ -166,15 +166,25 @@ All user-tunable settings are now loaded from an optional `config.json` file, wi
 
 ---
 
-### 2.5 Unit Tests
-- **Status:** In Progress
-- **Priority:** Medium
-- **Problem:** Most of `app.py` has no automated tests, making refactoring risky. Covered so far: `storage.py`, the JSON migration, `units.py`, `samples.py` (2.9), and in `app.py` the stale-pause check (1.5) plus `process_status_packet()`'s active-time accrual and auto-pause detection, and `run.py`'s port-in-use check (1.6).
-- **Solution:** Extend the suite to `app.py`'s logic:
-    - `format_seconds_to_hms()` - time formatting edge cases
-    - `kcal_estimate()` - calorie calculation
-    - `process_status_packet()` - distance/steps accumulation and device counter resets, speed history management (mock BLE data)
-- **Implementation:** Tests import `app.py` directly; `tests/conftest.py` sets `WALKINGDAD_NO_STARTUP=1` so the import skips opening `walkingdad.db`, the JSON migration, the orphan sweep, the BLE thread, and the SSE broadcaster.
+### ✅ 2.5 Unit Tests
+**Status:** ✅ Complete
+**Priority:** Medium
+**Files Modified:** `app.py`, `run.py`, `requirements-dev.txt`, `pytest.ini`, `ruff.toml`, `.coveragerc`, `.gitignore`, `README.md`, `tests/`
+
+A `pytest` suite covering every module without a treadmill. How to run it: the README's **Running tests** line.
+
+| Area | Coverage |
+|---|---|
+| **Pure helpers** | Time formatting, calorie estimate, status-field extraction, settings casts and clamps, Apple Health shortcut URLs, stats payload and SSE framing |
+| **Status packets** | Distance/step accumulation across device counter resets, calories, speed history filtering and cap, resume speed chosen on auto-pause, liveness stamping (plus the existing active-time and auto-pause tests) |
+| **Routes** | Every Flask route through the test client: start/pause/resume/end, speed controls and clamping, restore/discard, CSV export, settings save, `/stats`, `/stats_stream`, `/shutdown` |
+| **BLE and async** | A fake controller drives the wake/start/stop sequences, light wake, lock timeouts, the stats monitor, the idle watchdog, disconnect handling, auto-reconnect backoff, scanning, connecting, the BLE thread lifecycle, and signal/HTTP shutdown |
+| **Persistence** | Session-state file save/load/clear (including corrupt files), `config.json` writes, and every database helper against a temp SQLite DB, including "log and continue" behavior when storage fails |
+| **`run.py`** | Port check, browser launch, the HTTP shutdown call, and `main()`'s Waitress subprocess and Ctrl+C handling |
+
+**Implementation:** `tests/conftest.py` sets `WALKINGDAD_NO_STARTUP=1` before importing `app.py`, so the import skips opening `walkingdad.db`, the JSON migration, the orphan sweep, the BLE thread, the SSE broadcaster, and installing the signal/`atexit` handlers. Its `app_state` fixture resets every module global, points the state file, `config.json`, and the database at `tmp_path`, and records BLE coroutines instead of scheduling them, so tests can run a captured sequence against a fake controller.
+
+**Not covered:** the inline template JavaScript (left to 2.12's browser smoke test), the import-time startup block, the background-thread entry points (SSE broadcaster start, `/shutdown`'s delayed exit), and `run.py`'s Windows branch.
 
 ---
 
@@ -187,12 +197,20 @@ All user-tunable settings are now loaded from an optional `config.json` file, wi
 
 ---
 
-### 2.7 Continuous Integration
-- **Status:** Planned
-- **Priority:** Medium
-- **Problem:** There's no GitHub Actions workflow; nothing runs automatically on push/PR, even though a `pytest` suite now exists (2.5).
-- **Solution:** A GitHub Actions workflow that installs dependencies and runs the test suite plus a linter, on every push and PR.
-- **Implementation:** `.github/workflows/ci.yml` running on `ubuntu-latest`, `pip install -r requirements.txt -r requirements-dev.txt`, then `pytest` and a linter (e.g. `ruff`).
+### ✅ 2.7 Continuous Integration
+**Status:** ✅ Complete
+**Priority:** Medium
+**Files Modified:** `.github/workflows/ci.yml`, `.gitlab-ci.yml`, `requirements-dev.txt`, `ruff.toml`
+
+Pull/merge requests and pushes to `main`/`development` run the lint and test suite on both GitHub Actions and GitLab CI.
+
+| Feature | Description |
+|---|---|
+| **GitHub Actions** | `.github/workflows/ci.yml` on `ubuntu-latest`, Python 3.10 (the supported floor) and 3.13. Pushes run only on `main`/`development`, so a PR branch isn't tested twice |
+| **GitLab CI** | `.gitlab-ci.yml` on the `python:3.12` image. Runs a merge-request pipeline when an MR is open, otherwise a branch pipeline, and shows the coverage percentage and a Cobertura report in the MR |
+| **Steps** | `pip install -r requirements.txt -r requirements-dev.txt`, `ruff check .`, `python -m pytest --cov=.`. CI reports coverage but never fails on it |
+| **Lint** | `ruff` pinned in `requirements-dev.txt`, since its default rule set changes between releases. `ruff.toml` ignores only rules that flag deliberate project style (root logger, catch-all excepts around BLE I/O, naive local datetimes, a `ValueError` raised to share an `except` clause) |
+| **Linux only** | BLE is fully mocked, so no Bluetooth hardware or OS-specific stack is needed. `tests/test_run.py` assumes POSIX (macOS/Linux) |
 
 ---
 
@@ -238,23 +256,23 @@ Session data lives in a local SQLite database (`walkingdad.db`, configurable via
 - **Priority:** Medium
 - **Problem:** Pinning versions (2.6) fixes what's installed but doesn't catch a known CVE in whatever gets pinned, or a new one disclosed later against an already-pinned version.
 - **Solution:** Enable Dependabot security alerts on the repo, and/or run `pip-audit` against `requirements.txt` in CI (2.7).
-- **Implementation:** A `.github/dependabot.yml` for version-update PRs plus security alerts; a `pip-audit` step added to the CI workflow from 2.7.
+- **Implementation:** A `.github/dependabot.yml` for version-update PRs plus security alerts; a `pip-audit` step added to both CI configs from 2.7.
 
 ---
 
 ### 2.12 Integration Smoke Test
 - **Status:** Planned
 - **Priority:** Medium
-- **Problem:** 2.5's unit tests cover pure functions, but nothing exercises the actual Start → Pause → Resume → End route flow end to end, so a template or routing regression could still slip through.
+- **Problem:** 2.5's tests drive each route through Flask's test client, but nothing loads the rendered pages in a real browser and clicks through Start → Pause → Resume → End, so a template JavaScript or front-end wiring regression could still slip through.
 - **Solution:** One browser-driven smoke test that boots the app against a mocked BLE device/controller and clicks through the full session lifecycle, asserting each screen renders and each transition lands where expected.
-- **Implementation:** Playwright (or Selenium) driving a test instance of the Flask app with `controller`/`BleakScanner` mocked out; run as part of the CI workflow from 2.7.
+- **Implementation:** Playwright (or Selenium) driving a test instance of the Flask app with `controller`/`BleakScanner` mocked out; run as part of the CI configs from 2.7.
 
 ---
 
 ### 2.13 CONTRIBUTING.md
 - **Status:** Planned
 - **Priority:** Low
-- **Problem:** There's no documented contribution process or versioning policy, which matters more once 2.7 (CI) and 2.5 (Unit Tests) make outside PRs realistically reviewable.
+- **Problem:** There's no documented contribution process or versioning policy, which matters more now that 2.7 (CI) and 2.5 (Unit Tests) make outside PRs realistically reviewable.
 - **Solution:** A `CONTRIBUTING.md` covering local setup, how to run tests/lint, commit/PR expectations, and the project's versioning policy (semver against `CHANGELOG.md`).
 - **Implementation:** Plain markdown doc, no tooling.
 
@@ -432,7 +450,7 @@ Active, Paused, and Start screens redesigned to read like the WalkingPad's own o
 ### 3.17 Tablet-Width Responsive Breakpoint
 - **Status:** Planned
 - **Priority:** Low
-- **Problem:** `base.html` has exactly one `@media (max-width: 480px)` rule, tuned for phone-width screens. Desktop is the primary use case, but the app's own pitch covers "any browser on your network," and 2.7/3.7 (Touch/Swipe Gesture Controls) already anticipate a phone/tablet as a secondary device, so there's nothing tuned for the tablet width range in between.
+- **Problem:** `base.html` has exactly one `@media (max-width: 480px)` rule, tuned for phone-width screens. Desktop is the primary use case, but the app's own pitch covers "any browser on your network," and 3.7 (Touch/Swipe Gesture Controls) already anticipates a phone/tablet as a secondary device, so there's nothing tuned for the tablet width range in between.
 - **Solution:** Add an intermediate breakpoint (e.g. `max-width: 900px`) tuned for tablet-class screens (iPad-size), rather than jumping straight from desktop layout to the 480px phone rules.
 - **Implementation:** Audit `console-hero`/`console-strip`/history table layout at common tablet widths (768-1024px) and add a second `@media` block alongside the existing 480px one.
 

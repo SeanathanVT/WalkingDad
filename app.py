@@ -14,15 +14,31 @@ from collections import deque
 from datetime import datetime, timedelta
 
 from bleak import BleakScanner
-from flask import Flask, render_template, redirect, url_for, jsonify, make_response, request, Response
+from flask import (
+    Flask,
+    Response,
+    jsonify,
+    make_response,
+    redirect,
+    render_template,
+    request,
+    url_for,
+)
 from ph4_walkingpad.pad import Controller, WalkingPad
 
 import config
 import storage
 from config import (
-    BLE_DEVICE_NAME, KCAL_PER_MILE, MAX_SPEED_KMH, MIN_SPEED_KMH,
-    SPEED_STEP, SLOW_WALK_SPEED_KMH, RESUME_GRACE_PERIOD_SECONDS,
-    HISTORY_DISPLAY_LIMIT, APPLE_HEALTH_SHORTCUT_NAME, APPLE_HEALTH_EXPORT_ENABLED,
+    APPLE_HEALTH_EXPORT_ENABLED,
+    APPLE_HEALTH_SHORTCUT_NAME,
+    BLE_DEVICE_NAME,
+    HISTORY_DISPLAY_LIMIT,
+    KCAL_PER_MILE,
+    MAX_SPEED_KMH,
+    MIN_SPEED_KMH,
+    RESUME_GRACE_PERIOD_SECONDS,
+    SLOW_WALK_SPEED_KMH,
+    SPEED_STEP,
     STALE_PAUSE_TIMEOUT_MINUTES,
 )
 from samples import SampleBuffer, summary_from_samples
@@ -421,7 +437,7 @@ def _save_session_state():
             with open(tmp_path, "w") as f:
                 json.dump(snapshot, f, indent=2)
             os.replace(tmp_path, SESSION_STATE_FILE)
-        except IOError as exc:
+        except OSError as exc:
             logging.error(f"Failed to write session state: {exc}")
 
 
@@ -436,7 +452,7 @@ def _load_session_state() -> dict | None:
             if not isinstance(state, dict) or not state.get("session_active"):
                 return None
             return state
-        except (json.JSONDecodeError, IOError) as exc:
+        except (OSError, ValueError) as exc:
             logging.warning(f"Failed to read session state, ignoring: {exc}")
             return None
 
@@ -447,7 +463,7 @@ def _clear_session_state():
         try:
             if os.path.exists(SESSION_STATE_FILE):
                 os.remove(SESSION_STATE_FILE)
-        except IOError as exc:
+        except OSError as exc:
             logging.error(f"Failed to clear session state: {exc}")
 
 
@@ -519,11 +535,11 @@ def _build_log_shortcut_url(session_record: dict) -> str:
 # ── Context processor so templates always know flags ────────────────────
 @app.context_processor
 def inject_flags():
-    return dict(
-        connected=connected, connecting=connecting, connection_failed=connection_failed,
-        apple_health_shortcut_name=APPLE_HEALTH_SHORTCUT_NAME,
-        setup_shortcut_url=_build_setup_shortcut_url(),
-    )
+    return {
+        "connected": connected, "connecting": connecting, "connection_failed": connection_failed,
+        "apple_health_shortcut_name": APPLE_HEALTH_SHORTCUT_NAME,
+        "setup_shortcut_url": _build_setup_shortcut_url(),
+    }
 
 
 # ── BLE helpers ─────────────────────────────────────────────────────────
@@ -666,7 +682,7 @@ def process_status_packet(dev_dist: float, dev_steps: int, dev_speed: float):
     passive BLE notification callback (_handle_status_update), either path
     landing here means the connection is alive.
     """
-    global belt_running, resume_speed_kmh, _resume_grace_deadline
+    global belt_running, resume_speed_kmh
     global current_speed_kmh, current_distance_km, current_steps, current_calories
     global _last_dev_dist, _last_dev_steps, _last_status_update_monotonic
     global current_session_active_seconds, _last_moving_packet_monotonic
@@ -702,20 +718,20 @@ def process_status_packet(dev_dist: float, dev_steps: int, dev_speed: float):
     # Fires on any zero reading once the grace window has passed, not only on a
     # moving-to-zero transition: a belt that stopped (or never started) inside
     # the window would otherwise leave the session "walking" indefinitely.
-    if time.time() > _resume_grace_deadline and not _belt_transitioning:
-        if belt_running and new_reported_speed_kmh == 0:
-            logging.info("Belt has stopped unexpectedly. Auto-pausing session.")
+    if (time.time() > _resume_grace_deadline and not _belt_transitioning
+            and belt_running and new_reported_speed_kmh == 0):
+        logging.info("Belt has stopped unexpectedly. Auto-pausing session.")
 
-            # Use the OLDEST speed from history to ignore the deceleration phase.
-            if speed_history:
-                resume_speed_kmh = speed_history[0] # Use the first (oldest) item
-            elif current_speed_kmh > 0:
-                # Walked only at or below MIN_SPEED_KMH, so nothing was recorded in history
-                resume_speed_kmh = MIN_SPEED_KMH
-            # else the belt never moved this segment: keep the speed it was asked for
+        # Use the OLDEST speed from history to ignore the deceleration phase.
+        if speed_history:
+            resume_speed_kmh = speed_history[0] # Use the first (oldest) item
+        elif current_speed_kmh > 0:
+            # Walked only at or below MIN_SPEED_KMH, so nothing was recorded in history
+            resume_speed_kmh = MIN_SPEED_KMH
+        # else the belt never moved this segment: keep the speed it was asked for
 
-            belt_running = False
-            just_auto_paused = True
+        belt_running = False
+        just_auto_paused = True
 
     # Cumulative stats accumulation
     if dev_dist < _last_dev_dist:
@@ -1233,7 +1249,6 @@ def _handle_disconnect(client):
     depending on platform/backend.
     """
     global connected, belt_running, connecting, connection_failed
-    global _stats_monitor_task, _idle_watchdog_task, _belt_sequence_task, _speed_change_task
 
     with _start_ble_thread_lock:
         # Idempotent: this can legitimately fire 2-3 times for the same
@@ -1726,7 +1741,7 @@ def discard_session():
 def start_session():
     """Begin a new session: reset counters, start belt, launch stats monitor."""
     global session_active, belt_running, current_distance_km, current_steps, current_calories, resume_speed_kmh
-    global current_session_active_seconds, _stats_monitor_task, _session_start_time, current_speed_kmh
+    global current_session_active_seconds, _session_start_time, current_speed_kmh
     global _resume_grace_deadline, _pending_restore, _last_moving_packet_monotonic
 
     if not connected:
@@ -1844,7 +1859,10 @@ def pause_session():
                 _belt_sequence_task = None
                 _belt_transitioning = False
 
-        asyncio.run_coroutine_threadsafe(_pause_belt_sequence(), ble_loop)
+        try:
+            asyncio.run_coroutine_threadsafe(_pause_belt_sequence(), ble_loop)
+        except Exception as exc:
+            logging.error(f"Failed to queue pause sequence: {exc}")
 
     return redirect(url_for("root"))
 
@@ -1852,8 +1870,7 @@ def pause_session():
 @app.route("/resume", methods=["POST"], endpoint="resume")
 @app.route("/resume_session", methods=["POST"], endpoint="resume_session")
 def resume_session():
-    global belt_running, _resume_grace_deadline, session_active, _stats_monitor_task
-    global _last_moving_packet_monotonic
+    global belt_running, _resume_grace_deadline, _last_moving_packet_monotonic
 
     with _session_state_lock:
         if not session_active:
@@ -1921,13 +1938,7 @@ def resume_session():
 @app.route("/decrease_speed", methods=["POST"])
 def decrease_speed():
     """Decrease the belt speed by one step."""
-    if not belt_running:
-        return redirect(url_for("root"))
-
-    new_speed_kmh = max(MIN_SPEED_KMH, current_speed_kmh - SPEED_STEP)
-    dev_speed = int(new_speed_kmh * 10)
-    asyncio.run_coroutine_threadsafe(_locked_change_speed(dev_speed), ble_loop)
-    return redirect(url_for("root"))
+    return _set_preset_speed(max(MIN_SPEED_KMH, current_speed_kmh - SPEED_STEP))
 
 
 def _set_preset_speed(speed_kmh: float):
@@ -1936,7 +1947,10 @@ def _set_preset_speed(speed_kmh: float):
         return redirect(url_for("root"))
 
     dev_speed = int(speed_kmh * 10)
-    asyncio.run_coroutine_threadsafe(_locked_change_speed(dev_speed), ble_loop)
+    try:
+        asyncio.run_coroutine_threadsafe(_locked_change_speed(dev_speed), ble_loop)
+    except Exception as exc:
+        logging.error(f"Failed to queue speed change: {exc}")
     return redirect(url_for("root"))
 
 
@@ -1955,13 +1969,7 @@ def slow_speed():
 @app.route("/increase_speed", methods=["POST"])
 def increase_speed():
     """Increase the belt speed by one step."""
-    if not belt_running:
-        return redirect(url_for("root"))
-
-    new_speed_kmh = min(MAX_SPEED_KMH, current_speed_kmh + SPEED_STEP)
-    dev_speed = int(new_speed_kmh * 10)
-    asyncio.run_coroutine_threadsafe(_locked_change_speed(dev_speed), ble_loop)
-    return redirect(url_for("root"))
+    return _set_preset_speed(min(MAX_SPEED_KMH, current_speed_kmh + SPEED_STEP))
 
 
 @app.route("/max_speed", methods=["POST"])
@@ -1977,19 +1985,19 @@ def _build_stats_payload() -> dict:
     Single source of truth for the wire payload shape, shared by the
     polling /stats endpoint and the SSE broadcaster.
     """
-    return dict(
-        is_connected=connected,
-        connection_failed=connection_failed,
-        session_active=session_active,
-        is_running=belt_running,
-        belt_transitioning=_belt_transitioning,
-        speed=round(current_speed_kmh * KM_TO_MI, 1),
-        distance=round(current_distance_km * KM_TO_MI, 2),
-        steps=current_steps,
-        calories=round(current_calories),
-        time_active=format_seconds_to_hms(current_session_active_seconds),
-        stopping=_server_stopping,
-    )
+    return {
+        "is_connected": connected,
+        "connection_failed": connection_failed,
+        "session_active": session_active,
+        "is_running": belt_running,
+        "belt_transitioning": _belt_transitioning,
+        "speed": round(current_speed_kmh * KM_TO_MI, 1),
+        "distance": round(current_distance_km * KM_TO_MI, 2),
+        "steps": current_steps,
+        "calories": round(current_calories),
+        "time_active": format_seconds_to_hms(current_session_active_seconds),
+        "stopping": _server_stopping,
+    }
 
 
 @app.route("/stats", endpoint="get_stats")
@@ -2121,14 +2129,9 @@ def shutdown():
     return resp
 
 
-# ── Signal handlers for graceful shutdown on Ctrl+C / SIGTERM ──────────
-signal.signal(signal.SIGTERM, _handle_signal_shutdown)
-signal.signal(signal.SIGINT, _handle_signal_shutdown)
-
 # ── Atexit handler as safety net ────────────────────────────────────────
 def _atexit_cleanup():
     """Safety net: attempt to stop the belt and disconnect BLE on process exit."""
-    global _shutting_down, ble_loop
     if _shutting_down:
         return  # Already handled gracefully
     logging.info("atexit: performing emergency cleanup...")
@@ -2138,10 +2141,12 @@ def _atexit_cleanup():
         except Exception as exc:
             logging.error(f"atexit cleanup error: {exc}")
 
-atexit.register(_atexit_cleanup)
 
-# ── Kick off BLE thread ──────────────────────────────────────────────────
-# The server is no longer started here. This just pre-starts the BLE thread.
+# ── Startup: exit handlers (Ctrl+C / SIGTERM / atexit), BLE thread, SSE broadcaster ──
+# The web server itself is started by run.py. Skipped under WALKINGDAD_NO_STARTUP=1 (tests).
 if _STARTUP_ENABLED:
+    signal.signal(signal.SIGTERM, _handle_signal_shutdown)
+    signal.signal(signal.SIGINT, _handle_signal_shutdown)
+    atexit.register(_atexit_cleanup)
     _start_ble_thread()
     _start_sse_broadcaster()
