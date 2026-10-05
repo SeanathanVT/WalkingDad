@@ -23,6 +23,7 @@ from config import (
     BLE_DEVICE_NAME, KCAL_PER_MILE, MAX_SPEED_KMH, MIN_SPEED_KMH,
     SPEED_STEP, SLOW_WALK_SPEED_KMH, RESUME_GRACE_PERIOD_SECONDS,
     HISTORY_DISPLAY_LIMIT, APPLE_HEALTH_SHORTCUT_NAME, APPLE_HEALTH_EXPORT_ENABLED,
+    STALE_PAUSE_TIMEOUT_MINUTES,
 )
 from samples import SampleBuffer, summary_from_samples
 from units import KM_TO_MI, legacy_record
@@ -1385,15 +1386,15 @@ def root():
 
 
 # ── End Session ────────────────────────────────────────────────────────
-@app.route("/end_session", methods=["POST"])
-def end_session():
-    """End the current session: save to history, reset counters, return to start."""
+def _end_session(stale: bool = False):
+    """Save the session to history, reset counters. stale=True (auto-end of a long
+    pause) re-checks under the lock so a Resume racing the timer wins."""
     global session_active, belt_running, current_distance_km, current_steps, current_speed_kmh
     global current_calories, current_session_active_seconds, _session_start_time
 
     with _session_state_lock:
-        if not session_active:
-            return redirect(url_for("root"))
+        if not session_active or (stale and belt_running):
+            return
 
         was_running = belt_running
         belt_running = False
@@ -1430,12 +1431,14 @@ def end_session():
                 _belt_sequence_task = None
                 _belt_transitioning = False
 
-        asyncio.run_coroutine_threadsafe(_end_belt_sequence(), ble_loop)
+        # Guarded so a dead loop can't skip the history save below.
+        if ble_loop and not ble_loop.is_closed():
+            asyncio.run_coroutine_threadsafe(_end_belt_sequence(), ble_loop)
 
         # Save session to history
         _save_session()
         _clear_session_state()
-        logging.info("Session ended by user, saved to history")
+        logging.info(f"Session ended {'after stale pause' if stale else 'by user'}, saved to history")
 
         # Reset all counters
         current_distance_km = current_calories = 0.0
@@ -1446,7 +1449,31 @@ def end_session():
         session_active = False
         _session_start_time = None
 
+
+@app.route("/end_session", methods=["POST"])
+def end_session():
+    _end_session()
     return redirect(url_for("root"))
+
+
+_paused_since: float | None = None
+
+
+def _end_session_if_stale_pause():
+    """Called every broadcaster tick. Covers every way a session ends up paused
+    (manual, auto, disconnect, restore) without hooking each one."""
+    global _paused_since
+    if not session_active or belt_running:
+        _paused_since = None
+        return
+    # Wall clock, not monotonic: monotonic stops during system sleep, and a laptop
+    # closed overnight with a paused session is the main case this exists for.
+    now = time.time()
+    if _paused_since is None:
+        _paused_since = now
+    elif STALE_PAUSE_TIMEOUT_MINUTES > 0 and now - _paused_since >= STALE_PAUSE_TIMEOUT_MINUTES * 60:
+        _paused_since = None
+        _end_session(stale=True)
 
 
 # ── Export CSV ──────────────────────────────────────────────────────────
@@ -1540,6 +1567,7 @@ _SETTINGS_SCHEMA = [
     ("kcal_per_mile", "KCAL_PER_MILE", lambda v, cur: int(v), True),
     ("resume_grace_period_seconds", "RESUME_GRACE_PERIOD_SECONDS", _clamp_resume_grace_period, True),
     ("history_display_limit", "HISTORY_DISPLAY_LIMIT", lambda v, cur: int(v), True),
+    ("stale_pause_timeout_minutes", "STALE_PAUSE_TIMEOUT_MINUTES", lambda v, cur: max(int(v), 0), True),
     ("host", "HOST", lambda v, cur: v.strip() or cur, False),
     ("port", "PORT", lambda v, cur: int(v), False),
     ("waitress_threads", "WAITRESS_THREADS", _clamp_waitress_threads, False),
@@ -1923,6 +1951,7 @@ def _build_stats_payload() -> dict:
     return dict(
         is_connected=connected,
         connection_failed=connection_failed,
+        session_active=session_active,
         is_running=belt_running,
         belt_transitioning=_belt_transitioning,
         speed=round(current_speed_kmh * KM_TO_MI, 1),
@@ -1963,6 +1992,10 @@ def _sse_broadcast_loop():
     """
     while True:
         time.sleep(_SSE_BROADCAST_INTERVAL_SECONDS)
+        try:
+            _end_session_if_stale_pause()
+        except Exception as exc:
+            logging.error(f"Stale-pause check failed (continuing): {exc}")
         try:
             # Serialize once here rather than in each subscriber's own generator,
             # since every subscriber gets the identical frame this tick.

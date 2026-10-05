@@ -63,6 +63,12 @@
                        class="form-control settings-input">
                 <small class="text-muted settings-hint">history_display_limit</small>
             </div>
+            <div class="mb-3">
+                <label class="form-label fw-medium" style="display:block;margin-bottom:0.25rem;">Auto-End Paused Session After (minutes, 0 = never)</label>
+                <input type="number" name="stale_pause_timeout_minutes" value="{{ stale_pause_timeout_minutes }}" step="1" min="0"
+                       class="form-control settings-input">
+                <small class="text-muted settings-hint">stale_pause_timeout_minutes</small>
+            </div>
         </div>
 
         <div class="stat-card mb-4">

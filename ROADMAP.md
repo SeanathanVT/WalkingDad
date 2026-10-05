@@ -94,12 +94,18 @@ Not configurable: retry counts and delays are module constants in `app.py`.
 
 ---
 
-### 1.5 Auto-End Stale Paused Session
-- **Status:** Planned
-- **Priority:** Medium
-- **Problem:** A paused session (manual or auto-pause) has no timeout. If the user forgets to resume or end it, it sits in `paused_session.html` indefinitely. `session_state.json` is written once at the pause transition and never refreshed again until resume/end, so the file also goes stale the longer it sits.
-- **Solution:** If a session stays paused longer than a configurable timeout (e.g. 30 minutes), automatically run the same path as `/end_session`: save to history, clear state, return to the start screen.
-- **Implementation:** Track a pause-started timestamp when `belt_running` flips to `False`; check it on a lightweight timer even while the belt sequence is idle; add `stale_pause_timeout_minutes` to `config.json`/Settings.
+### ✅ 1.5 Auto-End Stale Paused Session
+**Status:** ✅ Complete
+**Priority:** Medium
+**Files Modified:** `app.py`, `config.py`, `config.json.example`, `templates/paused_session.html`, `templates/settings.html`, `README.md`, `tests/test_stale_pause.py`
+
+A session left paused (manual, auto, Bluetooth drop, or restored after a crash) longer than `stale_pause_timeout_minutes` (default 30, `0` disables) is ended exactly as if End Session were pressed: saved to history, state file cleared, back to the start screen.
+
+| Feature | Description |
+|---|---|
+| **No New Timer** | `_end_session_if_stale_pause()` runs on the existing 1 s SSE broadcaster tick, so it covers every pause path without hooking each one. Timed on the wall clock, since `time.monotonic()` stops during system sleep and a laptop closed overnight is the main case |
+| **Shared End Path** | `/end_session` and the auto-end both call `_end_session()`; the auto-end re-checks `belt_running` under the session lock so a Resume racing the timeout wins |
+| **UI** | The stats payload now carries `session_active`; the paused screen reloads to the start screen when it flips false |
 
 ---
 
@@ -203,7 +209,7 @@ Session data lives in a local SQLite database (`walkingdad.db`, configurable via
 |---|---|
 | **Storage Module** | `storage.py` (stdlib `sqlite3`, no ORM) is the only place SQL lives. Short-lived connection per call, WAL mode, a module lock for writes |
 | **Schema** | `sessions` (UUID `id`, `status` active/completed, `profile`, SI totals, moving vs. elapsed time, `health_logged`, `has_samples`), `pauses` (start/end, reason `manual`/`auto`/`shutdown`), `samples` (per-second `t_ms`, speed, cumulative distance/steps, belt state, reserved `hr_bpm`), `meta` (`schema_version`, migration marker) |
-| **Live Lifecycle** | Row created at Start; pauses recorded at manual pause, step-off auto-pause, and Bluetooth drop; completed at End or graceful shutdown |
+| **Live Lifecycle** | Row created at Start; pauses recorded at manual pause, step-off auto-pause, and Bluetooth drop; completed at End, stale-pause auto-end (1.5), or graceful shutdown |
 | **Samples** | ~1/s while walking, at most 1 per 5 s while paused (in practice every idle-watchdog ping, ~10 s), buffered in memory and flushed on the existing 5 s `_save_session_state()` cadence, so a crash loses at most ~5 s. Storage failures are logged, never allowed to stop the belt or block BLE handling |
 | **Crash Recovery Link** | `session_state.json` carries the `session_id`: Restore continues the same row (downtime recorded as a `shutdown` pause), Discard deletes it. Unreferenced `active` rows are swept at startup: completed from their last sample, or deleted if they have none |
 | **JSON Migration** | One-time, automatic, single transaction: backup to `session_history.json.bak-<timestamp>`, then rename to `.migrated`. Unparseable records are logged and skipped; an unreadable file is left untouched for a later retry |
