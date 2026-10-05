@@ -455,11 +455,15 @@ def _write_config(updates: dict) -> None:
         json.dump(existing, f, indent=2)
 
 
-storage.init_db(os.path.join(os.path.dirname(os.path.abspath(__file__)), config.DATABASE_PATH))
-storage.migrate_json(HISTORY_FILE)
+# Tests set this so importing app can't touch the real database or Bluetooth pad.
+_STARTUP_ENABLED = os.environ.get("WALKINGDAD_NO_STARTUP") != "1"
 
-_pending_restore = _load_session_state()  # Check for an interrupted session at startup
-_sweep_orphaned_sessions((_pending_restore or {}).get("session_id"))
+if _STARTUP_ENABLED:
+    storage.init_db(os.path.join(os.path.dirname(os.path.abspath(__file__)), config.DATABASE_PATH))
+    storage.migrate_json(HISTORY_FILE)
+
+    _pending_restore = _load_session_state()  # Check for an interrupted session at startup
+    _sweep_orphaned_sessions((_pending_restore or {}).get("session_id"))
 
 
 # ── Apple Health export (Shortcuts QR codes) ─────────────────────────────
@@ -2113,5 +2117,6 @@ atexit.register(_atexit_cleanup)
 
 # ── Kick off BLE thread ──────────────────────────────────────────────────
 # The server is no longer started here. This just pre-starts the BLE thread.
-_start_ble_thread()
-_start_sse_broadcaster()
+if _STARTUP_ENABLED:
+    _start_ble_thread()
+    _start_sse_broadcaster()
