@@ -14,7 +14,7 @@ The official WalkingPad experience is a bloated mobile app that wants your email
 
 - **Web UI**: Control your treadmill from any browser on your local network
 - **Real-time stats**: Speed, distance, steps, calories, and active time, updated live
-- **Smart pause & resume**: Auto-detects when you step off; remembers your speed; configurable grace period prevents re-triggering on restart
+- **Smart pause & resume**: Auto-detects when you step off; remembers your speed; configurable grace period prevents re-triggering on restart; a session left paused too long (default 30 min) is ended and saved automatically
 - **Speed presets**: Slow (speed floor), Moderate, and Max buttons, plus incremental increase/decrease steppers
 - **Console-style interface**: Active, Paused, and Start screens read like the WalkingPad's own onboard display, with one large tabular-digit reading up top and secondary stats in a compact readout strip below
 - **Session history**: Sessions saved to a local SQLite database (`walkingdad.db`) with full stats, pauses, and per-second speed/distance/steps samples; last 10 shown on the start screen. Includes CSV export and history clearing. An existing `session_history.json` from an older version is imported automatically on first launch (the original is kept as `session_history.json.bak-<timestamp>`).
@@ -79,7 +79,7 @@ The app opens your browser automatically at `http://127.0.0.1:5001`. A console w
 
 **Windows shortcut:** Double-click `start_app.bat` instead of running the commands manually.
 
-**Running tests:** `pip install -r requirements-dev.txt`, then `python -m pytest`. The tests never import `app.py` (importing it opens the real database and migrates `session_history.json`), and need no treadmill.
+**Running tests:** `pip install -r requirements-dev.txt`, then `python -m pytest`. No treadmill needed. Tests that import `app.py` run with `WALKINGDAD_NO_STARTUP=1` (set in `tests/conftest.py`), which skips its import-time startup: opening the real database, migrating `session_history.json`, and the Bluetooth scan.
 
 ## Usage
 
@@ -126,6 +126,7 @@ All settings can be changed from the **Settings page** (gear icon in the header)
 | `kcal_per_mile` | `95` | Calorie estimate constant |
 | `resume_grace_period_seconds` | `7` | Seconds before auto-pause can trigger after start/resume (minimum 3) |
 | `history_display_limit` | `10` | Sessions shown on the start screen |
+| `stale_pause_timeout_minutes` | `30` | A session paused this long is ended and saved automatically; `0` disables |
 | `host` | `"0.0.0.0"` | Network interface to bind |
 | `port` | `5001` | Server port |
 | `waitress_threads` | `16` | Server worker thread count (4-128) |

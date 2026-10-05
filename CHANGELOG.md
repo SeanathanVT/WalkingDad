@@ -9,6 +9,7 @@ All notable changes to WalkingDad will be documented in this file.
 - **Apple Health export**. Off by default (Settings page toggle). Once enabled, a "Log to Apple Health" prompt appears on the start screen after a session ends; scanning the QR it shows runs a Shortcut on your iPhone that logs the session as a Workout via `Log Workout`, no manual re-entry. A separate one-time setup QR (Settings page) installs the Shortcut itself via an iCloud share link. No Apple Developer account, no network fetch back to WalkingDad's server for either QR. See the README's Apple Health Export section.
 - **Automatic reconnect**. When the Bluetooth connection drops unexpectedly, the app now retries on its own (up to 8 attempts over about 7-8 minutes) instead of going straight to **Connection Failed, Try Again**. Walking briefly out of range or a transient glitch no longer needs a click. A session that was walking is paused by the drop; press Resume once reconnected. **Try Again** still appears if every attempt fails, for example when the pad is switched off.
 - **Per-second session samples and pause log**. Every session now records speed, distance, and steps about once per second while walking (sparser while paused), plus each pause with its reason: manual, auto (stepped off or Bluetooth dropped), or shutdown (crash downtime). Nothing displays these yet; they're the data future TCX/FIT export, charts, and personal records will read.
+- **Auto-end for forgotten paused sessions**. A session left paused longer than `stale_pause_timeout_minutes` (default 30, set on the Settings page; `0` turns it off) is ended and saved to history automatically, as if you had pressed End Session.
 - **`database_path` setting**. Where the new database lives (default `walkingdad.db` in the app directory). Requires a restart.
 
 ### Changed
@@ -16,9 +17,14 @@ All notable changes to WalkingDad will be documented in this file.
 - **Session history moved from `session_history.json` to SQLite (`walkingdad.db`)**. On first launch after updating, your existing history is imported automatically: the original file is first copied to `session_history.json.bak-<timestamp>`, then renamed to `session_history.json.migrated` once the import succeeds. A history file that can't be read is left untouched and not marked as imported, so fixing it and restarting retries the import. The start-screen table, Apple Health prompt, and Clear History behave as before. CSV export keeps its existing columns in the same order and adds two at the end: `id` and `has_samples`.
 - **Crash recovery keeps sessions whole**. Restoring an interrupted session continues the same database record instead of starting over, and Discard removes it completely. A session interrupted by a crash and never restored is no longer lost: on the next launch it's saved from its last recorded sample, or dropped if it crashed before recording any.
 
+### Fixed
+
+- **Active walking time now comes from the treadmill's own speed reports**, counting only stretches where the belt was actually moving, instead of a stopwatch running whenever the app thought you were walking. This affects the history duration, CSV export, Apple Health export, and average speed. The startup countdown no longer counts, and time is no longer lost rounding at each pause.
+- **A belt that stops (or never starts) right after Start or Resume now auto-pauses.** Before, stepping off within the first few seconds left the session showing as walking indefinitely, with time still accumulating.
+
 ### Internal
 
-- **First automated tests**. `pytest` suite under `tests/` covering storage, the JSON migration, unit conversions, and sample capture. Install with `requirements-dev.txt`; see the README.
+- **First automated tests**. `pytest` suite under `tests/` covering storage, the JSON migration, unit conversions, sample capture, and in `app.py` active-time accrual, auto-pause detection, and the stale-pause check. Importing `app.py` with `WALKINGDAD_NO_STARTUP=1` (set by `tests/conftest.py`) skips its startup, so tests never touch the real database or treadmill. Install with `requirements-dev.txt`; see the README.
 
 ---
 
