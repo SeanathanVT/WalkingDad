@@ -33,6 +33,16 @@ def test_walking_throttled_to_one_per_second():
     assert [r[0] for r in rows] == list(range(0, 10_000, 1000))
 
 
+def test_real_packet_jitter_keeps_every_packet():
+    # Real WalkingPad packets arrive ~1/s with +/-20 ms jitter (gaps of 980-1020 ms).
+    buf = SampleBuffer()
+    times = [k * 1000 + (15 if k % 2 else -15) for k in range(1, 21)]
+    for t in times:
+        buf.add(t, 1.25, t / 1000, t // 500, True)
+
+    assert [r[0] for r in buf.drain()] == times
+
+
 def test_paused_throttled_to_one_per_five_seconds():
     buf = SampleBuffer()
     for t in range(0, 20_000, 1000):

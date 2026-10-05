@@ -5,6 +5,7 @@
 __pycache__
 icon.ico
 session_history.json
+session_history.json.*
 session_state.json
 config.json
 *.db

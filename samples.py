@@ -3,13 +3,14 @@ from datetime import datetime, timedelta
 
 from units import KM_TO_MI
 
-WALKING_INTERVAL_MS = 1000
-PAUSED_INTERVAL_MS = 5000
+# Minimum gap between kept samples, set under the ~1/s and ~5/s targets: real
+# packets arrive every 1000 +/- ~20 ms, so a full 1000 ms gap dropped every other one.
+WALKING_MIN_GAP_MS = 900
+PAUSED_MIN_GAP_MS = 4500
 
 
 class SampleBuffer:
-    """Throttled in-memory buffer of session samples, filled from the BLE thread and drained on flush.
-    ponytail: keeps the first reading per interval, not the latest; same result at ~1 packet/s."""
+    """Throttled in-memory buffer of session samples, filled from the BLE thread and drained on flush."""
 
     def __init__(self):
         self._lock = threading.Lock()
@@ -22,10 +23,10 @@ class SampleBuffer:
             self._last_t_ms = None
 
     def add(self, t_ms, speed_mps, distance_m, steps, belt_running, force=False):
-        interval = WALKING_INTERVAL_MS if belt_running else PAUSED_INTERVAL_MS
+        min_gap = WALKING_MIN_GAP_MS if belt_running else PAUSED_MIN_GAP_MS
         with self._lock:
             last = self._last_t_ms
-            if last is not None and (t_ms <= last or (not force and t_ms - last < interval)):
+            if last is not None and (t_ms <= last or (not force and t_ms - last < min_gap)):
                 return
             self._rows.append((t_ms, speed_mps, distance_m, steps, int(belt_running), None))
             self._last_t_ms = t_ms
