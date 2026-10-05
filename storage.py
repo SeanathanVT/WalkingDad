@@ -157,7 +157,8 @@ def append_samples(session_id, rows):
 
 def complete_session(session_id, summary):
     """Mark completed with the given totals. has_samples, and max_speed_mps unless given,
-    come from the samples table so they stay right across a crash-restore."""
+    come from the samples table so they stay right across a crash-restore. A pause still
+    open (ended while paused) is closed at the session's end_time."""
     fields = (
         "end_time", "elapsed_s", "moving_s", "distance_m", "steps",
         "calories_kcal", "calories_estimated", "avg_speed_mps",
@@ -176,6 +177,10 @@ def complete_session(session_id, summary):
                         has_samples = EXISTS (SELECT 1 FROM samples WHERE session_id = ?)
                         WHERE id = ?""",
                     (*values, summary.get("max_speed_mps"), session_id, session_id, session_id),
+                )
+                conn.execute(
+                    "UPDATE pauses SET end_time = ? WHERE session_id = ? AND end_time IS NULL",
+                    (summary.get("end_time"), session_id),
                 )
         finally:
             conn.close()

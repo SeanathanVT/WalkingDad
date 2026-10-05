@@ -258,6 +258,20 @@ def test_complete_session_explicit_max_speed_wins_and_no_samples(db):
     assert session["max_speed_mps"] == 2.0
 
 
+def test_complete_session_closes_open_pause_at_end_time(db):
+    session_id = storage.create_session("2026-01-01T08:00:00", None, None)
+    storage.add_pause(session_id, "2026-01-01T08:01:00", "manual")
+    storage.end_pause(session_id, "2026-01-01T08:02:00")
+    storage.add_pause(session_id, "2026-01-01T08:04:00", "auto")
+
+    storage.complete_session(session_id, {"end_time": "2026-01-01T08:05:00"})
+
+    assert _raw_pauses(db, session_id) == [
+        ("2026-01-01T08:01:00", "2026-01-01T08:02:00", "manual"),
+        ("2026-01-01T08:04:00", "2026-01-01T08:05:00", "auto"),
+    ]
+
+
 def test_mark_health_logged(db):
     session_id = storage.create_session("2026-01-01T08:00:00", None, None)
     assert storage.get_session(session_id)["health_logged"] == 0

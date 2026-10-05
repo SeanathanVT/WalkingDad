@@ -234,7 +234,9 @@ def _begin_db_session(existing_id: str | None = None):
     exists (crash restore), else create one. Measures the sample clock from
     _session_start_time, so restored sessions keep counting from the real start."""
     global _session_id, _session_start_monotonic
-    _session_start_monotonic = time.monotonic() - (datetime.now() - _session_start_time).total_seconds()
+    # Aware arithmetic: a naive difference is off by an hour if a DST change falls between a crash and its restore.
+    elapsed_s = (datetime.now().astimezone() - _session_start_time.astimezone()).total_seconds()
+    _session_start_monotonic = time.monotonic() - elapsed_s
     _samples.reset()
     try:
         if existing_id and storage.get_session(existing_id):
@@ -257,11 +259,13 @@ def _record_sample(force: bool = False):
 
 
 def _flush_samples():
+    # Read once: End can clear _session_id on another thread mid-flush.
+    session_id = _session_id
     rows = _samples.drain()
-    if not rows or _session_id is None:
+    if not rows or session_id is None:
         return
     try:
-        storage.append_samples(_session_id, rows)
+        storage.append_samples(session_id, rows)
     except Exception:
         logging.exception(f"Failed to write {len(rows)} samples")
 
