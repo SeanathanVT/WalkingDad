@@ -17,6 +17,11 @@ All notable changes to WalkingDad will be documented in this file.
 - **Session history moved from `session_history.json` to SQLite (`walkingdad.db`)**. On first launch after updating, your existing history is imported automatically: the original file is first copied to `session_history.json.bak-<timestamp>`, then renamed to `session_history.json.migrated` once the import succeeds. A history file that can't be read is left untouched and not marked as imported, so fixing it and restarting retries the import. The start-screen table, Apple Health prompt, and Clear History behave as before. CSV export keeps its existing columns in the same order and adds two at the end: `id` and `has_samples`.
 - **Crash recovery keeps sessions whole**. Restoring an interrupted session continues the same database record instead of starting over, and Discard removes it completely. A session interrupted by a crash and never restored is no longer lost: on the next launch it's saved from its last recorded sample, or dropped if it crashed before recording any.
 
+### Fixed
+
+- **Active walking time now comes from the treadmill's own speed reports**, counting only stretches where the belt was actually moving, instead of a stopwatch running whenever the app thought you were walking. This affects the history duration, CSV export, Apple Health export, and average speed. The startup countdown no longer counts, and time is no longer lost rounding at each pause.
+- **A belt that stops (or never starts) right after Start or Resume now auto-pauses.** Before, stepping off within the first few seconds left the session showing as walking indefinitely, with time still accumulating.
+
 ### Internal
 
 - **First automated tests**. `pytest` suite under `tests/` covering storage, the JSON migration, unit conversions, and sample capture. Install with `requirements-dev.txt`; see the README.

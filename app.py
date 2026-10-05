@@ -41,6 +41,7 @@ def kcal_estimate(miles: float) -> float:
 
 def format_seconds_to_hms(total_seconds: int) -> str:
     """Converts total seconds to H:MM:SS string format."""
+    total_seconds = int(total_seconds)
     hours = total_seconds // 3600
     minutes = (total_seconds % 3600) // 60
     seconds = total_seconds % 60
@@ -62,6 +63,12 @@ controller: Controller | None = None
 _device_ble_address: str | None = None
 _resume_grace_deadline = 0
 speed_history = deque(maxlen=15)
+# Monotonic time of the last status packet that showed the belt moving during a
+# walking segment; active time accrues from it. None = no open moving interval.
+_last_moving_packet_monotonic: float | None = None
+# A longer gap between packets is counted only up to this, so a stall or a
+# report that arrives late after the belt stopped can't add much phantom time.
+_MAX_MOVING_GAP_SECONDS = 5
 _stats_monitor_task: asyncio.Task | None = None  # Track the stats monitor task
 _idle_watchdog_task: asyncio.Task | None = None  # Track the paused/idle connection watchdog
 _belt_sequence_task: asyncio.Task | None = None  # Track an in-flight start/resume/pause belt sequence
@@ -662,9 +669,19 @@ def process_status_packet(dev_dist: float, dev_steps: int, dev_speed: float):
     global belt_running, resume_speed_kmh, _resume_grace_deadline
     global current_speed_kmh, current_distance_km, current_steps, current_calories
     global _last_dev_dist, _last_dev_steps, _last_status_update_monotonic
+    global current_session_active_seconds, _last_moving_packet_monotonic
 
     new_reported_speed_kmh = dev_speed / 10.0
     just_auto_paused = False
+
+    # Active time is measured from the device's own reports, not from how long
+    # the app believes the belt is running: an interval counts only if the
+    # packet that opened it showed the belt moving. Evaluated before auto-pause
+    # below so the interval ending in the stop is still counted.
+    now = time.monotonic()
+    walking = session_active and belt_running
+    if walking and _last_moving_packet_monotonic is not None:
+        current_session_active_seconds += min(now - _last_moving_packet_monotonic, _MAX_MOVING_GAP_SECONDS)
 
     # Continuously populate the speed history with stable, non-zero speeds.
     if belt_running and new_reported_speed_kmh > MIN_SPEED_KMH:
@@ -682,16 +699,20 @@ def process_status_packet(dev_dist: float, dev_steps: int, dev_speed: float):
     # weaken real detection, since normal walking (the only time this needs
     # to catch someone actually stepping off) always has
     # _belt_transitioning=False.
+    # Fires on any zero reading once the grace window has passed, not only on a
+    # moving-to-zero transition: a belt that stopped (or never started) inside
+    # the window would otherwise leave the session "walking" indefinitely.
     if time.time() > _resume_grace_deadline and not _belt_transitioning:
-        if belt_running and new_reported_speed_kmh == 0 and current_speed_kmh > 0:
+        if belt_running and new_reported_speed_kmh == 0:
             logging.info("Belt has stopped unexpectedly. Auto-pausing session.")
 
             # Use the OLDEST speed from history to ignore the deceleration phase.
             if speed_history:
                 resume_speed_kmh = speed_history[0] # Use the first (oldest) item
-            else:
-                # Fallback if pause happens too quickly after starting
+            elif current_speed_kmh > 0:
+                # Walked only at or below MIN_SPEED_KMH, so nothing was recorded in history
                 resume_speed_kmh = MIN_SPEED_KMH
+            # else the belt never moved this segment: keep the speed it was asked for
 
             belt_running = False
             just_auto_paused = True
@@ -709,6 +730,7 @@ def process_status_packet(dev_dist: float, dev_steps: int, dev_speed: float):
 
     current_speed_kmh = new_reported_speed_kmh
     current_calories = kcal_estimate(current_distance_km * KM_TO_MI)
+    _last_moving_packet_monotonic = now if walking and new_reported_speed_kmh > 0 else None
     _record_sample()
 
     # Stamped last, after all accumulation above has succeeded, so a
@@ -905,18 +927,14 @@ async def _stats_monitor():
     which process_status_packet() stamps on every successful update from
     either path (active poll or passive notification).
     """
-    global current_session_active_seconds, _last_status_update_monotonic
+    global _last_status_update_monotonic
     logging.info("Stats monitor started")
 
-    _base_seconds = current_session_active_seconds
-    _monitor_start = time.monotonic()
     _ticks_since_save = 0
     _last_status_update_monotonic = time.monotonic()  # fresh grace period for this session
 
     try:
         while belt_running:
-            current_session_active_seconds = _base_seconds + int(time.monotonic() - _monitor_start)
-
             try:
                 status = await _run_locked(lambda: asyncio.wait_for(controller.ask_stats(), timeout=_BLE_READ_TIMEOUT_SECONDS))
                 if status:
@@ -1708,7 +1726,7 @@ def start_session():
     """Begin a new session: reset counters, start belt, launch stats monitor."""
     global session_active, belt_running, current_distance_km, current_steps, current_calories, resume_speed_kmh
     global current_session_active_seconds, _stats_monitor_task, _session_start_time, current_speed_kmh
-    global _resume_grace_deadline, _pending_restore
+    global _resume_grace_deadline, _pending_restore, _last_moving_packet_monotonic
 
     if not connected:
         return redirect(url_for("root"))
@@ -1721,6 +1739,7 @@ def start_session():
         current_steps = 0
         current_speed_kmh = 0.0
         current_session_active_seconds = 0
+        _last_moving_packet_monotonic = None
         resume_speed_kmh = 2.0
         speed_history.clear()
         _session_start_time = datetime.now()
@@ -1832,6 +1851,7 @@ def pause_session():
 @app.route("/resume_session", methods=["POST"], endpoint="resume_session")
 def resume_session():
     global belt_running, _resume_grace_deadline, session_active, _stats_monitor_task
+    global _last_moving_packet_monotonic
 
     with _session_state_lock:
         if not session_active:
@@ -1843,6 +1863,9 @@ def resume_session():
             return redirect(url_for("root"))
 
         logging.info("Resume button clicked. Setting app state to active.")
+        # Clear any marker left from before the pause, so the paused gap isn't
+        # counted when the first post-resume packet arrives.
+        _last_moving_packet_monotonic = None
         belt_running = True
         _resume_grace_deadline = time.time() + RESUME_GRACE_PERIOD_SECONDS
         _record_resume()
