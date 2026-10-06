@@ -1,5 +1,6 @@
 import asyncio
 import concurrent.futures
+import logging
 import time
 from datetime import datetime
 from types import SimpleNamespace
@@ -533,6 +534,46 @@ def test_graceful_shutdown_resets_flags_on_error(pad):
     assert (app.connected, app.session_active, app.belt_running) == (False, False, False)
 
 
+def test_graceful_shutdown_idle(pad, caplog):
+    run(app._graceful_shutdown)
+    assert pad.calls == [STANDBY]
+    assert pad.client.disconnects == 1
+    assert storage.list_sessions() == []
+    assert storage.list_active_sessions() == []
+    assert "Graceful shutdown error" not in caplog.text
+
+
+def test_graceful_shutdown_without_controller_still_saves(sleeps, caplog):
+    session_id = _begin_session()
+    app.belt_running = True
+    run(app._graceful_shutdown)
+    assert storage.get_session(session_id)["status"] == "completed"
+    assert (app.connected, app.session_active, app.belt_running) == (False, False, False)
+    assert "Graceful shutdown error" not in caplog.text
+
+
+def test_graceful_shutdown_controller_without_client(pad, caplog):
+    pad.client = None
+    with caplog.at_level(logging.INFO):
+        run(app._graceful_shutdown)
+    assert pad.calls == [STANDBY]
+    assert "Disconnecting BLE client" not in caplog.text
+    assert "Graceful shutdown error" not in caplog.text
+
+
+def test_end_session_while_paused_sends_no_stop(app_state, pad, disconnects):
+    session_id = _begin_session()
+    app.ble_loop = FakeLoop()
+    app.app.test_client().post("/end_session")
+    [sequence] = app_state
+    app_state.clear()
+    run(lambda: sequence)
+    assert pad.calls == []
+    assert disconnects == []
+    assert app._belt_transitioning is False
+    assert storage.get_session(session_id)["status"] == "completed"
+
+
 # ── belt sequences scheduled by the routes ───────────────────────────────
 _ROUTES = {
     "/start": ({}, FULL_WAKE, "start_belt", True),
@@ -640,6 +681,15 @@ def test_connect_to_pad_disconnect_callback_api(sleeps, monkeypatch, api, fails)
     assert run(app._connect_to_pad) is True
     assert registered == ([app._handle_disconnect] if api and not fails else [])
     assert new.calls == [("run", _NAMED.address), MANUAL]
+
+
+def test_connect_to_pad_without_client_skips_callback(sleeps, monkeypatch, caplog):
+    new = _new_controller(monkeypatch)
+    new.client = None
+    with caplog.at_level(logging.DEBUG):
+        assert run(app._connect_to_pad) is True
+    assert new.calls == [("run", _NAMED.address), MANUAL]
+    assert "Disconnect callback not available" not in caplog.text
 
 
 @pytest.mark.parametrize("fails", [False, True])

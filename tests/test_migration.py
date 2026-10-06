@@ -118,3 +118,44 @@ def test_corrupt_file_left_untouched(db):
 def test_missing_file_is_noop(db):
     storage.migrate_json(str(db / "nope.json"))
     assert storage.list_sessions() == []
+
+
+def test_non_list_top_level_left_untouched(db, caplog):
+    json_path = _write(db / "session_history.json", {"sessions": [NORMAL]})
+
+    storage.migrate_json(json_path)
+
+    assert "top level is not a list" in caplog.text
+    assert json.loads((db / "session_history.json").read_text()) == {"sessions": [NORMAL]}
+    assert not list(db.glob("session_history.json.*"))
+    assert storage.list_sessions() == []
+
+
+@pytest.mark.parametrize("end_time", [None, "25:99:00"])
+def test_missing_or_bad_end_time_falls_back_to_moving_time(db, end_time):
+    record = {k: v for k, v in NORMAL.items() if k != "end_time"}
+    if end_time is not None:
+        record["end_time"] = end_time
+
+    storage.migrate_json(_write(db / "session_history.json", [record]))
+
+    s = storage.list_sessions()[0]
+    assert s["end_time"] is None
+    assert s["elapsed_s"] == s["moving_s"] == 317
+
+
+def test_rename_failure_still_marks_migrated(db, monkeypatch, caplog):
+    json_path = _write(db / "session_history.json", [NORMAL])
+
+    def refuse(src, dst):
+        raise OSError("read-only")
+
+    monkeypatch.setattr(storage.os, "replace", refuse)
+    storage.migrate_json(json_path)
+    monkeypatch.undo()
+
+    assert "could not rename it: read-only" in caplog.text
+    assert (db / "session_history.json").exists()
+    assert len(storage.list_sessions()) == 1
+    storage.migrate_json(json_path)
+    assert len(storage.list_sessions()) == 1

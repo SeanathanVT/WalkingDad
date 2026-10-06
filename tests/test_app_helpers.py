@@ -581,6 +581,30 @@ def test_sse_broadcast_survives_stale_pause_error(app_state, monkeypatch):
     assert q.get_nowait() == app._sse_frame(app._build_stats_payload())
 
 
+def test_sse_broadcast_survives_failed_tick(app_state, monkeypatch, caplog):
+    real_payload, sleeps = app._build_stats_payload, []
+
+    def payload():
+        if len(sleeps) == 1:
+            raise RuntimeError("bad tick")
+        return real_payload()
+
+    def sleep(_):
+        sleeps.append(1)
+        if len(sleeps) == 3:
+            raise _Stop
+
+    monkeypatch.setattr(app, "_build_stats_payload", payload)
+    monkeypatch.setattr(app.time, "sleep", sleep)
+    q = queue.Queue()
+    app._sse_subscribers.append(q)
+    with pytest.raises(_Stop):
+        app._sse_broadcast_loop()
+    assert "SSE broadcast tick failed (continuing): bad tick" in caplog.text
+    assert q.get_nowait() == app._sse_frame(real_payload())
+    assert q.empty()
+
+
 def _boom(*a, **k):
     raise RuntimeError("db down")
 

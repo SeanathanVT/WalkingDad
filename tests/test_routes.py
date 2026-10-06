@@ -2,6 +2,7 @@ import json
 import os
 import sqlite3
 from datetime import datetime, timedelta
+from types import SimpleNamespace
 
 import pytest
 
@@ -310,6 +311,13 @@ def test_discard_session_delete_fails(client, monkeypatch):
     assert not os.path.exists(app.SESSION_STATE_FILE)
 
 
+def test_discard_session_with_nothing_pending(client, monkeypatch):
+    deleted = []
+    monkeypatch.setattr(storage, "delete_session", deleted.append)
+    assert redirects_root(client.post("/discard_session"))
+    assert deleted == []
+
+
 def test_discard_session_while_active(client, running, monkeypatch):
     monkeypatch.setattr(app, "_pending_restore", pending_state())
     with open(app.SESSION_STATE_FILE, "w") as f:
@@ -429,6 +437,14 @@ def test_stats_stream(client):
     assert app._sse_subscribers == []
 
 
+def test_stats_stream_close_after_subscriber_already_removed(client):
+    resp = client.get("/stats_stream", buffered=False)
+    next(iter(resp.response))
+    app._sse_subscribers.clear()
+    resp.close()
+    assert app._sse_subscribers == []
+
+
 def test_stats_stream_keepalive_and_frames(client, monkeypatch):
     monkeypatch.setattr(app, "_SSE_KEEPALIVE_TIMEOUT_SECONDS", 0.01)
     resp = client.get("/stats_stream", buffered=False)
@@ -510,3 +526,29 @@ def test_shutdown_stops_ble_loop(client, monkeypatch, fails):
     assert scheduled == ["_graceful_shutdown"]
     assert timeouts == [10]
     assert loop.calls == [loop.stop]
+
+
+class _IdleLoop(_BleLoop):
+    def is_running(self):
+        return False
+
+
+class _StuckLoop(_BleLoop):
+    def call_soon_threadsafe(self, fn):
+        self.calls.append(fn)
+        raise RuntimeError("loop closed")
+
+
+@pytest.mark.parametrize(("loop_cls", "stop_requested"), [(_IdleLoop, False), (_StuckLoop, True)])
+def test_shutdown_loop_stop_edge_cases(client, monkeypatch, loop_cls, stop_requested):
+    loop = loop_cls()
+
+    def schedule(coro, ble_loop):
+        coro.close()
+        return SimpleNamespace(result=lambda timeout: None)
+
+    monkeypatch.setattr(app.asyncio, "run_coroutine_threadsafe", schedule)
+    monkeypatch.setattr(app.threading, "Thread", lambda target, daemon: SimpleNamespace(start=lambda: None))
+    monkeypatch.setattr(app, "ble_loop", loop)
+    assert client.post("/shutdown").get_json() == {"status": "shutting_down"}
+    assert loop.calls == ([loop.stop] if stop_requested else [])

@@ -184,7 +184,7 @@ A `pytest` suite covering every module without a treadmill. How to run it: the R
 
 **Implementation:** `tests/conftest.py` sets `WALKINGDAD_NO_STARTUP=1` before importing `app.py`, so the import skips opening `walkingdad.db`, the JSON migration, the orphan sweep, the BLE thread, the SSE broadcaster, and installing the signal/`atexit` handlers. Its `app_state` fixture resets every module global, points the state file, `config.json`, and the database at `tmp_path`, and records BLE coroutines instead of scheduling them, so tests can run a captured sequence against a fake controller.
 
-**Not covered:** the inline template JavaScript (left to 2.12's browser smoke test), the import-time startup block, the background-thread entry points (SSE broadcaster start, `/shutdown`'s delayed exit), and `run.py`'s Windows branch.
+**Not covered:** the inline template JavaScript (left to 2.12's browser smoke test); code that only runs at import (`app.py`'s startup block, `config.py`'s no-`config.json` path); the background-thread entry points (SSE broadcaster start, `/shutdown`'s delayed exit); `_ble_thread`'s handlers for errors escaping asyncio's own `run_forever()` and task cleanup; and `run.py`'s Windows branch and `__main__` guard.
 
 ---
 
