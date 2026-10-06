@@ -15,6 +15,7 @@ def side_effects(monkeypatch, app_state):
     monkeypatch.setattr(app, "_clear_session_history", lambda: calls.append("clear_history"))
     monkeypatch.setattr(app, "_write_config", lambda updates: calls.append("write_config"))
     monkeypatch.setattr(app.os, "_exit", lambda code: calls.append("exit"))
+    monkeypatch.setattr(app, "_start_ble_thread", lambda: calls.append("start_ble_thread"))
     return lambda: calls + [c.__name__ for c in app_state]
 
 
@@ -27,8 +28,10 @@ def side_effects(monkeypatch, app_state):
     {"Sec-Fetch-Site": "same-site"},
     {"Origin": "http://localhost", "Sec-Fetch-Site": "cross-site"},
 ])
-@pytest.mark.parametrize("path", ["/start", "/shutdown", "/clear_history", "/settings"])
-def test_cross_site_post_blocked(client, side_effects, headers, path):
+@pytest.mark.parametrize("path", ["/start", "/shutdown", "/clear_history", "/settings", "/reconnect"])
+def test_cross_site_post_blocked(client, side_effects, monkeypatch, headers, path):
+    # Disconnected only for /reconnect: it's a no-op when connected, /start a no-op when not.
+    monkeypatch.setattr(app, "connected", path != "/reconnect")
     assert client.post(path, headers=headers).status_code == 403
     assert side_effects() == []
     assert app._server_stopping is False

@@ -112,11 +112,8 @@
 
     <style>
         /* Custom properties from the design file */
-        /* Slate is the default (absence of data-color-theme, same
-           optimization the picker already used for the old default).
-           These neutrals are Tailwind's slate-50/900 scale, unchanged from
-           before this was Slate's identity; only the accent moved from
-           blue to gray. */
+        /* Slate is the default (absence of data-color-theme). Neutrals are
+           Tailwind's slate-50/900 scale with a gray accent. */
         :root {
             --background-color: #f8fafc; /* bg-slate-50 */
             --card-color: #e7edf4;
@@ -319,8 +316,7 @@
             --accent-hover: #1e7aa8;
         }
 
-        /* Color theme: Blue (240°). No longer the implicit default (Slate
-           is now); this is a full explicit override like every other hue. */
+        /* Color theme: Blue (240°). A full explicit override like every other hue. */
         [data-color-theme="blue"] {
             --background-color: #f4f4fa;
             --card-color: #e5e5f2;

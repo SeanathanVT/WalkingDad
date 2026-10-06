@@ -410,8 +410,25 @@ def test_reconnect(client, monkeypatch, connected, connecting, called):
     monkeypatch.setattr(app, "_start_ble_thread", lambda: calls.append(1))
     monkeypatch.setattr(app, "connected", connected)
     monkeypatch.setattr(app, "connecting", connecting)
-    assert redirects_root(client.get("/reconnect"))
+    assert redirects_root(client.post("/reconnect"))
     assert bool(calls) is called
+
+
+def test_reconnect_rejects_get(client, monkeypatch):
+    calls = []
+    monkeypatch.setattr(app, "_start_ble_thread", lambda: calls.append(1))
+    monkeypatch.setattr(app, "connected", False)
+    assert client.get("/reconnect").status_code == 405
+    assert calls == []
+
+
+@pytest.mark.parametrize("connection_failed", [True, False])
+def test_connecting_page_reconnects_by_post(client, monkeypatch, connection_failed):
+    monkeypatch.setattr(app, "connected", False)
+    monkeypatch.setattr(app, "connection_failed", connection_failed)
+    html = client.get("/").get_data(as_text=True)
+    assert '<form method="post" action="/reconnect"' in html
+    assert 'href="/reconnect"' not in html
 
 
 # ── /stats, /stats_stream ──
