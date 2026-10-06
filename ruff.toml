@@ -1,0 +1,4 @@
+[lint]
+# Deliberate style here: root logger, catch-all excepts around BLE I/O, naive local
+# datetimes for session dates, and a ValueError raised to share an except clause.
+ignore = ["LOG015", "BLE001", "DTZ005", "TRY004"]

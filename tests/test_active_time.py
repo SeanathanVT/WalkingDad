@@ -3,32 +3,6 @@ import pytest
 import app
 
 
-@pytest.fixture
-def walking(monkeypatch):
-    """A walking session past its grace window, with a controllable monotonic clock."""
-    clock = [1000.0]
-    monkeypatch.setattr(app.time, "monotonic", lambda: clock[0])
-    monkeypatch.setattr(app, "_save_session_state", lambda: None)
-    monkeypatch.setattr(app, "_session_id", None)
-    monkeypatch.setattr(app, "session_active", True)
-    monkeypatch.setattr(app, "belt_running", True)
-    monkeypatch.setattr(app, "_belt_transitioning", False)
-    monkeypatch.setattr(app, "_resume_grace_deadline", 0)
-    monkeypatch.setattr(app, "current_session_active_seconds", 0)
-    monkeypatch.setattr(app, "current_speed_kmh", 0.0)
-    monkeypatch.setattr(app, "_last_moving_packet_monotonic", None)
-    monkeypatch.setattr(app, "_last_dev_dist", 0)
-    monkeypatch.setattr(app, "_last_dev_steps", 0)
-    monkeypatch.setattr(app, "resume_speed_kmh", 3.0)
-    app.speed_history.clear()
-
-    def packet(speed_kmh, after=1.0):
-        clock[0] += after
-        app.process_status_packet(0, 0, int(speed_kmh * 10))
-
-    return packet
-
-
 def test_counts_only_intervals_opened_by_a_moving_packet(walking, monkeypatch):
     monkeypatch.setattr(app, "_resume_grace_deadline", float("inf"))  # ramp-up: no auto-pause
     walking(0)

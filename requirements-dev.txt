@@ -1,1 +1,4 @@
 pytest
+pytest-cov
+# Pinned: ruff's default rule set changes between releases.
+ruff==0.16.10

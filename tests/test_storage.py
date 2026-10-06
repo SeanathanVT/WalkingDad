@@ -293,7 +293,7 @@ def test_concurrent_writes(db):
                     for t in range(batch_start * 1000, (batch_start + 5) * 1000, 1000)
                 ])
             storage.complete_session(session_id, {"end_time": "2026-01-01T08:05:00"})
-        except Exception as exc:  # noqa: BLE001 - collected across threads, re-raised below
+        except Exception as exc:
             errors.append(exc)
 
     threads = [threading.Thread(target=worker) for _ in range(5)]

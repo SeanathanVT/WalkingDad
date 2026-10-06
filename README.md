@@ -79,7 +79,7 @@ The app opens your browser automatically at `http://127.0.0.1:5001`. A console w
 
 **Windows shortcut:** Double-click `start_app.bat` instead of running the commands manually.
 
-**Running tests:** `pip install -r requirements-dev.txt`, then `python -m pytest`. No treadmill needed. Tests that import `app.py` run with `WALKINGDAD_NO_STARTUP=1` (set in `tests/conftest.py`), which skips its import-time startup: opening the real database, migrating `session_history.json`, and the Bluetooth scan.
+**Running tests:** `pip install -r requirements-dev.txt`, then `python -m pytest` (add `--cov=.` for a coverage report) and `ruff check .`. No treadmill needed. Tests that import `app.py` run with `WALKINGDAD_NO_STARTUP=1` (set in `tests/conftest.py`), which skips its import-time startup: opening the real database, migrating `session_history.json`, the Bluetooth scan, and installing the Ctrl+C/exit handlers. CI runs the same lint and tests on pull/merge requests and on pushes to `main`/`development`, via GitHub Actions (`.github/workflows/ci.yml`) and GitLab CI (`.gitlab-ci.yml`).
 
 ## Usage
 

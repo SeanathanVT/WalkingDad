@@ -4,6 +4,18 @@ All notable changes to WalkingDad will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Pause and speed buttons no longer error out when Bluetooth isn't running.** If the Bluetooth connection had already gone away, pressing Pause or a speed button showed a server error page. Pause now still pauses the session, and the speed buttons do nothing.
+- **A corrupted crash-recovery file no longer stops the app from starting.** If `session_state.json` contained unreadable (non-UTF-8) bytes, startup crashed. Startup now ignores the file, the same as an unparseable one.
+
+### Internal
+
+- **Tests now cover nearly all of the Python code** (ROADMAP 2.5): routes, Bluetooth sequences against a fake treadmill, status-packet math, persistence, and `run.py`'s launcher. The suite runs in about a second.
+- **Continuous integration** (ROADMAP 2.7): `ruff` lint and the test suite run on pull/merge requests and on pushes to `main`/`development` via GitHub Actions (Python 3.10 and 3.13) and GitLab CI (Python 3.12, with coverage shown in merge requests). `ruff` is pinned in `requirements-dev.txt`, and lint fixes in `app.py` (imports sorted, unused `global` declarations removed) have no behavior change.
+- **Importing `app.py` with `WALKINGDAD_NO_STARTUP=1` no longer installs the Ctrl+C/SIGTERM handlers or the `atexit` hook**, so pressing Ctrl+C during a test run interrupts pytest instead of killing the process two seconds later. Running the app normally is unchanged.
+- **`run.py`'s launcher logic moved into a `main()` function** so it can be tested. `python run.py` behaves the same.
+
 ---
 
 ## [1.8.0] (2026-10-05)

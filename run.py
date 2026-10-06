@@ -86,7 +86,7 @@ def http_shutdown():
     time.sleep(6)
 
 
-if __name__ == "__main__":
+def main():
     check_port()
     print("Starting production server with Waitress...")
 
@@ -129,3 +129,7 @@ if __name__ == "__main__":
             server_process.kill()
             server_process.wait()
         print("Server stopped.")
+
+
+if __name__ == "__main__":
+    main()
