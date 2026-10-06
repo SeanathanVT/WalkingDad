@@ -6,6 +6,7 @@ All notable changes to WalkingDad will be documented in this file.
 
 ### Fixed
 
+- **Other websites can no longer control the treadmill** (ROADMAP 2.2). A page open in your browser could previously submit Start, speed, Clear History, or Shutdown requests to WalkingDad behind your back. Requests that come from another website are now refused. Using WalkingDad from any device on your network works exactly as before.
 - **Pause and speed buttons no longer error out when Bluetooth isn't running.** If the Bluetooth connection had already gone away, pressing Pause or a speed button showed a server error page. Pause now still pauses the session, and the speed buttons do nothing.
 - **A corrupted crash-recovery file no longer stops the app from starting.** If `session_state.json` contained unreadable (non-UTF-8) bytes, startup crashed. Startup now ignores the file, the same as an unparseable one.
 

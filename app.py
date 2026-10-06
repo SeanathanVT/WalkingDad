@@ -1371,6 +1371,23 @@ def _handle_signal_shutdown(signum, frame):
     os._exit(0)
 
 
+# ── CSRF guard (ROADMAP 2.2) ────────────────────────────────────────────
+@app.before_request
+def _block_cross_site_posts():
+    """LAN devices are trusted by design (the app is LAN-only); this only stops
+    another website open in a browser from driving the treadmill. Browsers
+    send Origin on every cross-origin POST, including plain form submits;
+    Sec-Fetch-Site still catches it when an extension or proxy strips Origin.
+    "same-site" is rejected too: another port on the same host counts as same-site."""
+    if request.method in ("GET", "HEAD"):
+        return None
+    origin = request.headers.get("Origin")
+    if (request.headers.get("Sec-Fetch-Site") in ("cross-site", "same-site")
+            or (origin and origin != request.host_url.rstrip("/"))):
+        return "Cross-site request blocked.", 403
+    return None
+
+
 # ── Flask routes ────────────────────────────────────────────────────────
 @app.route("/")
 def root():

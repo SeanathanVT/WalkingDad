@@ -136,15 +136,15 @@ All user-tunable settings are now loaded from an optional `config.json` file, wi
 
 ---
 
-### 2.2 Route Security
-- **Status:** Planned
-- **Priority:** High
-- **Problem:** Routes like `/start`, `/pause`, `/increase_speed` have no authentication or CSRF protection. Since the server binds to `0.0.0.0`, any device on the local network could control the treadmill.
-- **Solution:** Add a simple secret token mechanism:
-    - Generate a random token on startup (stored in config)
-    - Require `?token=...` query parameter or `X-Auth-Token` header on all action routes
-    - Display the token in the UI and use it automatically for frontend requests
-- **Alternative:** Restrict server to `127.0.0.1` only (breaks network access but is simpler).
+### ✅ 2.2 Route Security
+**Status:** ✅ Complete
+**Priority:** High
+**Files Modified:** `app.py`, `tests/test_csrf.py`
+
+Routes like `/start`, `/pause`, `/increase_speed` had no CSRF protection, so any website open in a browser on the network could control the treadmill. A `before_request` guard (`_block_cross_site_posts()`) now rejects any non-GET request whose `Origin` isn't the app's own origin (scheme, host, and port), or whose `Sec-Fetch-Site` is `cross-site` or `same-site` (catches it when an extension or proxy strips `Origin`). Requests without either header (curl, `run.py`'s `/shutdown`) pass. No frontend or config changes.
+
+- **Not done, deliberately:** a per-device token. The app is LAN-only and devices on the LAN are trusted by design; the treadmill is only reachable over Bluetooth from home, and anyone at home can press its buttons anyway. A token would add a sign-in step for every phone, break scripts, and add a credential to manage, guarding against a threat that doesn't apply. Revisit only if the app is ever exposed beyond the LAN (tunnel, Tailscale).
+- **Known limits:** a deliberate DNS-rebinding attack makes `Origin` match the app's origin and gets through; that takes an attack targeted at this app specifically, so it's accepted. `/reconnect` is a GET, so the guard doesn't cover it; all it can do is retry the Bluetooth connection.
 
 ---
 
