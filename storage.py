@@ -258,12 +258,16 @@ def clear_history(profile=None):
             conn.close()
 
 
-def mark_health_logged(session_id):
+# sessions.health_logged values. Rows set to 1 before "dismissed" existed may have been dismissed.
+HEALTH_PENDING, HEALTH_LOGGED, HEALTH_DISMISSED = 0, 1, 2
+
+
+def set_health_status(session_id, status):
     with _write_lock:
         conn = _connect(_db_path)
         try:
             with conn:
-                conn.execute("UPDATE sessions SET health_logged = 1 WHERE id = ?", (session_id,))
+                conn.execute("UPDATE sessions SET health_logged = ? WHERE id = ?", (status, session_id))
         finally:
             conn.close()
 

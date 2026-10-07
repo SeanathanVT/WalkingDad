@@ -7,6 +7,7 @@ import logging
 import os
 import queue
 import signal
+import socket
 import threading
 import time
 import urllib.parse
@@ -395,14 +396,29 @@ def _clear_session_history():
         logging.exception("Failed to clear session history")
 
 
+# Session id whose Apple Health status last changed, pushed over SSE so other open pages
+# (e.g. the desktop prompt while the phone logs) update without a reload.
+_last_health_status_change = None
+
+
+def _set_health_status(session_id, status):
+    global _last_health_status_change
+    try:
+        storage.set_health_status(session_id, status)
+        _last_health_status_change = session_id
+    except Exception:
+        logging.exception("Failed to update Apple Health status")
+
+
 def _dismiss_health_export():
     """Mark the most recent session as no longer pending an Apple Health export."""
     try:
         recent = storage.list_sessions(limit=1)
-        if recent:
-            storage.mark_health_logged(recent[0]["id"])
     except Exception:
         logging.exception("Failed to dismiss health export flag")
+        return
+    if recent:
+        _set_health_status(recent[0]["id"], storage.HEALTH_DISMISSED)
 
 
 # ── Session State Persistence (crash/restart recovery) ──────────────────
@@ -511,10 +527,28 @@ def _build_setup_shortcut_url() -> str:
     return _APPLE_HEALTH_SHORTCUT_ICLOUD_LINK
 
 
-def _build_log_shortcut_url(session_record: dict) -> str:
-    """shortcuts://run-shortcut runs the already-installed Shortcut with that
-    session's data embedded directly in the URL -- no fetch back to this server
-    needed. Percent-encodes name= and the JSON text= payload (which has its own
+def _phone_reachable_base_url() -> str:
+    """request.host_url, but with a loopback host (the desktop's usual
+    http://localhost:<port>) swapped for this machine's LAN IP, since a phone
+    opens this URL. Falls back to request.host_url if no route exists."""
+    parts = urllib.parse.urlsplit(request.host_url)
+    if parts.hostname not in ("localhost", "127.0.0.1", "::1"):
+        return request.host_url
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("10.254.254.254", 1))  # UDP connect only picks a route; nothing is sent.
+            ip = s.getsockname()[0]
+    except OSError:
+        return request.host_url
+    port = f":{parts.port}" if parts.port else ""
+    return f"{parts.scheme}://{ip}{port}/"
+
+
+def _build_log_shortcut_url(session_record: dict, success_url: str) -> str:
+    """shortcuts://x-callback-url/run-shortcut runs the already-installed
+    Shortcut with that session's data embedded directly in the URL, then opens
+    success_url once it finishes, which marks the session logged. Percent-encodes
+    name= and the JSON text= payload (which has its own
     unsafe characters -- spaces, quotes, braces), but leaves ":" and "/" alone:
     a raw, un-percent-encoded space isn't valid inside a URI at all (unlike :
     and /, which are allowed unencoded in a query component per RFC 3986), and
@@ -529,7 +563,13 @@ def _build_log_shortcut_url(session_record: dict) -> str:
     })
     name = urllib.parse.quote(APPLE_HEALTH_SHORTCUT_NAME, safe=":/")
     text = urllib.parse.quote(payload, safe=":/")
-    return f"shortcuts://run-shortcut?name={name}&input=text&text={text}"
+    success = urllib.parse.quote(success_url, safe="")
+    return f"shortcuts://x-callback-url/run-shortcut?name={name}&input=text&text={text}&x-success={success}"
+
+
+def _health_log_url(session_record: dict) -> str:
+    success_url = _phone_reachable_base_url().rstrip("/") + url_for("health_logged", session_id=session_record["id"])
+    return _build_log_shortcut_url(session_record, success_url)
 
 
 # ── Context processor so templates always know flags ────────────────────
@@ -1409,9 +1449,9 @@ def root():
         pending_health_export = (
             APPLE_HEALTH_EXPORT_ENABLED
             and bool(most_recent_session)
-            and not most_recent_session[0].get("health_logged", False)
+            and most_recent_session[0]["health_status"] == storage.HEALTH_PENDING
         )
-        log_shortcut_url = _build_log_shortcut_url(most_recent_session[0]) if pending_health_export else None
+        log_shortcut_url = _health_log_url(most_recent_session[0]) if pending_health_export else None
 
         pending_restore = None
         if _pending_restore:
@@ -1425,6 +1465,7 @@ def root():
         return render_template(
             "start_session.html", time_active="0:00:00", history=history, pending_restore=pending_restore,
             pending_health_export=pending_health_export, log_shortcut_url=log_shortcut_url,
+            health_session_id=most_recent_session[0]["id"] if pending_health_export else None,
         )
 
     template = "active_session.html" if belt_running else "paused_session.html"
@@ -1564,6 +1605,15 @@ def dismiss_health_export():
     """Mark the most recent session as dismissed from the Apple Health export prompt."""
     _dismiss_health_export()
     return jsonify({"status": "dismissed"})
+
+
+@app.route("/health_logged/<session_id>")
+def health_logged(session_id):
+    """x-success target of the Log to Apple Health link. A GET because Shortcuts
+    opens it as a Safari navigation; the CSRF guard skips GETs, so another
+    website could at most mark one session as logged."""
+    _set_health_status(session_id, storage.HEALTH_LOGGED)
+    return redirect(url_for("root"))
 
 
 # Waitress won't necessarily start (or will be unusably starved) with too
@@ -2012,6 +2062,7 @@ def _build_stats_payload() -> dict:
         "calories": round(current_calories),
         "time_active": format_seconds_to_hms(current_session_active_seconds),
         "stopping": _server_stopping,
+        "health_status_changed": _last_health_status_change,
     }
 
 

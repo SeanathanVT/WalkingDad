@@ -39,7 +39,7 @@ The official WalkingPad experience is a bloated mobile app that wants your email
     - ![Tide](https://img.shields.io/badge/Tide-11818c) summer, turquoise/sand, Pacifico headings, crabs scuttling along the bottom
     - ![Harvest](https://img.shields.io/badge/Harvest-c2410c) mode-aware: cozy autumn (falling leaves) in Light, spooky Halloween (glowing eyes) in Dark
     - ![Frost](https://img.shields.io/badge/Frost-b91c1c) winter, falling snow
-- **Apple Health export**: Scan a QR code after a session ends to log it as a Workout on your iPhone, no manual re-entry. Runs entirely through a Shortcut on your own device; no Apple Developer account, no cloud service. See [Apple Health Export](#apple-health-export) below.
+- **Apple Health export**: After a session ends, scan a QR code (or, on an iPhone/iPad running WalkingDad, tap a button) to log it as a Workout on your iPhone, no manual re-entry. Runs entirely through a Shortcut on your own device; no Apple Developer account, no cloud service. See [Apple Health Export](#apple-health-export) below.
 - **Cross-platform BLE**: Tested on Windows, macOS, and Linux with retry logic and event loop cleanup
 - **Graceful shutdown**: Stops the belt, switches to standby, and disconnects BLE whether you click Close in the UI, press Ctrl+C, or kill the process. Web UI shows "Server is shutting down" notification so you know what happened. Includes an `atexit` safety net as a last resort.
 - **No account. No cloud. No phone required.**
@@ -93,11 +93,11 @@ The app opens your browser automatically at `http://127.0.0.1:5001`. A console w
 
 Logs a completed session to Apple Health as a Workout, without typing anything in by hand. This only works on an iPhone (or iPad/Apple Watch). The Health app doesn't exist on macOS, so the Mac running WalkingDad can hand off the data but can't write it itself. No Apple Developer account is needed; this is a personal Shortcut on your own device, never distributed through the App Store.
 
-**Off by default.** Turn it on first: Settings page (gear icon) → **Apple Health** → the **Enable Apple Health export** toggle. The rest of the section (Shortcut Name field, setup QR) only appears once it's on.
+**Off by default.** Turn it on first: Settings page (gear icon) → **Apple Health** → the **Enable Apple Health export** toggle. The rest of the section (Shortcut Name field, setup QR or, on an iPhone/iPad, an **Install Shortcut** button) only appears once it's on.
 
 **One-time setup:**
 
-1. With the toggle on, scan the QR code shown there with your iPhone's Camera app. It opens Apple's own "Get Shortcut" page for a Shortcut that reads the workout data WalkingDad hands it and logs it via the built-in **Log Workout** action.
+1. With the toggle on, scan the QR code shown there with your iPhone's Camera app, or tap **Install Shortcut** if you're on the iPhone/iPad itself. Either opens Apple's own "Get Shortcut" page for a Shortcut that reads the workout data WalkingDad hands it and logs it via the built-in **Log Workout** action.
 2. Tap **Add Shortcut**. That's it. This only needs to happen once per phone.
 
 If you'd rather build the Shortcut by hand (e.g. you're maintaining a fork and want your own copy rather than relying on a link tied to someone else's iCloud account), it's three actions:
@@ -108,7 +108,9 @@ If you'd rather build the Shortcut by hand (e.g. you're maintaining a fork and w
 
 Then Share → Copy iCloud Link in the Shortcuts app, and swap `_APPLE_HEALTH_SHORTCUT_ICLOUD_LINK` in `app.py` for your own link.
 
-**Every session after that:** when a session ends, the start screen shows a **Log to Apple Health** prompt. Tap it, scan the QR with your iPhone, done. The prompt sticks around (across reloads, navigating elsewhere, closing the browser) until you either scan it or tap **Dismiss**. It isn't a one-shot toast you can miss.
+**Every session after that:** when a session ends, the start screen shows a **Log to Apple Health** prompt. On a computer, tap it and scan the QR with your iPhone. On an iPhone/iPad, it's a button that runs the Shortcut directly. Once the Shortcut finishes, the phone switches back to WalkingDad in Safari and the prompt clears on every open WalkingDad page, including the computer's. Until then it sticks around (across reloads, navigating elsewhere, closing the browser), or until you tap **Dismiss**. It isn't a one-shot toast you can miss.
+
+The phone reaches WalkingDad at the computer's network address, so this needs WalkingDad listening on the network (`host` `0.0.0.0`, the default), even if the computer itself uses `localhost`. If the phone can't reach it, the workout is still logged; only the prompt stays until you **Dismiss** it.
 
 **Known issue:** older reports describe a Shortcuts bug where the `Log Workout` action's Duration field doesn't bind correctly to a variable. It bound correctly (raw seconds, no conversion needed) in hands-on testing while building this feature, but if your logged workouts ever show the wrong duration, check the Shortcut's Duration field is still wired to the dictionary value rather than a hardcoded default before assuming it's a WalkingDad-side bug.
 

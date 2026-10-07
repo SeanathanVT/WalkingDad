@@ -24,6 +24,7 @@ def legacy_record(row: dict) -> dict:
         "calories": round(row["calories_kcal"] or 0),
         "avg_speed_kmh": round(kmh, 1),
         "avg_speed_mph": round(kmh * KM_TO_MI, 1),
-        "health_logged": bool(row["health_logged"]),
+        "health_logged": row["health_logged"] == 1,
+        "health_status": row["health_logged"],
         "has_samples": row["has_samples"],
     }

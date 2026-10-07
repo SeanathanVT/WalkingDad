@@ -87,6 +87,12 @@
         var isDark = mode === 'dark' || (mode !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches);
         if (isDark) root.setAttribute('data-theme', 'dark');
 
+        // iPadOS reports a Mac user agent, so a touch-capable "Macintosh" counts too.
+        var ua = navigator.userAgent;
+        if (/iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)) {
+            root.classList.add('is-ios');
+        }
+
         var colorTheme = localStorage.getItem('walkingpad-color-theme');
         if (colorTheme && COLOR_THEMES.some(function(t) { return t.id === colorTheme; })) {
             root.setAttribute('data-color-theme', colorTheme);
@@ -1056,6 +1062,13 @@
 
         #header-menu-toggle {
             display: none;
+        }
+
+        /* iOS/iPadOS swaps (is-ios is set in <head>): e.g. Apple Health QR codes
+           become buttons, since a phone can't scan its own screen. */
+        html:not(.is-ios) .ios-only,
+        .is-ios .not-ios {
+            display: none !important;
         }
 
         /* History table (fully custom, no Bootstrap .table dependency) */

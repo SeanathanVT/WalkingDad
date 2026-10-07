@@ -25,16 +25,20 @@
    comes from inject_flags() (config-derived only). Both are built as plain
    strings in app.py, not with Jinja's tojson/urlencode filters -- mixing those
    with plain-string concatenation double-escaped & into &amp;. #}
-<div class="stat-card mb-4 text-center" id="health-export-banner" style="border:1px solid var(--accent-color);">
+<div class="stat-card mb-4 text-center" id="health-export-banner" data-session-id="{{ health_session_id }}" style="border:1px solid var(--accent-color);">
     <p class="mb-2" style="font-weight:500;">Session complete. Log it to Apple Health?</p>
     <div class="d-flex justify-content-center gap-2">
-        <button type="button" class="btn btn-custom-primary" data-bs-toggle="modal" data-bs-target="#health-export-modal">
+        <button type="button" class="btn btn-custom-primary text-nowrap not-ios" data-bs-toggle="modal" data-bs-target="#health-export-modal">
             <i class="bi bi-heart-pulse"></i> Log to Apple Health
         </button>
+        <a href="{{ log_shortcut_url }}" class="btn btn-custom-primary text-nowrap ios-only">
+            <i class="bi bi-heart-pulse"></i> Log to Apple Health
+        </a>
         <button type="button" id="dismiss-health-export-btn" class="btn btn-sm" style="background-color:var(--card-color);color:var(--text-color);border:none;font-weight:500;">
             Dismiss
         </button>
     </div>
+    <p class="ios-only mt-2 mb-0" style="font-size:0.85rem;"><a href="{{ setup_shortcut_url }}">Haven't installed the Shortcut yet? Install it here</a></p>
 </div>
 
 <div class="modal fade" id="health-export-modal" tabindex="-1" aria-hidden="true">
@@ -182,6 +186,13 @@
 
   startStatsStream(function(data) {
     setTransitioning('transitioning-hint', startButtons, data.belt_transitioning === true);
+    // Logged or dismissed from another device (e.g. the phone that scanned the QR).
+    var banner = document.getElementById('health-export-banner');
+    if (banner && data.health_status_changed === banner.dataset.sessionId) {
+      var modal = window.bootstrap && bootstrap.Modal.getInstance(document.getElementById('health-export-modal'));
+      if (modal) modal.hide();
+      banner.remove();
+    }
   });
 
   // Clear history button

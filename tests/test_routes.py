@@ -360,7 +360,26 @@ def test_dismiss_health_export(client):
     sid = completed_session(datetime.now())
     resp = client.post("/dismiss_health_export")
     assert resp.get_json() == {"status": "dismissed"}
-    assert storage.get_session(sid)["health_logged"]
+    assert storage.get_session(sid)["health_logged"] == storage.HEALTH_DISMISSED
+
+
+def test_health_logged_callback(client, monkeypatch):
+    monkeypatch.setattr(app, "APPLE_HEALTH_EXPORT_ENABLED", True)
+    sid = completed_session(datetime.now())
+    html = client.get("/").get_data(as_text=True)
+    assert "x-success=" in html and f'data-session-id="{sid}"' in html
+
+    assert redirects_root(client.get(f"/health_logged/{sid}"))
+    assert storage.get_session(sid)["health_logged"] == storage.HEALTH_LOGGED
+    assert app._build_stats_payload()["health_status_changed"] == sid
+    assert 'id="health-export-banner"' not in client.get("/").get_data(as_text=True)
+
+
+def test_dismissed_session_does_not_reprompt(client, monkeypatch):
+    monkeypatch.setattr(app, "APPLE_HEALTH_EXPORT_ENABLED", True)
+    completed_session(datetime.now())
+    client.post("/dismiss_health_export")
+    assert 'id="health-export-banner"' not in client.get("/").get_data(as_text=True)
 
 
 # ── /settings ──
