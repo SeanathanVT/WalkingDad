@@ -300,8 +300,9 @@ def _legacy_json_row(record, tz):
     )
 
 
-def migrate_json(json_path):
-    """One-time import of legacy session_history.json. No-op once meta.migrated_from_json is set."""
+def migrate_json(json_path, backup_dir=None):
+    """One-time import of legacy session_history.json. No-op once meta.migrated_from_json is set.
+    The .bak-<stamp> copy and the renamed .migrated original go in backup_dir (default: alongside)."""
     if not os.path.exists(json_path):
         return
     conn = _connect(_db_path)
@@ -322,8 +323,9 @@ def migrate_json(json_path):
         logging.error(f"Cannot migrate {json_path}, leaving it untouched: {exc}")
         return
 
+    backup_base = os.path.join(backup_dir or os.path.dirname(json_path), os.path.basename(json_path))
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    shutil.copy2(json_path, f"{json_path}.bak-{stamp}")
+    shutil.copy2(json_path, f"{backup_base}.bak-{stamp}")
 
     # Legacy records have no offset; assume the machine's current one (tz_assumed=1).
     tz = datetime.now().astimezone().tzinfo
@@ -354,7 +356,7 @@ def migrate_json(json_path):
             conn.close()
 
     try:
-        os.replace(json_path, f"{json_path}.migrated")
+        os.replace(json_path, f"{backup_base}.migrated")
     except OSError as exc:
         logging.warning(f"Migrated {json_path} but could not rename it: {exc}")
     logging.info(f"Migrated {len(rows)} sessions from {json_path}, skipped {len(records) - len(rows)}")

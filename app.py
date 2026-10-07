@@ -92,11 +92,11 @@ _belt_sequence_task: asyncio.Task | None = None  # Track an in-flight start/resu
 _belt_transitioning = False  # True while a belt sequence is in flight; exposed in /stats for UI
 _auto_reconnect_task: asyncio.Task | None = None  # Track an in-flight auto-reconnect retry loop
 _speed_change_task: asyncio.Task | None = None  # Track an in-flight _locked_change_speed() call
-HISTORY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "session_history.json")  # legacy; migrated into the DB at startup
-_CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
+HISTORY_FILE = os.path.join(config.DATA_DIR, "session_history.json")  # legacy; migrated into the DB at startup
+_CONFIG_FILE = config.CONFIG_FILE
 
 _session_state_file_lock = threading.Lock()  # Protect session_state.json reads/writes
-SESSION_STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "session_state.json")
+SESSION_STATE_FILE = os.path.join(config.DATA_DIR, "session_state.json")
 _SESSION_STATE_SAVE_INTERVAL_SECONDS = 5
 # ask_stats() only sends a request. The ph4_walkingpad library never returns the reply
 # synchronously; the real data always lands via the on_cur_status_received notification
@@ -498,8 +498,9 @@ def _write_config(updates: dict) -> None:
 _STARTUP_ENABLED = os.environ.get("WALKINGDAD_NO_STARTUP") != "1"
 
 if _STARTUP_ENABLED:
-    storage.init_db(os.path.join(os.path.dirname(os.path.abspath(__file__)), config.DATABASE_PATH))
-    storage.migrate_json(HISTORY_FILE)
+    config.relocate_legacy_files()
+    storage.init_db(os.path.join(config.DATA_DIR, config.DATABASE_PATH))
+    storage.migrate_json(HISTORY_FILE, config.BACKUP_DIR)
 
     _pending_restore = _load_session_state()  # Check for an interrupted session at startup
     _sweep_orphaned_sessions((_pending_restore or {}).get("session_id"))

@@ -40,11 +40,11 @@ def check_port():
     HOST:PORT, instead of a bare traceback after the browser opens."""
     # getaddrinfo wraps out-of-range ports (70000 -> 4464), so check first.
     if type(PORT) is not int or not 1 <= PORT <= 65535:
-        sys.exit(f'Can\'t start: "port" in config.json must be a whole number from 1 to 65535, got {PORT!r}.')
+        sys.exit(f'Can\'t start: "port" in data/config.json must be a whole number from 1 to 65535, got {PORT!r}.')
     try:
         addrs = _listen_addrs()
     except socket.gaierror as exc:
-        sys.exit(f'Can\'t start: "host" {HOST!r} in config.json doesn\'t resolve ({exc}).')
+        sys.exit(f'Can\'t start: "host" {HOST!r} in data/config.json doesn\'t resolve ({exc}).')
 
     for family, sockaddr in addrs:
         try:
@@ -55,12 +55,12 @@ def check_port():
         except OSError as exc:
             if exc.errno in (errno.EADDRINUSE, getattr(errno, "WSAEADDRINUSE", None)):
                 hint = ("Another program, possibly another WalkingDad window, is using it. "
-                        'Close it, or set a different "port" in config.json and restart.')
+                        'Close it, or set a different "port" in data/config.json and restart.')
             elif exc.errno in (errno.EACCES, getattr(errno, "WSAEACCES", None)):
                 hint = ("The OS doesn't allow this port (on Linux, ports below 1024 need root; "
-                        'on Windows, it may be reserved). Set a different "port" in config.json and restart.')
+                        'on Windows, it may be reserved). Set a different "port" in data/config.json and restart.')
             else:
-                hint = 'Check "host" and "port" in config.json, then restart.'
+                hint = 'Check "host" and "port" in data/config.json, then restart.'
             sys.exit(f"Can't start: can't listen on {sockaddr[0]} port {PORT} ({exc}).\n{hint}")
 
 
@@ -103,7 +103,7 @@ def main():
         # thread for its entire lifetime. Defaults well above the Waitress default of 4 (see
         # config.py's waitress_threads) so several concurrent devices can
         # each hold a stream open alongside action POSTs (start/pause/speed)
-        # without stalling; tunable via config.json like every other setting.
+        # without stalling; tunable via data/config.json like every other setting.
         ["waitress-serve", f"--host={HOST}", f"--port={PORT}", f"--threads={WAITRESS_THREADS}", "app:app"],
         **popen_kwargs,
     )

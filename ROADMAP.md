@@ -209,7 +209,7 @@ Pull/merge requests and pushes to `main`/`development` run the lint and test sui
 | **GitHub Actions** | `.github/workflows/ci.yml` on `ubuntu-latest`, Python 3.10 (the supported floor) and 3.13. Pushes run only on `main`/`development`, so a PR branch isn't tested twice |
 | **GitLab CI** | `.gitlab-ci.yml` on the `python:3.12` image. Runs a merge-request pipeline when an MR is open, otherwise a branch pipeline, and shows the coverage percentage and a Cobertura report in the MR |
 | **Steps** | `pip install -r requirements.txt -r requirements-dev.txt`, `ruff check .`, `python -m pytest --cov=.`. CI reports coverage but never fails on it |
-| **Lint** | `ruff` pinned in `requirements-dev.txt`, since its default rule set changes between releases. `ruff.toml` ignores only rules that flag deliberate project style (root logger, catch-all excepts around BLE I/O, naive local datetimes, a `ValueError` raised to share an `except` clause) |
+| **Lint** | `ruff` pinned in `requirements-dev.txt`, since its default rule set changes between releases. `pyproject.toml` ignores only rules that flag deliberate project style (root logger, catch-all excepts around BLE I/O, naive local datetimes, a `ValueError` raised to share an `except` clause) |
 | **Linux only** | BLE is fully mocked, so no Bluetooth hardware or OS-specific stack is needed. `tests/test_run.py` assumes POSIX (macOS/Linux) |
 
 ---
@@ -237,7 +237,7 @@ Session data lives in a local SQLite database (`walkingdad.db`, configurable via
 | **Live Lifecycle** | Row created at Start; pauses recorded at manual pause, step-off auto-pause, and Bluetooth drop; completed at End, stale-pause auto-end (1.5), or graceful shutdown |
 | **Samples** | ~1/s while walking, at most 1 per 5 s while paused (in practice every idle-watchdog ping, ~10 s), plus one at the moment of each manual or auto pause, buffered in memory and flushed on the existing 5 s `_save_session_state()` cadence, so a crash loses at most ~5 s. Storage failures are logged, never allowed to stop the belt or block BLE handling |
 | **Crash Recovery Link** | `session_state.json` carries the `session_id`: Restore continues the same row (downtime recorded as a `shutdown` pause), Discard deletes it. Unreferenced `active` rows are swept at startup: completed from their last sample, or deleted if they have none |
-| **JSON Migration** | One-time, automatic, single transaction: backup to `session_history.json.bak-<timestamp>`, then rename to `.migrated`. Unparseable records are logged and skipped; an unreadable file is left untouched for a later retry |
+| **JSON Migration** | One-time, automatic, single transaction: backup to `session_history.json.bak-<timestamp>`, then rename to `.migrated` (both in `data/backups/`). Unparseable records are logged and skipped; an unreadable file is left untouched for a later retry |
 | **Unchanged Surface** | `units.legacy_record()` rebuilds the pre-SQLite record shape, so the history table, Apple Health export, and CSV columns are identical (CSV gains trailing `id`, `has_samples`) |
 
 ---

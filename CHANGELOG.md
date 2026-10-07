@@ -17,6 +17,7 @@ All notable changes to WalkingDad will be documented in this file.
 
 - **WalkingDad now has a real phone layout** (ROADMAP 3.19). Phones previously showed a shrunken desktop page. Now the speed reading fills the screen, the preset and Pause/End buttons sit full-width at the bottom within thumb reach, every button is large enough to tap while walking, the header controls fold into one menu button, and Recent Sessions shows as cards instead of a wide table. The desktop layout is unchanged.
 - **Buttons show a pressed state when clicked or tapped**, instead of fading to transparent while held.
+- **Everything WalkingDad writes now lives in a `data/` folder** instead of next to the code: settings (`data/config.json`), the session database, crash-recovery state, and the old JSON-migration backups (`data/backups/`). Existing files move there automatically the first time you start this version; nothing is overwritten. To edit settings by hand, use `data/config.json`.
 - **`/reconnect` is now POST-only**, like the belt-control routes. The Connect and Try Again buttons on the connecting screen look and work the same.
 
 ### Fixed
@@ -30,6 +31,7 @@ All notable changes to WalkingDad will be documented in this file.
 - **Tests now cover nearly all of the Python code** (ROADMAP 2.5): routes, Bluetooth sequences against a fake treadmill, status-packet math, persistence, and `run.py`'s launcher. The suite runs in about a second.
 - **Continuous integration** (ROADMAP 2.7): `ruff` lint and the test suite run on pull/merge requests and on pushes to `main`/`development` via GitHub Actions (Python 3.10 and 3.13) and GitLab CI (Python 3.12, with coverage shown in merge requests). `ruff` is pinned in `requirements-dev.txt`, and lint fixes in `app.py` (imports sorted, unused `global` declarations removed) have no behavior change.
 - **Importing `app.py` with `WALKINGDAD_NO_STARTUP=1` no longer installs the Ctrl+C/SIGTERM handlers or the `atexit` hook**, so pressing Ctrl+C during a test run interrupts pytest instead of killing the process two seconds later. Running the app normally is unchanged.
+- **pytest, ruff, and coverage settings merged into `pyproject.toml`**, replacing `pytest.ini`, `ruff.toml`, and `.coveragerc`. `requirements-dev.txt` adds `coverage[toml]` so coverage reads it on Python 3.10.
 - **`run.py`'s launcher logic moved into a `main()` function** so it can be tested. `python run.py` behaves the same.
 
 ---

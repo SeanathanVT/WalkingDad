@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 
 _DEFAULTS = {
@@ -19,11 +20,23 @@ _DEFAULTS = {
     "database_path": "walkingdad.db",
 }
 
-_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
-_overrides = {}
-if os.path.isfile(_path):
-    with open(_path) as _f:
-        _overrides = json.load(_f)
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(APP_DIR, "data")
+BACKUP_DIR = os.path.join(DATA_DIR, "backups")
+CONFIG_FILE = os.path.join(DATA_DIR, "config.json")
+# Where versions before data/ kept it. Read until relocate_legacy_files() moves it at startup.
+_LEGACY_CONFIG_FILE = os.path.join(APP_DIR, "config.json")
+
+
+def _load_overrides(*paths):
+    for path in paths:
+        if os.path.isfile(path):
+            with open(path) as f:
+                return json.load(f)
+    return {}
+
+
+_overrides = _load_overrides(CONFIG_FILE, _LEGACY_CONFIG_FILE)
 
 
 def _get(key):
@@ -45,3 +58,26 @@ WAITRESS_THREADS: int             = _get("waitress_threads")
 APPLE_HEALTH_SHORTCUT_NAME: str   = _get("apple_health_shortcut_name")
 APPLE_HEALTH_EXPORT_ENABLED: bool = _get("apple_health_export_enabled")
 DATABASE_PATH: str               = _get("database_path")
+
+
+def relocate_legacy_files():
+    """Move runtime files that versions before data/ kept next to the code into
+    DATA_DIR (JSON-migration leftovers into BACKUP_DIR). Never overwrites."""
+    os.makedirs(BACKUP_DIR, exist_ok=True)
+    moves = {name: DATA_DIR for name in ("config.json", "session_state.json", "session_history.json")}
+    if not os.path.isabs(DATABASE_PATH):
+        for suffix in ("", "-wal", "-shm"):
+            moves[DATABASE_PATH + suffix] = DATA_DIR
+    for name in os.listdir(APP_DIR):
+        if name.startswith("session_history.json."):
+            moves[name] = BACKUP_DIR
+    for name, dest_dir in moves.items():
+        src, dest = os.path.join(APP_DIR, name), os.path.join(dest_dir, name)
+        if not os.path.isfile(src):
+            continue
+        if os.path.exists(dest):
+            logging.warning(f"Not moving {src}: {dest} already exists")
+            continue
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        os.replace(src, dest)
+        logging.info(f"Moved {src} to {dest}")

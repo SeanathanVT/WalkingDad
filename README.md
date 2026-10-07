@@ -17,7 +17,7 @@ The official WalkingPad experience is a bloated mobile app that wants your email
 - **Smart pause & resume**: Auto-detects when you step off; remembers your speed; configurable grace period prevents re-triggering on restart; a session left paused too long (default 30 min) is ended and saved automatically
 - **Speed presets**: Slow (speed floor), Moderate, and Max buttons, plus incremental increase/decrease steppers
 - **Console-style interface**: Active, Paused, and Start screens read like the WalkingPad's own onboard display, with one large tabular-digit reading up top and secondary stats in a compact readout strip below
-- **Session history**: Sessions saved to a local SQLite database (`walkingdad.db`) with full stats, pauses, and per-second speed/distance/steps samples; last 10 shown on the start screen. Includes CSV export, history clearing, and an **Edit** mode for deleting individual sessions. An existing `session_history.json` from an older version is imported automatically on first launch (the original is kept as `session_history.json.bak-<timestamp>`).
+- **Session history**: Sessions saved to a local SQLite database (`data/walkingdad.db`) with full stats, pauses, and per-second speed/distance/steps samples; last 10 shown on the start screen. Includes CSV export, history clearing, and an **Edit** mode for deleting individual sessions. An existing `session_history.json` from an older version is imported automatically on first launch (the original is kept as `data/backups/session_history.json.bak-<timestamp>`).
 - **Crash recovery**: If the server crashes or restarts mid-session, your stats aren't lost. The start screen offers to restore the interrupted session (paused, ready to resume) or discard it.
 - **Settings page**: Gear icon in the header lets you change settings (device name, speed limits, port, and more) from the browser without editing files
 - **Dark mode**: Three-state toggle (Light → Dark → System) with localStorage persistence
@@ -118,7 +118,7 @@ The phone reaches WalkingDad at the computer's network address, so this needs Wa
 
 ## Configuration
 
-Every setting except `database_path` can be changed from the **Settings page** (gear icon in the header); all of them can be set by editing `config.json` directly. Copy `config.json.example` to `config.json` to get started; running without the file uses the built-in defaults shown below.
+Every setting except `database_path` can be changed from the **Settings page** (gear icon in the header); all of them can be set by editing `data/config.json` directly. Copy `config.json.example` to `data/config.json` to get started; running without the file uses the built-in defaults shown below. Everything WalkingDad writes (settings, database, crash-recovery state, backups) lives in `data/`; files that older versions kept in the app folder are moved there automatically on first start.
 
 | Key | Default | Description |
 |---|---|---|
@@ -136,7 +136,7 @@ Every setting except `database_path` can be changed from the **Settings page** (
 | `waitress_threads` | `16` | Server worker thread count (4-128) |
 | `apple_health_export_enabled` | `false` | Shows the Log to Apple Health prompt after each session; see [Apple Health Export](#apple-health-export) |
 | `apple_health_shortcut_name` | `"Log WalkingDad Workout"` | Must match the installed Shortcut's name exactly; see [Apple Health Export](#apple-health-export) |
-| `database_path` | `"walkingdad.db"` | SQLite database file (relative to the app directory) |
+| `database_path` | `"walkingdad.db"` | SQLite database file (relative to `data/`) |
 
 Changes to most settings take effect immediately via the Settings page. `host`, `port`, `waitress_threads`, and `database_path` require restarting the app.
 
