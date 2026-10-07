@@ -470,6 +470,15 @@ Active, Paused, and Start screens redesigned to read like the WalkingPad's own o
 
 ---
 
+### 3.19 Phone Layout
+- **Status:** Planned
+- **Priority:** Medium
+- **Problem:** `base.html` has no `<meta name="viewport">`, so iOS Safari renders the desktop layout at ~980px and scales it down: tiny text, small tap targets (±, presets, Pause/End), and most of the screen empty. The existing `@media (max-width: 480px)` rules have never applied on a phone for the same reason. Confirmed on an iPhone over the LAN (2026-10-07).
+- **Solution:** Add `<meta name="viewport" content="width=device-width, initial-scale=1">`, then tune the 480px block for walking-while-tapping use: tap targets of at least 44px, Pause/End and presets full-width, the stats strip as a 2x2 grid, and the speed readout using the freed vertical space. Desktop layout unchanged.
+- **Implementation:** `templates/base.html` (meta tag and the 480px block); check active, paused, start, connecting, and settings screens on a real phone, since the 480px rules are untested. Do before 3.6, since the QR code is what brings phones in. 3.7 (swipe gestures) and 3.17 (tablet breakpoint) build on a working phone baseline.
+
+---
+
 ## Stats & Motivation
 
 ### 4.1 Estimated Time to Distance Goal
