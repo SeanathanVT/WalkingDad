@@ -404,6 +404,22 @@ def test_delete_session_refuses_in_progress(client):
     assert storage.get_session(sid) is not None
 
 
+def test_dismiss_targets_banner_session(client):
+    shown = completed_session(datetime.now() - timedelta(hours=1))
+    newer = completed_session(datetime.now())  # Ended on another device while the banner was open.
+    client.post("/dismiss_health_export", data={"session_id": shown})
+    assert storage.get_session(shown)["health_logged"] == storage.HEALTH_DISMISSED
+    assert storage.get_session(newer)["health_logged"] == storage.HEALTH_PENDING
+
+
+def test_health_logged_rejects_unknown_and_in_progress(client):
+    active = storage.create_session(datetime.now().astimezone().isoformat(timespec="seconds"), "pad", None)
+    assert client.get(f"/health_logged/{active}").status_code == 404
+    assert client.get("/health_logged/no-such-id").status_code == 404
+    assert storage.get_session(active)["health_logged"] == storage.HEALTH_PENDING
+    assert app._build_stats_payload()["health_status_changed"] is None
+
+
 def test_dismissed_session_does_not_reprompt(client, monkeypatch):
     monkeypatch.setattr(app, "APPLE_HEALTH_EXPORT_ENABLED", True)
     completed_session(datetime.now())

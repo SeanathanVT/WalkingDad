@@ -401,24 +401,33 @@ def _clear_session_history():
 _last_health_status_change = None
 
 
-def _set_health_status(session_id, status):
+def _set_health_status(session_id, status) -> bool:
+    """Only completed sessions have an Apple Health status; False for anything else or a failed write."""
     global _last_health_status_change
     try:
+        row = storage.get_session(session_id)
+        if not row or row["status"] != "completed":
+            return False
         storage.set_health_status(session_id, status)
-        _last_health_status_change = {"id": session_id, "status": status}
     except Exception:
         logging.exception("Failed to update Apple Health status")
+        return False
+    _last_health_status_change = {"id": session_id, "status": status}
+    return True
 
 
-def _dismiss_health_export():
-    """Mark the most recent session as no longer pending an Apple Health export."""
-    try:
-        recent = storage.list_sessions(limit=1)
-    except Exception:
-        logging.exception("Failed to dismiss health export flag")
-        return
-    if recent:
-        _set_health_status(recent[0]["id"], storage.HEALTH_DISMISSED)
+def _dismiss_health_export(session_id=None):
+    """Mark session_id (default: the most recent session) as no longer pending an Apple Health export."""
+    if session_id is None:
+        try:
+            recent = storage.list_sessions(limit=1)
+        except Exception:
+            logging.exception("Failed to dismiss health export flag")
+            return
+        if not recent:
+            return
+        session_id = recent[0]["id"]
+    _set_health_status(session_id, storage.HEALTH_DISMISSED)
 
 
 # ── Session State Persistence (crash/restart recovery) ──────────────────
@@ -1609,8 +1618,9 @@ def clear_history():
 # ── Dismiss Apple Health Export Prompt ───────────────────────────────────
 @app.route("/dismiss_health_export", methods=["POST"])
 def dismiss_health_export():
-    """Mark the most recent session as dismissed from the Apple Health export prompt."""
-    _dismiss_health_export()
+    """Dismiss the prompt's session (sent by the banner), so a session that ended
+    meanwhile on another device isn't dismissed in its place."""
+    _dismiss_health_export(request.form.get("session_id"))
     return jsonify({"status": "dismissed"})
 
 
@@ -1634,7 +1644,8 @@ def health_logged(session_id):
     """x-success target of the Log to Apple Health link. A GET because Shortcuts
     opens it as a Safari navigation; the CSRF guard skips GETs, so another
     website could at most mark one session as logged."""
-    _set_health_status(session_id, storage.HEALTH_LOGGED)
+    if not _set_health_status(session_id, storage.HEALTH_LOGGED):
+        return "Session not found, or it couldn't be marked as logged.", 404
     return redirect(url_for("root"))
 
 

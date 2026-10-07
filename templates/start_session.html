@@ -103,7 +103,8 @@
     var dismissBtn = document.getElementById('dismiss-health-export-btn');
     if (dismissBtn) {
         dismissBtn.addEventListener('click', function() {
-            fetch("{{ url_for('dismiss_health_export') }}", { method: 'POST' })
+            var sessionId = document.getElementById('health-export-banner').dataset.sessionId;
+            fetch("{{ url_for('dismiss_health_export') }}", { method: 'POST', body: new URLSearchParams({ session_id: sessionId }) })
                 .then(function() {
                     var banner = document.getElementById('health-export-banner');
                     if (banner) banner.remove();
@@ -219,7 +220,8 @@
     var banner = document.getElementById('health-export-banner');
     if (banner && banner.dataset.sessionId === change.id) banner.remove();
     var modalEl = document.getElementById('health-export-modal');
-    if (modalEl && modalEl.dataset.sessionId === change.id && window.bootstrap) {
+    // Logged only: a dismissed status lingers in every update, and would close a later Log for that session.
+    if (modalEl && change.status === 1 && modalEl.dataset.sessionId === change.id && window.bootstrap) {
       var modal = bootstrap.Modal.getInstance(modalEl);
       if (modal) modal.hide();
     }

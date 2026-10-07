@@ -44,6 +44,20 @@ def test_relocate_never_overwrites(dirs):
     assert (data_dir / "config.json").read_text() == "new"
 
 
+def test_relocate_keeps_database_with_its_wal(dirs):
+    app_dir, data_dir = dirs
+    data_dir.mkdir()
+    (data_dir / "walkingdad.db-wal").write_text("stale")
+    (app_dir / "walkingdad.db").write_text("db")
+    (app_dir / "walkingdad.db-wal").write_text("wal")
+
+    config.relocate_legacy_files()
+
+    assert (app_dir / "walkingdad.db").exists() and (app_dir / "walkingdad.db-wal").exists()
+    assert not (data_dir / "walkingdad.db").exists()
+    assert (data_dir / "walkingdad.db-wal").read_text() == "stale"
+
+
 def test_relocate_leaves_absolute_database_path(dirs, monkeypatch):
     app_dir, _ = dirs
     db = app_dir / "elsewhere.db"

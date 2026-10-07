@@ -64,20 +64,21 @@ def relocate_legacy_files():
     """Move runtime files that versions before data/ kept next to the code into
     DATA_DIR (JSON-migration leftovers into BACKUP_DIR). Never overwrites."""
     os.makedirs(BACKUP_DIR, exist_ok=True)
-    moves = {name: DATA_DIR for name in ("config.json", "session_state.json", "session_history.json")}
+    # Each group moves all-or-nothing: a database separated from its -wal loses uncommitted sessions.
+    groups = [[(name, DATA_DIR)] for name in ("config.json", "session_state.json", "session_history.json")]
     if not os.path.isabs(DATABASE_PATH):
-        for suffix in ("", "-wal", "-shm"):
-            moves[DATABASE_PATH + suffix] = DATA_DIR
-    for name in os.listdir(APP_DIR):
-        if name.startswith("session_history.json."):
-            moves[name] = BACKUP_DIR
-    for name, dest_dir in moves.items():
-        src, dest = os.path.join(APP_DIR, name), os.path.join(dest_dir, name)
-        if not os.path.isfile(src):
+        groups.append([(DATABASE_PATH + suffix, DATA_DIR) for suffix in ("", "-wal", "-shm")])
+    groups += [[(name, BACKUP_DIR)] for name in os.listdir(APP_DIR) if name.startswith("session_history.json.")]
+    for group in groups:
+        pairs = [(os.path.join(APP_DIR, name), os.path.join(dest_dir, name)) for name, dest_dir in group]
+        blocked = [dest for _, dest in pairs if os.path.exists(dest)]
+        pairs = [(src, dest) for src, dest in pairs if os.path.isfile(src)]
+        if not pairs:
             continue
-        if os.path.exists(dest):
-            logging.warning(f"Not moving {src}: {dest} already exists")
+        if blocked:
+            logging.warning(f"Not moving {', '.join(src for src, _ in pairs)}: {', '.join(blocked)} already exists")
             continue
-        os.makedirs(os.path.dirname(dest), exist_ok=True)
-        os.replace(src, dest)
-        logging.info(f"Moved {src} to {dest}")
+        for src, dest in pairs:
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            os.replace(src, dest)
+            logging.info(f"Moved {src} to {dest}")
