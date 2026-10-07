@@ -154,10 +154,10 @@
                 <tr>
                     <th class="text-start">Date</th>
                     <th>Time</th>
-                    <th>Duration</th>
-                    <th>Distance</th>
-                    <th>Steps</th>
-                    <th>Calories</th>
+                    <th class="text-end">Duration</th>
+                    <th class="text-end">Distance</th>
+                    <th class="text-end">Steps</th>
+                    <th class="text-end">Calories</th>
                     <th class="text-end">Avg Speed</th>
                     <th class="history-actions"><span class="visually-hidden">Actions</span></th>
                 </tr>
@@ -167,15 +167,15 @@
                 <tr data-session-id="{{ s.id }}">
                     <td class="text-start">{{ s.date }}
                         {%- if health_export_enabled %}
-                        <i class="bi {{ 'bi-heart-fill' if s.health_logged else 'bi-heart' }} health-icon" role="img"
-                           title="{{ 'Logged' if s.health_logged else 'Not logged' }} to Apple Health"
-                           aria-label="{{ 'Logged' if s.health_logged else 'Not logged' }} to Apple Health"></i>
+                        {%- set health_hint = 'Logged to Apple Health' if s.health_logged else 'Not logged to Apple Health. Use Edit, then Log, to log it.' %}
+                        <i class="bi {{ 'bi-heart-fill' if s.health_logged else 'bi-heart' }} health-icon" role="img" tabindex="0"
+                           data-bs-toggle="tooltip" title="{{ health_hint }}" aria-label="{{ health_hint }}"></i>
                         {%- endif %}</td>
                     <td class="mono-num">{{ s.start_time }}</td>
-                    <td data-label="Duration" class="mono-num">{{ s.duration_seconds // 60 }}m {{ s.duration_seconds % 60 }}s</td>
-                    <td data-label="Distance" class="mono-num">{{ "%.2f"|format(s.distance_mi) }} mi</td>
-                    <td data-label="Steps" class="mono-num">{{ "{:,}".format(s.steps|int) }}</td>
-                    <td data-label="Calories" class="mono-num">{{ s.calories|round(0)|int }}</td>
+                    <td data-label="Duration" class="mono-num text-end">{{ s.duration_seconds // 60 }}m {{ s.duration_seconds % 60 }}s</td>
+                    <td data-label="Distance" class="mono-num text-end">{{ "%.2f"|format(s.distance_mi) }} mi</td>
+                    <td data-label="Steps" class="mono-num text-end">{{ "{:,}".format(s.steps|int) }}</td>
+                    <td data-label="Calories" class="mono-num text-end">{{ s.calories|round(0)|int }}</td>
                     <td data-label="Avg Speed" class="mono-num text-end">{{ s.avg_speed_mph }} mph</td>
                     <td class="history-actions">
                         {% if s.log_shortcut_url %}
@@ -230,11 +230,17 @@
       var icon = row.querySelector('.health-icon');
       if (icon) {
         icon.classList.replace('bi-heart', 'bi-heart-fill');
-        icon.title = 'Logged to Apple Health';
-        icon.setAttribute('aria-label', icon.title);
+        icon.setAttribute('aria-label', 'Logged to Apple Health');
+        var tip = window.bootstrap && bootstrap.Tooltip.getInstance(icon);
+        if (tip) tip.setContent({ '.tooltip-inner': 'Logged to Apple Health' });
       }
       row.querySelectorAll('[data-log]').forEach(function(el) { el.remove(); });
     }
+  });
+
+  // Bootstrap's bundle loads after this block, so wait for it before wiring the heart tooltips.
+  document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.health-icon').forEach(function(el) { new bootstrap.Tooltip(el); });
   });
 
   // Edit mode reveals each row's Log/Delete buttons.
