@@ -1100,6 +1100,29 @@
             font-family: var(--font-mono);
             font-variant-numeric: tabular-nums;
         }
+        .history-actions {
+            display: none;
+            white-space: nowrap;
+            text-align: end;
+        }
+        .history-editing .history-actions {
+            display: table-cell;
+        }
+        /* Rows are card-colored, the same as .btn-preset's own background. */
+        .history-actions .btn-preset {
+            background-color: var(--background-color);
+            padding: 0.25rem 0.6rem;
+        }
+        .history-actions .btn-preset:hover {
+            background-color: var(--button-hover-bg);
+        }
+        .health-icon {
+            margin-left: 0.4rem;
+            color: var(--muted-color);
+        }
+        .health-icon.bi-heart-fill {
+            color: #ff2d55; /* Apple Health's heart pink */
+        }
 
         /* Settings form fields -- shared by every input/hint/section title
            instead of repeating the same inline style per field. */
@@ -1436,6 +1459,12 @@
             }
             .history-table td:nth-child(2) {
                 text-align: right !important;
+            }
+            .history-editing .history-table .history-actions {
+                display: flex;
+                grid-column: 1 / -1;
+                justify-content: flex-end;
+                gap: 0.5rem;
             }
             .history-table td[data-label]::before {
                 content: attr(data-label);

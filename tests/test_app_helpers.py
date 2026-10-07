@@ -512,7 +512,7 @@ def test_dismiss_health_export_marks_most_recent(app_state):
     app._dismiss_health_export()
     assert storage.get_session(newer)["health_logged"] == storage.HEALTH_DISMISSED
     assert storage.get_session(older)["health_logged"] == storage.HEALTH_PENDING
-    assert app._last_health_status_change == newer
+    assert app._last_health_status_change == {"id": newer, "status": storage.HEALTH_DISMISSED}
 
 
 def test_dismiss_health_export_empty_history(app_state):

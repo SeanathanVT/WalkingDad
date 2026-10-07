@@ -396,8 +396,8 @@ def _clear_session_history():
         logging.exception("Failed to clear session history")
 
 
-# Session id whose Apple Health status last changed, pushed over SSE so other open pages
-# (e.g. the desktop prompt while the phone logs) update without a reload.
+# {"id", "status"} of the last Apple Health status change, pushed over SSE so other open
+# pages (e.g. the desktop prompt while the phone logs) update without a reload.
 _last_health_status_change = None
 
 
@@ -405,7 +405,7 @@ def _set_health_status(session_id, status):
     global _last_health_status_change
     try:
         storage.set_health_status(session_id, status)
-        _last_health_status_change = session_id
+        _last_health_status_change = {"id": session_id, "status": status}
     except Exception:
         logging.exception("Failed to update Apple Health status")
 
@@ -567,8 +567,8 @@ def _build_log_shortcut_url(session_record: dict, success_url: str) -> str:
     return f"shortcuts://x-callback-url/run-shortcut?name={name}&input=text&text={text}&x-success={success}"
 
 
-def _health_log_url(session_record: dict) -> str:
-    success_url = _phone_reachable_base_url().rstrip("/") + url_for("health_logged", session_id=session_record["id"])
+def _health_log_url(session_record: dict, base_url: str) -> str:
+    success_url = base_url.rstrip("/") + url_for("health_logged", session_id=session_record["id"])
     return _build_log_shortcut_url(session_record, success_url)
 
 
@@ -1451,7 +1451,12 @@ def root():
             and bool(most_recent_session)
             and most_recent_session[0]["health_status"] == storage.HEALTH_PENDING
         )
-        log_shortcut_url = _health_log_url(most_recent_session[0]) if pending_health_export else None
+        if APPLE_HEALTH_EXPORT_ENABLED:
+            base_url = _phone_reachable_base_url()
+            for record in history:
+                if record["health_status"] != storage.HEALTH_LOGGED:
+                    record["log_shortcut_url"] = _health_log_url(record, base_url)
+        log_shortcut_url = _health_log_url(most_recent_session[0], base_url) if pending_health_export else None
 
         pending_restore = None
         if _pending_restore:
@@ -1466,6 +1471,7 @@ def root():
             "start_session.html", time_active="0:00:00", history=history, pending_restore=pending_restore,
             pending_health_export=pending_health_export, log_shortcut_url=log_shortcut_url,
             health_session_id=most_recent_session[0]["id"] if pending_health_export else None,
+            health_export_enabled=APPLE_HEALTH_EXPORT_ENABLED,
         )
 
     template = "active_session.html" if belt_running else "paused_session.html"
@@ -1605,6 +1611,21 @@ def dismiss_health_export():
     """Mark the most recent session as dismissed from the Apple Health export prompt."""
     _dismiss_health_export()
     return jsonify({"status": "dismissed"})
+
+
+@app.route("/delete_session/<session_id>", methods=["POST"])
+def delete_session(session_id):
+    """Delete one completed session (and its pauses/samples). Never an
+    in-progress or awaiting-restore one, same rule as Clear History."""
+    try:
+        row = storage.get_session(session_id)
+        if not row or row["status"] != "completed":
+            return jsonify({"status": "not_found"}), 404
+        storage.delete_session(session_id)
+    except Exception:
+        logging.exception("Failed to delete session")
+        return jsonify({"status": "error"}), 500
+    return jsonify({"status": "deleted"})
 
 
 @app.route("/health_logged/<session_id>")

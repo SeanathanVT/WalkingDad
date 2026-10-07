@@ -371,8 +371,37 @@ def test_health_logged_callback(client, monkeypatch):
 
     assert redirects_root(client.get(f"/health_logged/{sid}"))
     assert storage.get_session(sid)["health_logged"] == storage.HEALTH_LOGGED
-    assert app._build_stats_payload()["health_status_changed"] == sid
+    assert app._build_stats_payload()["health_status_changed"] == {"id": sid, "status": storage.HEALTH_LOGGED}
     assert 'id="health-export-banner"' not in client.get("/").get_data(as_text=True)
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+def test_history_log_buttons_only_for_unlogged(client, monkeypatch, enabled):
+    monkeypatch.setattr(app, "APPLE_HEALTH_EXPORT_ENABLED", enabled)
+    logged = completed_session(datetime.now() - timedelta(days=1))
+    dismissed = completed_session(datetime.now())
+    storage.set_health_status(logged, storage.HEALTH_LOGGED)
+    storage.set_health_status(dismissed, storage.HEALTH_DISMISSED)
+    html = client.get("/").get_data(as_text=True)
+    assert ("health_logged%2F" + dismissed in html) is enabled
+    assert "health_logged%2F" + logged not in html
+    assert ('class="bi bi-heart-fill health-icon"' in html) is enabled
+
+
+def test_delete_session(client):
+    sid = completed_session(datetime.now())
+    storage.append_samples(sid, [(0, 1.0, 1.0, 1, 1, None)])
+    resp = client.post(f"/delete_session/{sid}")
+    assert resp.get_json() == {"status": "deleted"}
+    assert storage.get_session(sid) is None
+    assert storage.get_samples(sid) == []
+
+
+def test_delete_session_refuses_in_progress(client):
+    sid = storage.create_session(datetime.now().astimezone().isoformat(timespec="seconds"), "pad", None)
+    assert client.post(f"/delete_session/{sid}").status_code == 404
+    assert client.post("/delete_session/no-such-id").status_code == 404
+    assert storage.get_session(sid) is not None
 
 
 def test_dismissed_session_does_not_reprompt(client, monkeypatch):

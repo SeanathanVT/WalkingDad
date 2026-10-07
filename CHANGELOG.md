@@ -9,6 +9,8 @@ All notable changes to WalkingDad will be documented in this file.
 - **Add to Home Screen opens WalkingDad full-screen** (ROADMAP 3.19), like an app, without the browser's address and tool bars.
 - **Log to Apple Health from the iPhone or iPad running WalkingDad.** A phone can't scan its own screen, so on iPhone/iPad the per-session QR code is now a **Log to Apple Health** button, and the setup QR on the Settings page is an **Install Shortcut** button. Computers still show the QR codes, since a Mac can't write to Apple Health.
 - **The Log to Apple Health prompt clears itself once the workout is logged**, on every open WalkingDad page. After the Shortcut finishes, the phone opens WalkingDad in Safari, which marks that session as logged. Dismissing the prompt is now recorded separately from logging. The installed Shortcut doesn't need to change.
+- **See which sessions were logged to Apple Health, and log missed ones later.** With Apple Health export on, each session in Recent Sessions shows a filled heart once logged and an outline heart if not. **Edit** adds a **Log** button to each unlogged session.
+- **Delete individual sessions.** **Edit** also adds a delete button to each session in Recent Sessions, handy for removing test walks without clearing everything.
 - **The screen stays on during an active session** (ROADMAP 3.12), and returns to normal on Pause or End. Browsers only allow this on `localhost` or HTTPS, so it works on the computer running WalkingDad but not on a phone connecting over your network.
 
 ### Changed

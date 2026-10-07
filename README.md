@@ -17,7 +17,7 @@ The official WalkingPad experience is a bloated mobile app that wants your email
 - **Smart pause & resume**: Auto-detects when you step off; remembers your speed; configurable grace period prevents re-triggering on restart; a session left paused too long (default 30 min) is ended and saved automatically
 - **Speed presets**: Slow (speed floor), Moderate, and Max buttons, plus incremental increase/decrease steppers
 - **Console-style interface**: Active, Paused, and Start screens read like the WalkingPad's own onboard display, with one large tabular-digit reading up top and secondary stats in a compact readout strip below
-- **Session history**: Sessions saved to a local SQLite database (`walkingdad.db`) with full stats, pauses, and per-second speed/distance/steps samples; last 10 shown on the start screen. Includes CSV export and history clearing. An existing `session_history.json` from an older version is imported automatically on first launch (the original is kept as `session_history.json.bak-<timestamp>`).
+- **Session history**: Sessions saved to a local SQLite database (`walkingdad.db`) with full stats, pauses, and per-second speed/distance/steps samples; last 10 shown on the start screen. Includes CSV export, history clearing, and an **Edit** mode for deleting individual sessions. An existing `session_history.json` from an older version is imported automatically on first launch (the original is kept as `session_history.json.bak-<timestamp>`).
 - **Crash recovery**: If the server crashes or restarts mid-session, your stats aren't lost. The start screen offers to restore the interrupted session (paused, ready to resume) or discard it.
 - **Settings page**: Gear icon in the header lets you change settings (device name, speed limits, port, and more) from the browser without editing files
 - **Dark mode**: Three-state toggle (Light → Dark → System) with localStorage persistence
@@ -109,6 +109,8 @@ If you'd rather build the Shortcut by hand (e.g. you're maintaining a fork and w
 Then Share → Copy iCloud Link in the Shortcuts app, and swap `_APPLE_HEALTH_SHORTCUT_ICLOUD_LINK` in `app.py` for your own link.
 
 **Every session after that:** when a session ends, the start screen shows a **Log to Apple Health** prompt. On a computer, tap it and scan the QR with your iPhone. On an iPhone/iPad, it's a button that runs the Shortcut directly. Once the Shortcut finishes, the phone switches back to WalkingDad in Safari and the prompt clears on every open WalkingDad page, including the computer's. Until then it sticks around (across reloads, navigating elsewhere, closing the browser), or until you tap **Dismiss**. It isn't a one-shot toast you can miss.
+
+**Missed one?** With export on, each session in **Recent Sessions** shows a filled heart once it's been logged and an outline heart if it hasn't (including dismissed ones). Tap **Edit** to get a **Log** button on each unlogged session, which works the same as the prompt (QR on a computer, button on iPhone/iPad), plus a delete button on every session. Only the sessions shown there can be logged this way; raise `history_display_limit` to reach older ones.
 
 The phone reaches WalkingDad at the computer's network address, so this needs WalkingDad listening on the network (`host` `0.0.0.0`, the default), even if the computer itself uses `localhost`. If the phone can't reach it, the workout is still logged; only the prompt stays until you **Dismiss** it.
 

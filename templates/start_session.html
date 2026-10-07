@@ -28,7 +28,8 @@
 <div class="stat-card mb-4 text-center" id="health-export-banner" data-session-id="{{ health_session_id }}" style="border:1px solid var(--accent-color);">
     <p class="mb-2" style="font-weight:500;">Session complete. Log it to Apple Health?</p>
     <div class="d-flex justify-content-center gap-2">
-        <button type="button" class="btn btn-custom-primary text-nowrap not-ios" data-bs-toggle="modal" data-bs-target="#health-export-modal">
+        <button type="button" class="btn btn-custom-primary text-nowrap not-ios" data-bs-toggle="modal" data-bs-target="#health-export-modal"
+                data-log-url="{{ log_shortcut_url }}" data-session-id="{{ health_session_id }}">
             <i class="bi bi-heart-pulse"></i> Log to Apple Health
         </button>
         <a href="{{ log_shortcut_url }}" class="btn btn-custom-primary text-nowrap ios-only">
@@ -40,6 +41,8 @@
     </div>
     <p class="ios-only mt-2 mb-0" style="font-size:0.85rem;"><a href="{{ setup_shortcut_url }}">Haven't installed the Shortcut yet? Install it here</a></p>
 </div>
+{% endif %}
+{% if health_export_enabled %}
 
 <div class="modal fade" id="health-export-modal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
@@ -60,7 +63,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script>
 (function() {
-    var logUrl = {{ log_shortcut_url | tojson }};
+    var logUrl = '';
     var setupUrl = {{ setup_shortcut_url | tojson }};
     var showingSetup = false;
 
@@ -73,7 +76,10 @@
 
     var modal = document.getElementById('health-export-modal');
     if (modal) {
-        modal.addEventListener('show.bs.modal', function() {
+        // The banner and each history row's Log button carry their own session's URL.
+        modal.addEventListener('show.bs.modal', function(e) {
+            logUrl = e.relatedTarget.dataset.logUrl;
+            modal.dataset.sessionId = e.relatedTarget.dataset.sessionId;
             showingSetup = false;
             renderQR(logUrl);
             document.getElementById('health-export-modal-title').textContent = 'Log to Apple Health';
@@ -126,7 +132,7 @@
 </div>
 
 {% if history %}
-<div class="mt-5">
+<div class="mt-5" id="history">
     <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
         <h2 class="content-title" style="font-size:1.5rem;">Recent Sessions</h2>
         <div class="d-flex gap-2">
@@ -135,6 +141,9 @@
             </a>
             <button id="clear-history-btn" class="btn btn-sm text-nowrap" style="background-color:var(--card-color);color:var(--text-color);border:none;font-weight:500;padding:0.25rem 0.75rem;" title="Clear all session history">
                 <i class="bi bi-trash"></i> Clear
+            </button>
+            <button id="edit-history-btn" type="button" class="btn btn-sm text-nowrap" aria-pressed="false" style="background-color:var(--card-color);color:var(--text-color);border:none;font-weight:500;padding:0.25rem 0.75rem;" title="Log or delete individual sessions">
+                <i class="bi bi-pencil"></i> Edit
             </button>
         </div>
     </div>
@@ -149,18 +158,36 @@
                     <th>Steps</th>
                     <th>Calories</th>
                     <th class="text-end">Avg Speed</th>
+                    <th class="history-actions"><span class="visually-hidden">Actions</span></th>
                 </tr>
             </thead>
             <tbody>
                 {% for s in history %}
-                <tr>
-                    <td class="text-start">{{ s.date }}</td>
+                <tr data-session-id="{{ s.id }}">
+                    <td class="text-start">{{ s.date }}
+                        {%- if health_export_enabled %}
+                        <i class="bi {{ 'bi-heart-fill' if s.health_logged else 'bi-heart' }} health-icon" role="img"
+                           title="{{ 'Logged' if s.health_logged else 'Not logged' }} to Apple Health"
+                           aria-label="{{ 'Logged' if s.health_logged else 'Not logged' }} to Apple Health"></i>
+                        {%- endif %}</td>
                     <td class="mono-num">{{ s.start_time }}</td>
                     <td data-label="Duration" class="mono-num">{{ s.duration_seconds // 60 }}m {{ s.duration_seconds % 60 }}s</td>
                     <td data-label="Distance" class="mono-num">{{ "%.2f"|format(s.distance_mi) }} mi</td>
                     <td data-label="Steps" class="mono-num">{{ "{:,}".format(s.steps|int) }}</td>
                     <td data-label="Calories" class="mono-num">{{ s.calories|round(0)|int }}</td>
                     <td data-label="Avg Speed" class="mono-num text-end">{{ s.avg_speed_mph }} mph</td>
+                    <td class="history-actions">
+                        {% if s.log_shortcut_url %}
+                        <button type="button" class="btn btn-sm btn-preset not-ios" data-log data-bs-toggle="modal" data-bs-target="#health-export-modal"
+                                data-log-url="{{ s.log_shortcut_url }}" data-session-id="{{ s.id }}">
+                            <i class="bi bi-heart-pulse"></i> Log
+                        </button>
+                        <a href="{{ s.log_shortcut_url }}" class="btn btn-sm btn-preset ios-only" data-log><i class="bi bi-heart-pulse"></i> Log</a>
+                        {% endif %}
+                        <button type="button" class="btn btn-sm btn-preset" data-delete-url="{{ url_for('delete_session', session_id=s.id) }}" aria-label="Delete session" title="Delete session">
+                            <i class="bi bi-trash text-danger"></i>
+                        </button>
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -186,13 +213,49 @@
 
   startStatsStream(function(data) {
     setTransitioning('transitioning-hint', startButtons, data.belt_transitioning === true);
-    // Logged or dismissed from another device (e.g. the phone that scanned the QR).
+    // Logged or dismissed elsewhere (e.g. on the phone that scanned the QR).
+    var change = data.health_status_changed;
+    if (!change) return;
     var banner = document.getElementById('health-export-banner');
-    if (banner && data.health_status_changed === banner.dataset.sessionId) {
-      var modal = window.bootstrap && bootstrap.Modal.getInstance(document.getElementById('health-export-modal'));
+    if (banner && banner.dataset.sessionId === change.id) banner.remove();
+    var modalEl = document.getElementById('health-export-modal');
+    if (modalEl && modalEl.dataset.sessionId === change.id && window.bootstrap) {
+      var modal = bootstrap.Modal.getInstance(modalEl);
       if (modal) modal.hide();
-      banner.remove();
     }
+    var row = document.querySelector('tr[data-session-id="' + change.id + '"]');
+    if (row && change.status === 1) {
+      var icon = row.querySelector('.health-icon');
+      if (icon) {
+        icon.classList.replace('bi-heart', 'bi-heart-fill');
+        icon.title = 'Logged to Apple Health';
+        icon.setAttribute('aria-label', icon.title);
+      }
+      row.querySelectorAll('[data-log]').forEach(function(el) { el.remove(); });
+    }
+  });
+
+  // Edit mode reveals each row's Log/Delete buttons.
+  var editBtn = document.getElementById('edit-history-btn');
+  if (editBtn) {
+    editBtn.addEventListener('click', function() {
+      var on = document.getElementById('history').classList.toggle('history-editing');
+      editBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+      editBtn.innerHTML = on ? '<i class="bi bi-check-lg"></i> Done' : '<i class="bi bi-pencil"></i> Edit';
+    });
+  }
+
+  document.querySelectorAll('[data-delete-url]').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      if (!confirm('Delete this session? This cannot be undone.')) return;
+      fetch(btn.dataset.deleteUrl, { method: 'POST' }).then(function(resp) {
+        if (!resp.ok) return;
+        var row = btn.closest('tr');
+        var banner = document.getElementById('health-export-banner');
+        if (banner && banner.dataset.sessionId === row.dataset.sessionId) banner.remove();
+        row.remove();
+      });
+    });
   });
 
   // Clear history button
