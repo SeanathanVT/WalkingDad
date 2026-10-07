@@ -100,8 +100,7 @@ def main():
 
     server_process = subprocess.Popen(
         # --threads: each open SSE connection (/stats_stream) holds a worker
-        # thread for its entire lifetime, unlike the old short-lived polling
-        # requests. Defaults well above the Waitress default of 4 (see
+        # thread for its entire lifetime. Defaults well above the Waitress default of 4 (see
         # config.py's waitress_threads) so several concurrent devices can
         # each hold a stream open alongside action POSTs (start/pause/speed)
         # without stalling; tunable via config.json like every other setting.

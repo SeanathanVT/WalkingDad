@@ -19,7 +19,7 @@ The official WalkingPad experience is a bloated mobile app that wants your email
 - **Console-style interface**: Active, Paused, and Start screens read like the WalkingPad's own onboard display, with one large tabular-digit reading up top and secondary stats in a compact readout strip below
 - **Session history**: Sessions saved to a local SQLite database (`walkingdad.db`) with full stats, pauses, and per-second speed/distance/steps samples; last 10 shown on the start screen. Includes CSV export and history clearing. An existing `session_history.json` from an older version is imported automatically on first launch (the original is kept as `session_history.json.bak-<timestamp>`).
 - **Crash recovery**: If the server crashes or restarts mid-session, your stats aren't lost. The start screen offers to restore the interrupted session (paused, ready to resume) or discard it.
-- **Settings page**: Gear icon in the header lets you change any setting (device name, speed limits, port, and more) from the browser without editing files
+- **Settings page**: Gear icon in the header lets you change settings (device name, speed limits, port, and more) from the browser without editing files
 - **Dark mode**: Three-state toggle (Light → Dark → System) with localStorage persistence
 - **Color themes**: Independent of the Light/Dark/System toggle, via the palette icon in the header. Each theme tints the whole surface, not just buttons, and follows into the browser's own chrome (tab color, etc).
     - Standard palette: Slate is the default; the rest run in spectral order:
@@ -83,7 +83,7 @@ The app opens your browser automatically at `http://127.0.0.1:5001`. A console w
 
 ## Usage
 
-1. Power on your WalkingPad. The app connects automatically on startup (up to 3 retries with exponential backoff).
+1. Power on your WalkingPad. The app connects automatically on startup (up to 3 attempts with exponential backoff).
 2. Click **Start** to begin a session. Stats update in real time.
 3. Adjust speed with the control buttons, or click **Pause** to stop the belt.
 4. If you step off the pad, the app auto-pauses. Click **Resume** to pick back up.
@@ -114,7 +114,7 @@ Then Share → Copy iCloud Link in the Shortcuts app, and swap `_APPLE_HEALTH_SH
 
 ## Configuration
 
-All settings can be changed from the **Settings page** (gear icon in the header), or by editing `config.json` directly. Copy `config.json.example` to `config.json` to get started; running without the file uses the built-in defaults shown below.
+Every setting except `database_path` can be changed from the **Settings page** (gear icon in the header); all of them can be set by editing `config.json` directly. Copy `config.json.example` to `config.json` to get started; running without the file uses the built-in defaults shown below.
 
 | Key | Default | Description |
 |---|---|---|
@@ -127,9 +127,10 @@ All settings can be changed from the **Settings page** (gear icon in the header)
 | `resume_grace_period_seconds` | `7` | Seconds before auto-pause can trigger after start/resume (minimum 3) |
 | `history_display_limit` | `10` | Sessions shown on the start screen |
 | `stale_pause_timeout_minutes` | `30` | A session paused this long is ended and saved automatically; `0` disables |
-| `host` | `"0.0.0.0"` | Network interface to bind |
+| `host` | `"0.0.0.0"` | Network interface to bind. Any device that can reach it can control the treadmill (other websites can't); use `"127.0.0.1"` to allow only this computer |
 | `port` | `5001` | Server port |
 | `waitress_threads` | `16` | Server worker thread count (4-128) |
+| `apple_health_export_enabled` | `false` | Shows the Log to Apple Health prompt after each session; see [Apple Health Export](#apple-health-export) |
 | `apple_health_shortcut_name` | `"Log WalkingDad Workout"` | Must match the installed Shortcut's name exactly; see [Apple Health Export](#apple-health-export) |
 | `database_path` | `"walkingdad.db"` | SQLite database file (relative to the app directory) |
 

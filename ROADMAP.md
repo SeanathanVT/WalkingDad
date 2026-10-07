@@ -136,15 +136,15 @@ All user-tunable settings are now loaded from an optional `config.json` file, wi
 
 ---
 
-### 2.2 Route Security
-- **Status:** Planned
-- **Priority:** High
-- **Problem:** Routes like `/start`, `/pause`, `/increase_speed` have no authentication or CSRF protection. Since the server binds to `0.0.0.0`, any device on the local network could control the treadmill.
-- **Solution:** Add a simple secret token mechanism:
-    - Generate a random token on startup (stored in config)
-    - Require `?token=...` query parameter or `X-Auth-Token` header on all action routes
-    - Display the token in the UI and use it automatically for frontend requests
-- **Alternative:** Restrict server to `127.0.0.1` only (breaks network access but is simpler).
+### ✅ 2.2 Route Security
+**Status:** ✅ Complete
+**Priority:** High
+**Files Modified:** `app.py`, `templates/connecting.html`, `tests/test_csrf.py`, `tests/test_routes.py`
+
+Routes like `/start`, `/pause`, `/increase_speed` had no CSRF protection, so any website open in a browser on the network could control the treadmill. A `before_request` guard (`_block_cross_site_posts()`) now rejects any non-GET request whose `Origin` isn't the app's own origin (scheme, host, and port), or whose `Sec-Fetch-Site` is `cross-site` or `same-site` (catches it when an extension or proxy strips `Origin`). Requests without either header (curl, `run.py`'s `/shutdown`) pass. `/reconnect` became POST-only (the Connect / Try Again links on the connecting screen are now form buttons), so every state-changing route goes through the guard.
+
+- **Not done, deliberately:** a per-device token. The app is LAN-only and devices on the LAN are trusted by design; the treadmill is only reachable over Bluetooth from home, and anyone at home can press its buttons anyway. A token would add a sign-in step for every phone, break scripts, and add a credential to manage, guarding against a threat that doesn't apply. Revisit only if the app is ever exposed beyond the LAN (tunnel, Tailscale).
+- **Known limit:** a deliberate DNS-rebinding attack makes `Origin` match the app's origin and gets through; that takes an attack targeted at this app specifically, so it's accepted. The fix would be a `Host` allowlist (IP literals, `localhost`, the machine's own name), at the cost of breaking access through custom DNS names (`.lan`, Tailscale).
 
 ---
 
@@ -321,7 +321,7 @@ Shipping this surfaced a real gap it needed to close first: a dead BLE connectio
 - **Problem:** The app always displays imperial units (mph, miles). Users who prefer metric must mentally convert or edit code constants.
 - **Solution:** Add a unit toggle (Imperial ↔ Metric) in the header that switches between mph/miles and km/h/km in real time. Store preference in `localStorage`.
 - **Implementation:**
-    - Return both imperial and metric values from `/stats` JSON endpoint
+    - Return both imperial and metric values from `_build_stats_payload()` (shared by `/stats_stream` and `/stats`)
     - Frontend toggles display based on user preference
     - Add toggle button next to the theme toggle in the header
 

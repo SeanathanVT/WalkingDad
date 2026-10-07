@@ -989,9 +989,8 @@ async def _cancel_task(task: asyncio.Task | None) -> None:
 
     Shared by every module-level task this app tracks (stats monitor, idle
     watchdog, in-flight belt sequence) -- callers pass their own task
-    variable; this never reassigns it, matching the previous per-task
-    helpers' behavior (the global gets overwritten next time a new task is
-    created, same as before).
+    variable; this never reassigns it (the global gets overwritten next
+    time a new task is created).
     """
     if task and not task.done():
         task.cancel()
@@ -1070,8 +1069,8 @@ async def _wake_and_start_belt(target_speed_kmh: float | None = None, try_light_
 
     try_light_wake=True (Resume only) first attempts _try_light_wake().
     Falls back to _full_wake_sequence() -- identical to the
-    try_light_wake=False path -- if that can't be confirmed, so reliability
-    is never worse than before this change, only sometimes gentler on the
+    try_light_wake=False path -- if that can't be confirmed, so it's never
+    less reliable than the full sequence, only sometimes gentler on the
     WalkingPad's own display.
     """
     async def _body():
@@ -1346,7 +1345,7 @@ def _handle_signal_shutdown(signum, frame):
             return
         _shutting_down = True
 
-    # Set UI-visible flag early so the next /stats poll can inform the browser
+    # Set UI-visible flag early so the next /stats_stream tick can inform the browser
     _server_stopping = True
     logging.info(f"Received signal {signum}, initiating graceful shutdown...")
 
@@ -1365,10 +1364,27 @@ def _handle_signal_shutdown(signum, frame):
         except Exception as exc:
             logging.debug(f"Error stopping BLE loop from signal: {exc}")
 
-    # Give the browser ~2 s to receive the last /stats response (stopping: true),
+    # Give the browser ~2 s to receive the last /stats_stream frame (stopping: true),
     # render the shutdown message, and then force-kill the process.
     time.sleep(2)
     os._exit(0)
+
+
+# ── CSRF guard (ROADMAP 2.2) ────────────────────────────────────────────
+@app.before_request
+def _block_cross_site_posts():
+    """LAN devices are trusted by design (the app is LAN-only); this only stops
+    another website open in a browser from driving the treadmill. Browsers
+    send Origin on every cross-origin POST, including plain form submits;
+    Sec-Fetch-Site still catches it when an extension or proxy strips Origin.
+    "same-site" is rejected too: another port on the same host counts as same-site."""
+    if request.method in ("GET", "HEAD"):
+        return None
+    origin = request.headers.get("Origin")
+    if (request.headers.get("Sec-Fetch-Site") in ("cross-site", "same-site")
+            or (origin and origin != request.host_url.rstrip("/"))):
+        return "Cross-site request blocked.", 403
+    return None
 
 
 # ── Flask routes ────────────────────────────────────────────────────────
@@ -1443,10 +1459,9 @@ def _end_session(stale: bool = False):
         async def _end_belt_sequence():
             global _belt_sequence_task, _belt_transitioning
             # Registers itself as _belt_sequence_task and sets
-            # _belt_transitioning like its three siblings (start/pause/resume)
-            # -- previously it did neither, the one belt sequence that didn't
-            # follow the pattern, so nothing else could observe or cancel an
-            # in-flight End Session the way it can for the others.
+            # _belt_transitioning like its three siblings (start/pause/resume),
+            # so an in-flight End Session can be observed and cancelled the
+            # same way as the others.
             await _cancel_task(_belt_sequence_task)
             _belt_sequence_task = asyncio.current_task()
             _belt_transitioning = True
@@ -1668,7 +1683,7 @@ def settings_page():
     )
 
 
-@app.route("/reconnect")
+@app.route("/reconnect", methods=["POST"])
 def reconnect():
     if not connected and not connecting:
         _start_ble_thread()
@@ -1983,7 +1998,7 @@ def _build_stats_payload() -> dict:
     """Build the stats snapshot dict from current global state.
 
     Single source of truth for the wire payload shape, shared by the
-    polling /stats endpoint and the SSE broadcaster.
+    /stats endpoint and the SSE broadcaster.
     """
     return {
         "is_connected": connected,
@@ -2096,7 +2111,7 @@ def shutdown():
             return jsonify({"status": "shutting_down"})
         _shutting_down = True
 
-    # Set UI-visible flag immediately so the next /stats poll informs the browser
+    # Set UI-visible flag immediately so the next /stats_stream tick informs the browser
     _server_stopping = True
     logging.info("Graceful shutdown initiated via HTTP...")
 
@@ -2121,7 +2136,7 @@ def shutdown():
     # Use os._exit(0) here because Waitress catches SystemExit from sys.exit(0)
     # and continues running, which would prevent the server from actually stopping.
     def _deferred_exit():
-        time.sleep(5)  # Give browser time to receive /stats with stopping:true
+        time.sleep(5)  # Give browser time to receive a /stats_stream frame with stopping:true
         logging.info("Exiting process after graceful shutdown...")
         os._exit(0)
 
