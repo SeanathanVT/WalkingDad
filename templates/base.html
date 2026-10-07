@@ -1120,8 +1120,9 @@
             margin-left: 0.4rem;
             color: var(--muted-color);
         }
+        /* Fill vs outline carries the state. Accent colors are too faint on most dark-theme rows. */
         .health-icon.bi-heart-fill {
-            color: #ff2d55; /* Apple Health's heart pink */
+            color: var(--text-color);
         }
 
         /* Settings form fields -- shared by every input/hint/section title
