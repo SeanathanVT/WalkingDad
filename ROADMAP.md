@@ -402,12 +402,12 @@ Active, Paused, and Start screens redesigned to read like the WalkingPad's own o
 
 ---
 
-### 3.12 Screen Wake Lock During Active Session
-- **Status:** Planned
-- **Priority:** Medium
-- **Problem:** Nothing actively touches the page while walking, so the browser can dim or lock the screen mid-session, right when a quick glance at speed/distance is most likely.
-- **Solution:** Request a screen wake lock while `belt_running` is true, and release it on pause/end.
-- **Implementation:** The native [Wake Lock API](https://developer.mozilla.org/en-US/docs/Web/API/Screen_Wake_Lock_API) (`navigator.wakeLock.request('screen')`), no dependency needed. Re-request on `visibilitychange` since the browser releases the lock automatically when the tab is hidden.
+### ✅ 3.12 Screen Wake Lock During Active Session
+**Status:** ✅ Complete
+**Priority:** Medium
+**Files Modified:** `templates/active_session.html`
+
+The Active screen requests a native screen wake lock (`navigator.wakeLock`) and re-requests it when the tab becomes visible again; leaving the page (Pause/End) releases it. The API only exists in a secure context, so it works on `localhost` and HTTPS but not on a phone loading the app over LAN HTTP. See `CHANGELOG.md` `[Unreleased]`.
 
 ---
 
@@ -470,12 +470,12 @@ Active, Paused, and Start screens redesigned to read like the WalkingPad's own o
 
 ---
 
-### 3.19 Phone Layout
-- **Status:** Planned
-- **Priority:** Medium
-- **Problem:** `base.html` has no `<meta name="viewport">`, so iOS Safari renders the desktop layout at ~980px and scales it down: tiny text, small tap targets (±, presets, Pause/End), and most of the screen empty. The existing `@media (max-width: 480px)` rules have never applied on a phone for the same reason. Confirmed on an iPhone over the LAN (2026-10-07).
-- **Solution:** Add `<meta name="viewport" content="width=device-width, initial-scale=1">`, then tune the 480px block for walking-while-tapping use: tap targets of at least 44px, Pause/End and presets full-width, the stats strip as a 2x2 grid, and the speed readout using the freed vertical space. Desktop layout unchanged.
-- **Implementation:** `templates/base.html` (meta tag and the 480px block); check active, paused, start, connecting, and settings screens on a real phone, since the 480px rules are untested. Do before 3.6, since the QR code is what brings phones in. 3.7 (swipe gestures) and 3.17 (tablet breakpoint) build on a working phone baseline.
+### ✅ 3.19 Phone Layout
+**Status:** ✅ Complete
+**Priority:** Medium
+**Files Modified:** `templates/base.html`, `templates/active_session.html`, `templates/paused_session.html`, `templates/start_session.html`, `static/manifest.json`
+
+Added the missing viewport meta, so phones get a real phone layout instead of a scaled-down desktop page. Under 480px: the reading fills the screen with preset and Pause/End rows docked at the bottom in thumb reach, 44px+ tap targets, a single menu button for the header controls, and session history as stacked cards. A web app manifest lets Add to Home Screen launch full-screen. Desktop layout is unchanged. See `CHANGELOG.md` `[Unreleased]`.
 
 ---
 

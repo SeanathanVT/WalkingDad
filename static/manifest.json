@@ -1,0 +1,11 @@
+{
+    "name": "WalkingDad",
+    "short_name": "WalkingDad",
+    "start_url": "/",
+    "display": "standalone",
+    "background_color": "#f8fafc",
+    "theme_color": "#f8fafc",
+    "icons": [
+        { "src": "/static/apple-touch-icon.png", "sizes": "436x467", "type": "image/png" }
+    ]
+}

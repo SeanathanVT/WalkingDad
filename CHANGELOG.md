@@ -4,8 +4,15 @@ All notable changes to WalkingDad will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **Add to Home Screen opens WalkingDad full-screen** (ROADMAP 3.19), like an app, without the browser's address and tool bars.
+- **The screen stays on during an active session** (ROADMAP 3.12), and returns to normal on Pause or End. Browsers only allow this on `localhost` or HTTPS, so it works on the computer running WalkingDad but not on a phone connecting over your network.
+
 ### Changed
 
+- **WalkingDad now has a real phone layout** (ROADMAP 3.19). Phones previously showed a shrunken desktop page. Now the speed reading fills the screen, the preset and Pause/End buttons sit full-width at the bottom within thumb reach, every button is large enough to tap while walking, the header controls fold into one menu button, and Recent Sessions shows as cards instead of a wide table. The desktop layout is unchanged.
+- **Buttons show a pressed state when clicked or tapped**, instead of fading to transparent while held.
 - **`/reconnect` is now POST-only**, like the belt-control routes. The Connect and Try Again buttons on the connecting screen look and work the same.
 
 ### Fixed

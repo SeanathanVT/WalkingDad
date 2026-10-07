@@ -99,6 +99,13 @@ def test_root_paused(client, paused):
     assert b"Session Paused" in client.get("/").data
 
 
+def test_phone_viewport_and_manifest(client):
+    html = client.get("/").get_data(as_text=True)
+    assert 'name="viewport" content="width=device-width' in html
+    assert 'rel="manifest"' in html
+    assert client.get("/static/manifest.json").get_json()["display"] == "standalone"
+
+
 def test_root_pending_restore(client, monkeypatch):
     monkeypatch.setattr(app, "_pending_restore", pending_state())
     data = client.get("/").data
