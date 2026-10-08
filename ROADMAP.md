@@ -143,12 +143,21 @@ A session left paused (manual, auto, Bluetooth drop, or restored after a crash) 
 ### 1.8 Commands Ignored After the Physical Remote, and Speed Steps During a Ramp
 - **Status:** Planned
 - **Priority:** High
-- **Problem:** Seen on a C2 in a status-packet log:
+- **Problem:** Seen on a C2 (firmware 6.1.2, software 6.3.0) in a status-packet log:
     - After a press on the physical remote, status byte 16 changed from 3 to 2, and a Pause's `stop_belt()` (speed 0) had no effect until Resume's `start_belt()` about 4 s later. Resume's light-wake probe then took the slowing belt for a running one, and the session auto-paused.
     - A `change_speed()` sent ~0.3 s after another was silently not applied.
     - `+`/`-` step from the reported speed, which lags the target while the belt ramps (Max from 2.2 km/h took ~7 s). The status packet's `app_speed` byte carries the app-set target immediately, in km/h × 10 (`ph4-walkingpad`'s `/30` is wrong for the C2); the remote doesn't update it.
 - **Solution:** Reproduce each on the treadmill, then: find what byte 16 means and what makes app commands take effect again after the remote; have the light-wake probe require a speed that isn't falling; space or coalesce back-to-back speed commands; step from `app_speed` while the belt ramps toward it.
 - **Implementation:** Its own `bugfix/` branch, checked on the treadmill, not just against the fake controller.
+
+---
+
+### 1.9 Firmware Version Check and Update
+- **Status:** Planned (investigation)
+- **Priority:** Low
+- **Problem:** Updating the pad's firmware takes KingSmith's KS Fit app and an account. The pad reports its versions over the standard Device Information service (a C2 here: firmware 6.1.2, software 6.3.0, Beken BK-BLE-1.0 module) and exposes TI-style over-the-air update characteristics (`f000ffc1`/`f000ffc2`, "Img Identify"/"Img Block"), so WalkingDad could check and update without the app. Firmware behavior also affects 1.8.
+- **Solution:** Replicate KS Fit's check and update. On a button press (opt-in, nothing automatic), ask KingSmith's server for the latest firmware for the connected model and compare it with the pad's versions; if newer, download the image from KingSmith and flash it. No firmware is bundled or redistributed.
+- **Implementation:** Spike first: decompile KS Fit 6.6.0 (`com.kingsmith.xiaojin`, base APK with jadx; the arm64 split with Ghidra if the logic is native) to find the version endpoint and whether it needs an account, the image format (signed or encrypted), and the update procedure (handshake, block size, acks, retries, verification). Build only the check unless the update procedure proves safe. A failed flash could brick the controller, recoverable at best over a serial connection.
 
 ---
 
