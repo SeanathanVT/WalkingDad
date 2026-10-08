@@ -36,6 +36,7 @@ All notable changes to WalkingDad will be documented in this file.
 - **Importing `app.py` with `WALKINGDAD_NO_STARTUP=1` no longer installs the Ctrl+C/SIGTERM handlers or the `atexit` hook**, so pressing Ctrl+C during a test run interrupts pytest instead of killing the process two seconds later. Running the app normally is unchanged.
 - **pytest, ruff, and coverage settings merged into `pyproject.toml`**, replacing `pytest.ini`, `ruff.toml`, and `.coveragerc`. `requirements-dev.txt` adds `coverage[toml]` so coverage reads it on Python 3.10.
 - **`run.py`'s launcher logic moved into a `main()` function** so it can be tested. `python run.py` behaves the same.
+- **`AGENTS.md` added for AI coding agents** (`CLAUDE.md` is a symlink to it): keep docs in sync with code, the git workflow (PRs target `development`, the maintainer commits), the desktop-first design target, and the supported platforms.
 
 ---
 
