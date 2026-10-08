@@ -26,6 +26,8 @@ All notable changes to WalkingDad will be documented in this file.
 - **Other websites can no longer control the treadmill** (ROADMAP 2.2). A page open in your browser could previously submit Start, speed, Clear History, Bluetooth reconnect, or Shutdown requests to WalkingDad behind your back. Requests that come from another website are now refused. Using WalkingDad from any device on your network works exactly as before.
 - **Pause and speed buttons no longer error out when Bluetooth isn't running.** If the Bluetooth connection had already gone away, pressing Pause or a speed button showed a server error page. Pause now still pauses the session, and the speed buttons do nothing.
 - **A corrupted crash-recovery file no longer stops the app from starting.** If `session_state.json` contained unreadable (non-UTF-8) bytes, startup crashed. Startup now ignores the file, the same as an unparseable one.
+- **Speed buttons no longer flash a "Getting the belt moving…" message** (ROADMAP 3.18). Presets and the +/- buttons briefly showed it and pushed the buttons down, and Start, Pause, Resume and End flashed the wrong message ("Stopping belt…", "Pausing belt…"). The message now appears only while the belt is actually starting, pausing or stopping.
+- **A quick double-tap can no longer send a button press twice.** Buttons could re-enable mid-request on a live stats update; they now stay disabled from the moment you press one until the next screen loads.
 
 ### Internal
 
