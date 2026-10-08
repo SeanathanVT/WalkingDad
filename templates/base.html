@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <script>
     // THEME_FONT_URLS is the single source of truth for special-theme fonts,
     // declared here, outside the IIFE below, so it's a true global that the
@@ -86,6 +87,12 @@
         var isDark = mode === 'dark' || (mode !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches);
         if (isDark) root.setAttribute('data-theme', 'dark');
 
+        // iPadOS reports a Mac user agent, so a touch-capable "Macintosh" counts too.
+        var ua = navigator.userAgent;
+        if (/iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)) {
+            root.classList.add('is-ios');
+        }
+
         var colorTheme = localStorage.getItem('walkingpad-color-theme');
         if (colorTheme && COLOR_THEMES.some(function(t) { return t.id === colorTheme; })) {
             root.setAttribute('data-color-theme', colorTheme);
@@ -105,6 +112,8 @@
     <meta name="theme-color" content="#ffffff">
     <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}">
     <link rel="apple-touch-icon" href="{{ url_for('static', filename='apple-touch-icon.png') }}">
+    <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
     <link rel="preconnect" href="https://fonts.gstatic.com/" crossorigin>
@@ -112,11 +121,8 @@
 
     <style>
         /* Custom properties from the design file */
-        /* Slate is the default (absence of data-color-theme, same
-           optimization the picker already used for the old default).
-           These neutrals are Tailwind's slate-50/900 scale, unchanged from
-           before this was Slate's identity; only the accent moved from
-           blue to gray. */
+        /* Slate is the default (absence of data-color-theme). Neutrals are
+           Tailwind's slate-50/900 scale with a gray accent. */
         :root {
             --background-color: #f8fafc; /* bg-slate-50 */
             --card-color: #e7edf4;
@@ -319,8 +325,7 @@
             --accent-hover: #1e7aa8;
         }
 
-        /* Color theme: Blue (240°). No longer the implicit default (Slate
-           is now); this is a full explicit override like every other hue. */
+        /* Color theme: Blue (240°). A full explicit override like every other hue. */
         [data-color-theme="blue"] {
             --background-color: #f4f4fa;
             --card-color: #e5e5f2;
@@ -862,29 +867,6 @@
         .console-strip-item:last-child {
             border-right: none;
         }
-        @media (max-width: 480px) {
-            /* Grid instead of flex-wrap: dividers come from the gap showing
-               the container's own background through, so they only ever
-               appear between two real cells -- a flex+border-right/bottom
-               approach can't distinguish "last row" from "any row" or handle
-               an odd item count (a lone trailing item) without per-item
-               bookkeeping the template doesn't have. */
-            .console-strip {
-                display: grid;
-                grid-template-columns: 1fr 1fr;
-                gap: 1px;
-                background-color: var(--border-color);
-            }
-            .console-strip-item {
-                border-right: none;
-            }
-            .console-strip-item:last-child:nth-child(odd) {
-                /* Lone leftover item (odd total count, e.g. Paused's 3-item
-                   strip) spans both columns instead of leaving an empty
-                   cell with a dangling divider next to it. */
-                grid-column: 1 / -1;
-            }
-        }
         .console-strip-label {
             display: block;
             font-family: var(--font-mono);
@@ -1020,6 +1002,75 @@
             background-color: #dc3545;
         }
 
+        /* No double-tap zoom or gray tap flash on touch screens. */
+        button, .btn, a {
+            touch-action: manipulation;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        /* Pressed state. Bootstrap's .btn:active swaps in --bs-btn-active-*,
+           which default to a transparent background. */
+        .btn-preset, .btn-theme-toggle, .btn-header-close {
+            --bs-btn-active-bg: var(--button-hover-bg);
+            --bs-btn-active-color: var(--text-color);
+            --bs-btn-active-border-color: var(--border-color);
+        }
+        .btn-custom-primary {
+            --bs-btn-active-bg: var(--accent-hover);
+            --bs-btn-active-color: white;
+        }
+        .btn-custom-danger {
+            --bs-btn-active-bg: #bb2d3b;
+            --bs-btn-active-color: white;
+        }
+        [data-theme="dark"] .btn-custom-danger {
+            --bs-btn-active-bg: #dc3545;
+        }
+        .btn-preset:active, .btn-theme-toggle:active, .btn-header-close:active,
+        .btn-custom-primary:active, .btn-custom-danger:active {
+            transform: scale(0.97);
+        }
+        .stepper-btn:active {
+            background-color: var(--accent-color);
+            color: white;
+        }
+
+        /* Touch screens leave :hover stuck on after a tap; keep the resting look. */
+        @media (hover: none) {
+            .stepper-btn:hover {
+                background-color: var(--button-hover-bg);
+                color: var(--text-color);
+            }
+            .btn-preset:hover, .btn-theme-toggle:hover, .btn-header-close:hover {
+                background-color: var(--card-color);
+            }
+            .btn-custom-primary:hover {
+                background-color: var(--accent-color);
+            }
+            .btn-custom-danger:hover {
+                background-color: #dc3545;
+            }
+            [data-theme="dark"] .btn-custom-danger:hover {
+                background-color: #e46071;
+            }
+        }
+
+        /* Home-indicator and landscape-notch clearance (viewport-fit=cover); zero on desktop. */
+        body {
+            padding: 0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+        }
+
+        #header-menu-toggle {
+            display: none;
+        }
+
+        /* iOS/iPadOS swaps (is-ios is set in <head>): e.g. Apple Health QR codes
+           become buttons, since a phone can't scan its own screen. */
+        html:not(.is-ios) .ios-only,
+        .is-ios .not-ios {
+            display: none !important;
+        }
+
         /* History table (fully custom, no Bootstrap .table dependency) */
         .history-table {
             width: 100%;
@@ -1048,6 +1099,30 @@
         .history-table .mono-num {
             font-family: var(--font-mono);
             font-variant-numeric: tabular-nums;
+        }
+        .history-actions {
+            display: none;
+            white-space: nowrap;
+            text-align: end;
+        }
+        .history-editing .history-actions {
+            display: table-cell;
+        }
+        /* Rows are card-colored, the same as .btn-preset's own background. */
+        .history-actions .btn-preset {
+            background-color: var(--background-color);
+            padding: 0.25rem 0.6rem;
+        }
+        .history-actions .btn-preset:hover {
+            background-color: var(--button-hover-bg);
+        }
+        .health-icon {
+            margin-left: 0.4rem;
+            color: var(--muted-color);
+        }
+        /* Fill vs outline carries the state. Accent colors are too faint on most dark-theme rows. */
+        .health-icon.bi-heart-fill {
+            color: var(--text-color);
         }
 
         /* Settings form fields -- shared by every input/hint/section title
@@ -1225,6 +1300,183 @@
             height: 2px;
             background: linear-gradient(to right, #861f41 0 70%, #e5751f 70% 100%);
         }
+
+        /* Phone layout. Last in the stylesheet so it overrides the base rules
+           above; !important only where it has to beat a Bootstrap utility. */
+        @media (max-width: 480px) {
+            /* Grid instead of flex-wrap: dividers come from the gap showing
+               the container's own background through, so they only ever
+               appear between two real cells -- a flex+border-right/bottom
+               approach can't distinguish "last row" from "any row" or handle
+               an odd item count (a lone trailing item) without per-item
+               bookkeeping the template doesn't have. */
+            .console-strip {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 1px;
+                background-color: var(--border-color);
+            }
+            .console-strip-item {
+                border-right: none;
+            }
+            .console-strip-item:last-child:nth-child(odd) {
+                /* Lone leftover item (odd total count, e.g. Paused's 3-item
+                   strip) spans both columns instead of leaving an empty
+                   cell with a dangling divider next to it. */
+                grid-column: 1 / -1;
+            }
+                    .console-strip {
+                margin-top: 0.75rem;
+            }
+            .console-strip-item {
+                padding: 0.75rem 0.5rem;
+            }
+            .console-strip-value {
+                font-size: 1.4rem;
+            }
+
+            /* Full-height column: the hero grows into the free space and the
+               dock (preset + Pause/End rows) lands at the bottom, in thumb reach. */
+            body {
+                display: flex;
+                flex-direction: column;
+                min-height: 100dvh;
+            }
+            main.container-xl {
+                flex: 1;
+                display: flex;
+                flex-direction: column;
+                padding-top: 1rem !important;
+                padding-bottom: 0 !important;
+            }
+            main > .mx-auto {
+                flex: 1;
+                display: flex;
+                flex-direction: column;
+                width: 100%;
+            }
+            .screen {
+                flex: 1;
+                display: flex;
+                flex-direction: column;
+            }
+            .screen .console-hero {
+                flex: 1;
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+                padding: 1.5rem 0.75rem;
+            }
+            .console-hero-value {
+                font-size: clamp(4.5rem, 22vw, 6.5rem);
+            }
+            .console-hero-value.is-time {
+                font-size: clamp(3rem, 17vw, 4.5rem);
+            }
+            .console-hero-controls {
+                gap: 0.5rem;
+            }
+            .stepper-btn {
+                width: 3.5rem;
+                height: 3.5rem;
+                font-size: 1.3rem;
+            }
+            .dock {
+                margin-top: auto;
+                padding-bottom: 1rem;
+            }
+            .btn {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                gap: 0.4rem;
+                min-height: 44px;
+            }
+            .action-row .btn {
+                flex: 1 1 0;
+                min-height: 3.5rem;
+                padding-left: 0.5rem;
+                padding-right: 0.5rem;
+            }
+
+            /* Header: brand + one menu button; the controls open as a panel. */
+            .app-header nav {
+                padding: 0.5rem 0.75rem !important;
+            }
+            #header-menu-toggle {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                min-width: 44px;
+                min-height: 44px;
+            }
+            #header-controls {
+                display: none !important;
+            }
+            .app-header.menu-open #header-controls {
+                display: flex !important;
+                position: absolute;
+                top: 100%;
+                right: 0.75rem;
+                gap: 0.5rem !important;
+                padding: 0.5rem;
+                background-color: var(--header-bg);
+                border: 1px solid var(--border-color);
+                border-radius: 0.5rem;
+                box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+            }
+            #header-controls .btn {
+                min-width: 44px;
+            }
+            .header-separator {
+                display: none;
+            }
+
+            /* History table as stacked cards: Date + Time, then labeled stats. */
+            .history-table thead {
+                display: none;
+            }
+            .history-table,
+            .history-table tbody {
+                display: block;
+                background: none;
+            }
+            .history-table tbody tr {
+                display: grid;
+                grid-template-columns: repeat(3, 1fr);
+                gap: 0.5rem 0.75rem;
+                padding: 0.75rem;
+                margin-bottom: 0.5rem;
+                border-radius: 0.5rem;
+            }
+            .history-table td {
+                padding: 0;
+                border: none;
+                text-align: left !important;
+            }
+            .history-table td:first-child {
+                grid-column: 1 / 3;
+                font-weight: 600;
+            }
+            .history-table td:nth-child(2) {
+                text-align: right !important;
+            }
+            .history-editing .history-table .history-actions {
+                display: flex;
+                grid-column: 1 / -1;
+                justify-content: flex-end;
+                gap: 0.5rem;
+            }
+            .history-table td[data-label]::before {
+                content: attr(data-label);
+                display: block;
+                font-family: var(--font-mono);
+                font-size: 0.65rem;
+                text-transform: uppercase;
+                letter-spacing: 0.1em;
+                color: var(--muted-color);
+            }
+        }
     </style>
     <script>
     // Syncs the browser chrome color (Safari tab bar, Android address bar,
@@ -1291,23 +1543,39 @@
     // Toggles a "<verb> belt..." hint and disables/dims the buttons that
     // shouldn't be double-tapped while a belt sequence is in flight. Shared
     // by active/paused/start, which each pass their own hint id and button set.
+    // Once a form has submitted, buttons stay disabled regardless of `on`, so
+    // an SSE tick landing mid-request can't re-enable them.
+    var submitting = false;
     function setTransitioning(hintId, buttons, on) {
         var hint = document.getElementById(hintId);
         if (hint) hint.style.display = on ? '' : 'none';
+        var disable = on || submitting;
         buttons.forEach(function(b) {
-            b.disabled = on;
-            b.style.opacity = on ? '0.5' : '';
+            b.disabled = disable;
+            b.style.opacity = disable ? '0.5' : '';
         });
     }
 
     // Wires every form on the page to disable/dim `buttons` the instant any
     // of them is submitted -- the SSE-driven belt_transitioning update that
     // setTransitioning() above also responds to can lag behind by a full
-    // network round-trip, leaving a window for a double-tap otherwise.
-    function disableButtonsOnSubmit(hintId, buttons) {
+    // network round-trip, leaving a window for a double-tap otherwise. The
+    // hint is left to belt_transitioning alone: most submits (presets,
+    // steppers) start no belt sequence, and each page's hint text only fits
+    // the sequence that led to that page.
+    // `submitting` never clears in normal use since every submit navigates
+    // away; a back/forward-cache restore brings the page back with it set.
+    function disableButtonsOnSubmit(buttons) {
+        window.addEventListener('pageshow', function(e) {
+            if (e.persisted) {
+                submitting = false;
+                setTransitioning(null, buttons, false);
+            }
+        });
         document.querySelectorAll('form').forEach(function(form) {
             form.addEventListener('submit', function() {
-                setTransitioning(hintId, buttons, true);
+                submitting = true;
+                setTransitioning(null, buttons, true);
             });
         });
     }
@@ -1327,7 +1595,7 @@
                 </div>
             </div>
 
-            <div class="d-flex align-items-center gap-1">
+            <div id="header-controls" class="d-flex align-items-center gap-1">
                 <div class="color-theme-picker">
                     <button id="color-theme-toggle" class="btn btn-theme-toggle" title="Color theme" aria-haspopup="true" aria-expanded="false">
                         <i class="bi bi-palette2"></i>
@@ -1346,6 +1614,10 @@
 
                 <button id="shutdown-button" class="btn btn-header-close">Close</button>
             </div>
+
+            <button id="header-menu-toggle" class="btn btn-theme-toggle" aria-label="Menu" aria-expanded="false" aria-controls="header-controls">
+                <i class="bi bi-three-dots-vertical"></i>
+            </button>
         </nav>
     </header>
 
@@ -1667,6 +1939,19 @@
         }, 750);
       }
     });
+
+    // Phone-only header menu (the toggle is hidden above 480px).
+    (function() {
+        var header = document.querySelector('.app-header');
+        var toggle = document.getElementById('header-menu-toggle');
+        function setOpen(open) {
+            header.classList.toggle('menu-open', open);
+            toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+        }
+        toggle.addEventListener('click', function() { setOpen(!header.classList.contains('menu-open')); });
+        document.addEventListener('click', function(e) { if (!header.contains(e.target)) setOpen(false); });
+        document.addEventListener('keydown', function(e) { if (e.key === 'Escape') setOpen(false); });
+    })();
     </script>
     <div id="settings-saved-toast" class="toast-container position-fixed bottom-0 end-0 p-3" style="z-index:1100;">
         <div class="toast align-items-center border-0" role="alert" aria-live="assertive"

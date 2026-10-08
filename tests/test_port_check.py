@@ -1,3 +1,5 @@
+import errno
+import os
 import socket
 
 import pytest
@@ -88,4 +90,19 @@ def test_unresolvable_host(monkeypatch):
 def test_rejects_invalid_port(monkeypatch, port):
     _config(monkeypatch, "127.0.0.1", port)
     with pytest.raises(SystemExit, match="1 to 65535"):
+        run.check_port()
+
+
+@pytest.mark.parametrize(("err", "hint"), [
+    (errno.EACCES, "doesn't allow this port"),
+    (errno.EADDRNOTAVAIL, 'Check "host" and "port"'),
+])
+def test_other_bind_errors_get_their_own_hint(monkeypatch, err, hint):
+    _config(monkeypatch, "127.0.0.1", _free_port())
+
+    def refuse(*a, **k):
+        raise OSError(err, os.strerror(err))
+
+    monkeypatch.setattr(run.socket, "create_server", refuse)
+    with pytest.raises(SystemExit, match=hint):
         run.check_port()

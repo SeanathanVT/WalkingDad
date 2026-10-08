@@ -11,3 +11,8 @@ config.json
 *.db
 *.db-wal
 *.db-shm
+.coverage
+htmlcov/
+coverage.xml
+
+data/

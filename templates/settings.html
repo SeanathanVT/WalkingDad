@@ -117,8 +117,12 @@
                 {# setup_shortcut_url comes from inject_flags() in app.py -- built as a
                    plain string there, not with Jinja filters (see its docstring). #}
                 <div class="text-center pt-2" style="border-top:1px solid var(--border-color);">
-                    <p class="text-muted mb-3" style="font-size:0.875rem;">Scan once with your iPhone's Camera app to install the Shortcut that logs sessions to Apple Health. See the README for what it does and how to rebuild it.</p>
-                    <div id="settings-health-qr-container" class="d-flex justify-content-center"></div>
+                    <p class="text-muted mb-3 not-ios" style="font-size:0.875rem;">Scan once with your iPhone's Camera app to install the Shortcut that logs sessions to Apple Health. See the README for what it does and how to rebuild it.</p>
+                    <div id="settings-health-qr-container" class="d-flex justify-content-center not-ios"></div>
+                    <p class="text-muted mb-3 ios-only" style="font-size:0.875rem;">Install once on this device to log sessions to Apple Health. Opens Apple's Get Shortcut page. See the README for what it does and how to rebuild it.</p>
+                    <a href="{{ setup_shortcut_url }}" class="btn btn-custom-primary ios-only">
+                        <i class="bi bi-download"></i> Install Shortcut
+                    </a>
                 </div>
             </div>
         </div>

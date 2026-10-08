@@ -10,7 +10,7 @@
         {{ pending_restore.calories }} cal &middot;
         {{ pending_restore.time_active }}
     </p>
-    <div class="d-flex justify-content-center gap-2">
+    <div class="d-flex justify-content-center gap-2 action-row">
         <form method="post" action="{{ url_for('restore_session') }}" style="display:contents">
             <button type="submit" class="btn btn-custom-primary">Restore Session</button>
         </form>
@@ -25,17 +25,24 @@
    comes from inject_flags() (config-derived only). Both are built as plain
    strings in app.py, not with Jinja's tojson/urlencode filters -- mixing those
    with plain-string concatenation double-escaped & into &amp;. #}
-<div class="stat-card mb-4 text-center" id="health-export-banner" style="border:1px solid var(--accent-color);">
+<div class="stat-card mb-4 text-center" id="health-export-banner" data-session-id="{{ health_session_id }}" style="border:1px solid var(--accent-color);">
     <p class="mb-2" style="font-weight:500;">Session complete. Log it to Apple Health?</p>
     <div class="d-flex justify-content-center gap-2">
-        <button type="button" class="btn btn-custom-primary" data-bs-toggle="modal" data-bs-target="#health-export-modal">
+        <button type="button" class="btn btn-custom-primary text-nowrap not-ios" data-bs-toggle="modal" data-bs-target="#health-export-modal"
+                data-log-url="{{ log_shortcut_url }}" data-session-id="{{ health_session_id }}">
             <i class="bi bi-heart-pulse"></i> Log to Apple Health
         </button>
+        <a href="{{ log_shortcut_url }}" class="btn btn-custom-primary text-nowrap ios-only">
+            <i class="bi bi-heart-pulse"></i> Log to Apple Health
+        </a>
         <button type="button" id="dismiss-health-export-btn" class="btn btn-sm" style="background-color:var(--card-color);color:var(--text-color);border:none;font-weight:500;">
             Dismiss
         </button>
     </div>
+    <p class="ios-only mt-2 mb-0" style="font-size:0.85rem;"><a href="{{ setup_shortcut_url }}">Haven't installed the Shortcut yet? Install it here</a></p>
 </div>
+{% endif %}
+{% if health_export_enabled %}
 
 <div class="modal fade" id="health-export-modal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
@@ -56,7 +63,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script>
 (function() {
-    var logUrl = {{ log_shortcut_url | tojson }};
+    var logUrl = '';
     var setupUrl = {{ setup_shortcut_url | tojson }};
     var showingSetup = false;
 
@@ -69,7 +76,10 @@
 
     var modal = document.getElementById('health-export-modal');
     if (modal) {
-        modal.addEventListener('show.bs.modal', function() {
+        // The banner and each history row's Log button carry their own session's URL.
+        modal.addEventListener('show.bs.modal', function(e) {
+            logUrl = e.relatedTarget.dataset.logUrl;
+            modal.dataset.sessionId = e.relatedTarget.dataset.sessionId;
             showingSetup = false;
             renderQR(logUrl);
             document.getElementById('health-export-modal-title').textContent = 'Log to Apple Health';
@@ -93,7 +103,8 @@
     var dismissBtn = document.getElementById('dismiss-health-export-btn');
     if (dismissBtn) {
         dismissBtn.addEventListener('click', function() {
-            fetch("{{ url_for('dismiss_health_export') }}", { method: 'POST' })
+            var sessionId = document.getElementById('health-export-banner').dataset.sessionId;
+            fetch("{{ url_for('dismiss_health_export') }}", { method: 'POST', body: new URLSearchParams({ session_id: sessionId }) })
                 .then(function() {
                     var banner = document.getElementById('health-export-banner');
                     if (banner) banner.remove();
@@ -122,15 +133,18 @@
 </div>
 
 {% if history %}
-<div class="mt-5">
-    <div class="d-flex justify-content-between align-items-center mb-3">
+<div class="mt-5" id="history">
+    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
         <h2 class="content-title" style="font-size:1.5rem;">Recent Sessions</h2>
         <div class="d-flex gap-2">
-            <a href="{{ url_for('export_csv') }}" class="btn btn-sm" style="background-color:var(--card-color);color:var(--text-color);border:none;font-weight:500;padding:0.25rem 0.75rem;" title="Export all sessions as CSV">
+            <a href="{{ url_for('export_csv') }}" class="btn btn-sm text-nowrap" style="background-color:var(--card-color);color:var(--text-color);border:none;font-weight:500;padding:0.25rem 0.75rem;" title="Export all sessions as CSV">
                 <i class="bi bi-download"></i> Export CSV
             </a>
-            <button id="clear-history-btn" class="btn btn-sm" style="background-color:var(--card-color);color:var(--text-color);border:none;font-weight:500;padding:0.25rem 0.75rem;" title="Clear all session history">
+            <button id="clear-history-btn" class="btn btn-sm text-nowrap" style="background-color:var(--card-color);color:var(--text-color);border:none;font-weight:500;padding:0.25rem 0.75rem;" title="Clear all session history">
                 <i class="bi bi-trash"></i> Clear
+            </button>
+            <button id="edit-history-btn" type="button" class="btn btn-sm text-nowrap" aria-pressed="false" style="background-color:var(--card-color);color:var(--text-color);border:none;font-weight:500;padding:0.25rem 0.75rem;" title="Log or delete individual sessions">
+                <i class="bi bi-pencil"></i> Edit
             </button>
         </div>
     </div>
@@ -140,23 +154,41 @@
                 <tr>
                     <th class="text-start">Date</th>
                     <th>Time</th>
-                    <th>Duration</th>
-                    <th>Distance</th>
-                    <th>Steps</th>
-                    <th>Calories</th>
+                    <th class="text-end">Duration</th>
+                    <th class="text-end">Distance</th>
+                    <th class="text-end">Steps</th>
+                    <th class="text-end">Calories</th>
                     <th class="text-end">Avg Speed</th>
+                    <th class="history-actions"><span class="visually-hidden">Actions</span></th>
                 </tr>
             </thead>
             <tbody>
                 {% for s in history %}
-                <tr>
-                    <td class="text-start">{{ s.date }}</td>
+                <tr data-session-id="{{ s.id }}">
+                    <td class="text-start">{{ s.date }}
+                        {%- if health_export_enabled %}
+                        {%- set health_hint = 'Logged to Apple Health' if s.health_logged else 'Not logged to Apple Health. Use Edit, then Log, to log it.' %}
+                        <i class="bi {{ 'bi-heart-fill' if s.health_logged else 'bi-heart' }} health-icon" role="img" tabindex="0"
+                           data-bs-toggle="tooltip" title="{{ health_hint }}" aria-label="{{ health_hint }}"></i>
+                        {%- endif %}</td>
                     <td class="mono-num">{{ s.start_time }}</td>
-                    <td class="mono-num">{{ s.duration_seconds // 60 }}m {{ s.duration_seconds % 60 }}s</td>
-                    <td class="mono-num">{{ "%.2f"|format(s.distance_mi) }} mi</td>
-                    <td class="mono-num">{{ "{:,}".format(s.steps|int) }}</td>
-                    <td class="mono-num">{{ s.calories|round(0)|int }}</td>
-                    <td class="mono-num text-end">{{ s.avg_speed_mph }} mph</td>
+                    <td data-label="Duration" class="mono-num text-end">{{ s.duration_seconds // 60 }}m {{ s.duration_seconds % 60 }}s</td>
+                    <td data-label="Distance" class="mono-num text-end">{{ "%.2f"|format(s.distance_mi) }} mi</td>
+                    <td data-label="Steps" class="mono-num text-end">{{ "{:,}".format(s.steps|int) }}</td>
+                    <td data-label="Calories" class="mono-num text-end">{{ s.calories|round(0)|int }}</td>
+                    <td data-label="Avg Speed" class="mono-num text-end">{{ s.avg_speed_mph }} mph</td>
+                    <td class="history-actions">
+                        {% if s.log_shortcut_url %}
+                        <button type="button" class="btn btn-sm btn-preset not-ios" data-log data-bs-toggle="modal" data-bs-target="#health-export-modal"
+                                data-log-url="{{ s.log_shortcut_url }}" data-session-id="{{ s.id }}">
+                            <i class="bi bi-heart-pulse"></i> Log
+                        </button>
+                        <a href="{{ s.log_shortcut_url }}" class="btn btn-sm btn-preset ios-only" data-log><i class="bi bi-heart-pulse"></i> Log</a>
+                        {% endif %}
+                        <button type="button" class="btn btn-sm btn-preset" data-delete-url="{{ url_for('delete_session', session_id=s.id) }}" aria-label="Delete session" title="Delete session">
+                            <i class="bi bi-trash text-danger"></i>
+                        </button>
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -178,10 +210,60 @@
   // can't fire twice -- matches active/paused_session.html. Only Start
   // itself reacts to the belt_transitioning SSE signal below, since
   // Restore/Discard aren't an in-flight belt sequence the same way.
-  disableButtonsOnSubmit('transitioning-hint', document.querySelectorAll('button[type="submit"]'));
+  disableButtonsOnSubmit(document.querySelectorAll('button[type="submit"]'));
 
   startStatsStream(function(data) {
     setTransitioning('transitioning-hint', startButtons, data.belt_transitioning === true);
+    // Logged or dismissed elsewhere (e.g. on the phone that scanned the QR).
+    var change = data.health_status_changed;
+    if (!change) return;
+    var banner = document.getElementById('health-export-banner');
+    if (banner && banner.dataset.sessionId === change.id) banner.remove();
+    var modalEl = document.getElementById('health-export-modal');
+    // Logged only: a dismissed status lingers in every update, and would close a later Log for that session.
+    if (modalEl && change.status === 1 && modalEl.dataset.sessionId === change.id && window.bootstrap) {
+      var modal = bootstrap.Modal.getInstance(modalEl);
+      if (modal) modal.hide();
+    }
+    var row = document.querySelector('tr[data-session-id="' + change.id + '"]');
+    if (row && change.status === 1) {
+      var icon = row.querySelector('.health-icon');
+      if (icon) {
+        icon.classList.replace('bi-heart', 'bi-heart-fill');
+        icon.setAttribute('aria-label', 'Logged to Apple Health');
+        var tip = window.bootstrap && bootstrap.Tooltip.getInstance(icon);
+        if (tip) tip.setContent({ '.tooltip-inner': 'Logged to Apple Health' });
+      }
+      row.querySelectorAll('[data-log]').forEach(function(el) { el.remove(); });
+    }
+  });
+
+  // Bootstrap's bundle loads after this block, so wait for it before wiring the heart tooltips.
+  document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.health-icon').forEach(function(el) { new bootstrap.Tooltip(el); });
+  });
+
+  // Edit mode reveals each row's Log/Delete buttons.
+  var editBtn = document.getElementById('edit-history-btn');
+  if (editBtn) {
+    editBtn.addEventListener('click', function() {
+      var on = document.getElementById('history').classList.toggle('history-editing');
+      editBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+      editBtn.innerHTML = on ? '<i class="bi bi-check-lg"></i> Done' : '<i class="bi bi-pencil"></i> Edit';
+    });
+  }
+
+  document.querySelectorAll('[data-delete-url]').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      if (!confirm('Delete this session? This cannot be undone.')) return;
+      fetch(btn.dataset.deleteUrl, { method: 'POST' }).then(function(resp) {
+        if (!resp.ok) return;
+        var row = btn.closest('tr');
+        var banner = document.getElementById('health-export-banner');
+        if (banner && banner.dataset.sessionId === row.dataset.sessionId) banner.remove();
+        row.remove();
+      });
+    });
   });
 
   // Clear history button

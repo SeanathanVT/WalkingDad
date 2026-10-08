@@ -1,1 +1,6 @@
 pytest
+pytest-cov
+# [toml]: coverage reads pyproject.toml only with this extra on Python 3.10.
+coverage[toml]
+# Pinned: ruff's default rule set changes between releases.
+ruff==0.16.10

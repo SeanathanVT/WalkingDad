@@ -17,9 +17,9 @@ The official WalkingPad experience is a bloated mobile app that wants your email
 - **Smart pause & resume**: Auto-detects when you step off; remembers your speed; configurable grace period prevents re-triggering on restart; a session left paused too long (default 30 min) is ended and saved automatically
 - **Speed presets**: Slow (speed floor), Moderate, and Max buttons, plus incremental increase/decrease steppers
 - **Console-style interface**: Active, Paused, and Start screens read like the WalkingPad's own onboard display, with one large tabular-digit reading up top and secondary stats in a compact readout strip below
-- **Session history**: Sessions saved to a local SQLite database (`walkingdad.db`) with full stats, pauses, and per-second speed/distance/steps samples; last 10 shown on the start screen. Includes CSV export and history clearing. An existing `session_history.json` from an older version is imported automatically on first launch (the original is kept as `session_history.json.bak-<timestamp>`).
+- **Session history**: Sessions saved to a local SQLite database (`data/walkingdad.db`) with full stats, pauses, and per-second speed/distance/steps samples; last 10 shown on the start screen. Includes CSV export, history clearing, and an **Edit** mode for deleting individual sessions. An existing `session_history.json` from an older version is imported automatically on first launch (the original is kept as `data/backups/session_history.json.bak-<timestamp>`).
 - **Crash recovery**: If the server crashes or restarts mid-session, your stats aren't lost. The start screen offers to restore the interrupted session (paused, ready to resume) or discard it.
-- **Settings page**: Gear icon in the header lets you change any setting (device name, speed limits, port, and more) from the browser without editing files
+- **Settings page**: Gear icon in the header lets you change settings (device name, speed limits, port, and more) from the browser without editing files
 - **Dark mode**: Three-state toggle (Light → Dark → System) with localStorage persistence
 - **Color themes**: Independent of the Light/Dark/System toggle, via the palette icon in the header. Each theme tints the whole surface, not just buttons, and follows into the browser's own chrome (tab color, etc).
     - Standard palette: Slate is the default; the rest run in spectral order:
@@ -39,7 +39,7 @@ The official WalkingPad experience is a bloated mobile app that wants your email
     - ![Tide](https://img.shields.io/badge/Tide-11818c) summer, turquoise/sand, Pacifico headings, crabs scuttling along the bottom
     - ![Harvest](https://img.shields.io/badge/Harvest-c2410c) mode-aware: cozy autumn (falling leaves) in Light, spooky Halloween (glowing eyes) in Dark
     - ![Frost](https://img.shields.io/badge/Frost-b91c1c) winter, falling snow
-- **Apple Health export**: Scan a QR code after a session ends to log it as a Workout on your iPhone, no manual re-entry. Runs entirely through a Shortcut on your own device; no Apple Developer account, no cloud service. See [Apple Health Export](#apple-health-export) below.
+- **Apple Health export**: After a session ends, scan a QR code (or, on an iPhone/iPad running WalkingDad, tap a button) to log it as a Workout on your iPhone, no manual re-entry. Runs entirely through a Shortcut on your own device; no Apple Developer account, no cloud service. See [Apple Health Export](#apple-health-export) below.
 - **Cross-platform BLE**: Tested on Windows, macOS, and Linux with retry logic and event loop cleanup
 - **Graceful shutdown**: Stops the belt, switches to standby, and disconnects BLE whether you click Close in the UI, press Ctrl+C, or kill the process. Web UI shows "Server is shutting down" notification so you know what happened. Includes an `atexit` safety net as a last resort.
 - **No account. No cloud. No phone required.**
@@ -79,11 +79,11 @@ The app opens your browser automatically at `http://127.0.0.1:5001`. A console w
 
 **Windows shortcut:** Double-click `start_app.bat` instead of running the commands manually.
 
-**Running tests:** `pip install -r requirements-dev.txt`, then `python -m pytest`. No treadmill needed. Tests that import `app.py` run with `WALKINGDAD_NO_STARTUP=1` (set in `tests/conftest.py`), which skips its import-time startup: opening the real database, migrating `session_history.json`, and the Bluetooth scan.
+**Running tests:** `pip install -r requirements-dev.txt`, then `python -m pytest` (add `--cov=.` for a coverage report) and `ruff check .`. No treadmill needed. Tests that import `app.py` run with `WALKINGDAD_NO_STARTUP=1` (set in `tests/conftest.py`), which skips its import-time startup: opening the real database, migrating `session_history.json`, the Bluetooth scan, and installing the Ctrl+C/exit handlers. CI runs the same lint and tests on pull/merge requests and on pushes to `main`/`development`, via GitHub Actions (`.github/workflows/ci.yml`) and GitLab CI (`.gitlab-ci.yml`).
 
 ## Usage
 
-1. Power on your WalkingPad. The app connects automatically on startup (up to 3 retries with exponential backoff).
+1. Power on your WalkingPad. The app connects automatically on startup (up to 3 attempts with exponential backoff).
 2. Click **Start** to begin a session. Stats update in real time.
 3. Adjust speed with the control buttons, or click **Pause** to stop the belt.
 4. If you step off the pad, the app auto-pauses. Click **Resume** to pick back up.
@@ -93,28 +93,33 @@ The app opens your browser automatically at `http://127.0.0.1:5001`. A console w
 
 Logs a completed session to Apple Health as a Workout, without typing anything in by hand. This only works on an iPhone (or iPad/Apple Watch). The Health app doesn't exist on macOS, so the Mac running WalkingDad can hand off the data but can't write it itself. No Apple Developer account is needed; this is a personal Shortcut on your own device, never distributed through the App Store.
 
-**Off by default.** Turn it on first: Settings page (gear icon) → **Apple Health** → the **Enable Apple Health export** toggle. The rest of the section (Shortcut Name field, setup QR) only appears once it's on.
+**Off by default.** Turn it on first: Settings page (gear icon) → **Apple Health** → the **Enable Apple Health export** toggle. The rest of the section (Shortcut Name field, setup QR or, on an iPhone/iPad, an **Install Shortcut** button) only appears once it's on.
 
 **One-time setup:**
 
-1. With the toggle on, scan the QR code shown there with your iPhone's Camera app. It opens Apple's own "Get Shortcut" page for a Shortcut that reads the workout data WalkingDad hands it and logs it via the built-in **Log Workout** action.
+1. With the toggle on, scan the QR code shown there with your iPhone's Camera app, or tap **Install Shortcut** if you're on the iPhone/iPad itself. Either opens Apple's own "Get Shortcut" page for a Shortcut that reads the workout data WalkingDad hands it and logs it via the built-in **Log Workout** action.
 2. Tap **Add Shortcut**. That's it. This only needs to happen once per phone.
 
-If you'd rather build the Shortcut by hand (e.g. you're maintaining a fork and want your own copy rather than relying on a link tied to someone else's iCloud account), it's three actions:
+If you'd rather build the Shortcut by hand (e.g. you're maintaining a fork and want your own copy rather than relying on a link tied to someone else's iCloud account), it's four steps:
 
 1. `Get Dictionary from Input` (reads the JSON handed to the Shortcut).
 2. `Log Workout`, with **Type** set to **Walking**, and **Date** / **Duration** / **Calories** / **Distance** each bound via Magic Variable to the matching key from the dictionary above (`start_time`+`date`, `duration_seconds`, `calories`, `distance_km` or `distance_mi`).
-3. Name the Shortcut to match the **Shortcut Name** setting on the Settings page (default `Log WalkingDad Workout`) exactly. This is how WalkingDad's QR code knows which Shortcut to run.
+3. `Log Health Sample`, with **Type** set to **Steps**, **Value** bound to `steps`, and **Date** to the same start date. The Value field only appears once Shortcuts is allowed to write Steps to Health.
+4. Name the Shortcut to match the **Shortcut Name** setting on the Settings page (default `Log WalkingDad Workout`) exactly. This is how WalkingDad's QR code knows which Shortcut to run.
 
 Then Share → Copy iCloud Link in the Shortcuts app, and swap `_APPLE_HEALTH_SHORTCUT_ICLOUD_LINK` in `app.py` for your own link.
 
-**Every session after that:** when a session ends, the start screen shows a **Log to Apple Health** prompt. Tap it, scan the QR with your iPhone, done. The prompt sticks around (across reloads, navigating elsewhere, closing the browser) until you either scan it or tap **Dismiss**. It isn't a one-shot toast you can miss.
+**Every session after that:** when a session ends, the start screen shows a **Log to Apple Health** prompt. On a computer, tap it and scan the QR with your iPhone. On an iPhone/iPad, it's a button that runs the Shortcut directly. Once the Shortcut finishes, the phone switches back to WalkingDad in Safari and the prompt clears on every open WalkingDad page, including the computer's. Until then it sticks around (across reloads, navigating elsewhere, closing the browser), or until you tap **Dismiss**. It isn't a one-shot toast you can miss.
+
+**Missed one?** With export on, each session in **Recent Sessions** shows a filled heart once it's been logged and an outline heart if it hasn't (including dismissed ones). Tap **Edit** to get a **Log** button on each unlogged session, which works the same as the prompt (QR on a computer, button on iPhone/iPad), plus a delete button on every session. Only the sessions shown there can be logged this way; raise `history_display_limit` to reach older ones.
+
+The phone reaches WalkingDad at the computer's network address, so this needs WalkingDad listening on the network (`host` `0.0.0.0`, the default), even if the computer itself uses `localhost`. If the phone can't reach it, the workout is still logged; only the prompt stays until you **Dismiss** it.
 
 **Known issue:** older reports describe a Shortcuts bug where the `Log Workout` action's Duration field doesn't bind correctly to a variable. It bound correctly (raw seconds, no conversion needed) in hands-on testing while building this feature, but if your logged workouts ever show the wrong duration, check the Shortcut's Duration field is still wired to the dictionary value rather than a hardcoded default before assuming it's a WalkingDad-side bug.
 
 ## Configuration
 
-All settings can be changed from the **Settings page** (gear icon in the header), or by editing `config.json` directly. Copy `config.json.example` to `config.json` to get started; running without the file uses the built-in defaults shown below.
+Every setting except `database_path` can be changed from the **Settings page** (gear icon in the header); all of them can be set by editing `data/config.json` directly. Copy `config.json.example` to `data/config.json` to get started; running without the file uses the built-in defaults shown below. Everything WalkingDad writes (settings, database, crash-recovery state, backups) lives in `data/`; files that older versions kept in the app folder are moved there automatically on first start.
 
 | Key | Default | Description |
 |---|---|---|
@@ -127,11 +132,12 @@ All settings can be changed from the **Settings page** (gear icon in the header)
 | `resume_grace_period_seconds` | `7` | Seconds before auto-pause can trigger after start/resume (minimum 3) |
 | `history_display_limit` | `10` | Sessions shown on the start screen |
 | `stale_pause_timeout_minutes` | `30` | A session paused this long is ended and saved automatically; `0` disables |
-| `host` | `"0.0.0.0"` | Network interface to bind |
+| `host` | `"0.0.0.0"` | Network interface to bind. Any device that can reach it can control the treadmill (other websites can't); use `"127.0.0.1"` to allow only this computer |
 | `port` | `5001` | Server port |
 | `waitress_threads` | `16` | Server worker thread count (4-128) |
+| `apple_health_export_enabled` | `false` | Shows the Log to Apple Health prompt after each session; see [Apple Health Export](#apple-health-export) |
 | `apple_health_shortcut_name` | `"Log WalkingDad Workout"` | Must match the installed Shortcut's name exactly; see [Apple Health Export](#apple-health-export) |
-| `database_path` | `"walkingdad.db"` | SQLite database file (relative to the app directory) |
+| `database_path` | `"walkingdad.db"` | SQLite database file (relative to `data/`) |
 
 Changes to most settings take effect immediately via the Settings page. `host`, `port`, `waitress_threads`, and `database_path` require restarting the app.
 

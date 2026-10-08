@@ -272,13 +272,13 @@ def test_complete_session_closes_open_pause_at_end_time(db):
     ]
 
 
-def test_mark_health_logged(db):
+def test_set_health_status(db):
     session_id = storage.create_session("2026-01-01T08:00:00", None, None)
-    assert storage.get_session(session_id)["health_logged"] == 0
+    assert storage.get_session(session_id)["health_logged"] == storage.HEALTH_PENDING
 
-    storage.mark_health_logged(session_id)
+    storage.set_health_status(session_id, storage.HEALTH_DISMISSED)
 
-    assert storage.get_session(session_id)["health_logged"] == 1
+    assert storage.get_session(session_id)["health_logged"] == storage.HEALTH_DISMISSED
 
 
 def test_concurrent_writes(db):
@@ -293,7 +293,7 @@ def test_concurrent_writes(db):
                     for t in range(batch_start * 1000, (batch_start + 5) * 1000, 1000)
                 ])
             storage.complete_session(session_id, {"end_time": "2026-01-01T08:05:00"})
-        except Exception as exc:  # noqa: BLE001 - collected across threads, re-raised below
+        except Exception as exc:
             errors.append(exc)
 
     threads = [threading.Thread(target=worker) for _ in range(5)]

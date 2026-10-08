@@ -6,6 +6,7 @@ Organized by theme (Area), not build order. Work has never moved through these t
 
 ### ✅ 1.1 macOS / Cross-Platform BLE Reliability Fixes
 **Status:** ✅ Complete
+**Changelog:** `[1.0.0]`
 **Priority:** High
 **Files Modified:** `app.py`
 
@@ -29,6 +30,7 @@ A comprehensive set of reliability improvements for Bluetooth Low Energy communi
 
 ### ✅ 1.2 Graceful Shutdown
 **Status:** ✅ Complete
+**Changelog:** `[1.1.0]`
 **Priority:** High
 **Files Modified:** `app.py`, `run.py`, `templates/*.html`
 
@@ -57,6 +59,7 @@ Additional fixes:
 
 ### ✅ 1.3 Session State Persistence
 **Status:** ✅ Complete
+**Changelog:** `[1.5.0]`
 **Priority:** High
 **Files Modified:** `app.py`, `templates/start_session.html`, `.gitignore`
 
@@ -77,6 +80,7 @@ Cumulative session stats now survive a server crash or restart. In-progress sess
 
 ### ✅ 1.4 Automatic Reconnect on Disconnection
 **Status:** ✅ Complete
+**Changelog:** `[1.8.0]`
 **Priority:** High
 **Files Modified:** `app.py`
 
@@ -96,6 +100,7 @@ Not configurable: retry counts and delays are module constants in `app.py`.
 
 ### ✅ 1.5 Auto-End Stale Paused Session
 **Status:** ✅ Complete
+**Changelog:** `[1.8.0]`
 **Priority:** Medium
 **Files Modified:** `app.py`, `config.py`, `config.json.example`, `templates/paused_session.html`, `templates/settings.html`, `README.md`, `tests/test_stale_pause.py`
 
@@ -111,6 +116,7 @@ A session left paused (manual, auto, Bluetooth drop, or restored after a crash) 
 
 ### ✅ 1.6 Port-in-Use Check on Startup
 **Status:** ✅ Complete
+**Changelog:** `[1.8.0]`
 **Priority:** Medium
 **Files Modified:** `run.py`, `start_app.bat`, `README.md`, `tests/test_port_check.py`
 
@@ -129,6 +135,7 @@ A session left paused (manual, auto, Bluetooth drop, or restored after a crash) 
 
 ### ✅ 2.1 External Configuration File
 **Status:** ✅ Complete
+**Changelog:** `[1.4.0]`
 **Priority:** High
 **Files Modified:** `config.py`, `config.json.example`, `app.py`, `run.py`, `.gitignore`, `README.md`, `templates/base.html`, `templates/settings.html`
 
@@ -136,15 +143,16 @@ All user-tunable settings are now loaded from an optional `config.json` file, wi
 
 ---
 
-### 2.2 Route Security
-- **Status:** Planned
-- **Priority:** High
-- **Problem:** Routes like `/start`, `/pause`, `/increase_speed` have no authentication or CSRF protection. Since the server binds to `0.0.0.0`, any device on the local network could control the treadmill.
-- **Solution:** Add a simple secret token mechanism:
-    - Generate a random token on startup (stored in config)
-    - Require `?token=...` query parameter or `X-Auth-Token` header on all action routes
-    - Display the token in the UI and use it automatically for frontend requests
-- **Alternative:** Restrict server to `127.0.0.1` only (breaks network access but is simpler).
+### ✅ 2.2 Route Security
+**Status:** ✅ Complete
+**Changelog:** `[1.9.0]`
+**Priority:** High
+**Files Modified:** `app.py`, `templates/connecting.html`, `tests/test_csrf.py`, `tests/test_routes.py`
+
+Routes like `/start`, `/pause`, `/increase_speed` had no CSRF protection, so any website open in a browser on the network could control the treadmill. A `before_request` guard (`_block_cross_site_posts()`) now rejects any non-GET request whose `Origin` isn't the app's own origin (scheme, host, and port), or whose `Sec-Fetch-Site` is `cross-site` or `same-site` (catches it when an extension or proxy strips `Origin`). Requests without either header (curl, `run.py`'s `/shutdown`) pass. `/reconnect` became POST-only (the Connect / Try Again links on the connecting screen are now form buttons), so every state-changing route goes through the guard.
+
+- **Not done, deliberately:** a per-device token. The app is LAN-only and devices on the LAN are trusted by design; the treadmill is only reachable over Bluetooth from home, and anyone at home can press its buttons anyway. A token would add a sign-in step for every phone, break scripts, and add a credential to manage, guarding against a threat that doesn't apply. Revisit only if the app is ever exposed beyond the LAN (tunnel, Tailscale).
+- **Known limit:** a deliberate DNS-rebinding attack makes `Origin` match the app's origin and gets through; that takes an attack targeted at this app specifically, so it's accepted. The fix would be a `Host` allowlist (IP literals, `localhost`, the machine's own name), at the cost of breaking access through custom DNS names (`.lan`, Tailscale).
 
 ---
 
@@ -166,15 +174,26 @@ All user-tunable settings are now loaded from an optional `config.json` file, wi
 
 ---
 
-### 2.5 Unit Tests
-- **Status:** In Progress
-- **Priority:** Medium
-- **Problem:** Most of `app.py` has no automated tests, making refactoring risky. Covered so far: `storage.py`, the JSON migration, `units.py`, `samples.py` (2.9), and in `app.py` the stale-pause check (1.5) plus `process_status_packet()`'s active-time accrual and auto-pause detection, and `run.py`'s port-in-use check (1.6).
-- **Solution:** Extend the suite to `app.py`'s logic:
-    - `format_seconds_to_hms()` - time formatting edge cases
-    - `kcal_estimate()` - calorie calculation
-    - `process_status_packet()` - distance/steps accumulation and device counter resets, speed history management (mock BLE data)
-- **Implementation:** Tests import `app.py` directly; `tests/conftest.py` sets `WALKINGDAD_NO_STARTUP=1` so the import skips opening `walkingdad.db`, the JSON migration, the orphan sweep, the BLE thread, and the SSE broadcaster.
+### ✅ 2.5 Unit Tests
+**Status:** ✅ Complete
+**Changelog:** `[1.8.0]`, `[1.9.0]`
+**Priority:** Medium
+**Files Modified:** `app.py`, `run.py`, `requirements-dev.txt`, `pytest.ini`, `ruff.toml`, `.coveragerc`, `.gitignore`, `README.md`, `tests/`
+
+A `pytest` suite covering every module without a treadmill. How to run it: the README's **Running tests** line.
+
+| Area | Coverage |
+|---|---|
+| **Pure helpers** | Time formatting, calorie estimate, status-field extraction, settings casts and clamps, Apple Health shortcut URLs, stats payload and SSE framing |
+| **Status packets** | Distance/step accumulation across device counter resets, calories, speed history filtering and cap, resume speed chosen on auto-pause, liveness stamping (plus the existing active-time and auto-pause tests) |
+| **Routes** | Every Flask route through the test client: start/pause/resume/end, speed controls and clamping, restore/discard, CSV export, settings save, `/stats`, `/stats_stream`, `/shutdown` |
+| **BLE and async** | A fake controller drives the wake/start/stop sequences, light wake, lock timeouts, the stats monitor, the idle watchdog, disconnect handling, auto-reconnect backoff, scanning, connecting, the BLE thread lifecycle, and signal/HTTP shutdown |
+| **Persistence** | Session-state file save/load/clear (including corrupt files), `config.json` writes, and every database helper against a temp SQLite DB, including "log and continue" behavior when storage fails |
+| **`run.py`** | Port check, browser launch, the HTTP shutdown call, and `main()`'s Waitress subprocess and Ctrl+C handling |
+
+**Implementation:** `tests/conftest.py` sets `WALKINGDAD_NO_STARTUP=1` before importing `app.py`, so the import skips opening `walkingdad.db`, the JSON migration, the orphan sweep, the BLE thread, the SSE broadcaster, and installing the signal/`atexit` handlers. Its `app_state` fixture resets every module global, points the state file, `config.json`, and the database at `tmp_path`, and records BLE coroutines instead of scheduling them, so tests can run a captured sequence against a fake controller.
+
+**Not covered:** the inline template JavaScript (left to 2.12's browser smoke test); code that only runs at import (`app.py`'s startup block, `config.py`'s no-`config.json` path); the background-thread entry points (SSE broadcaster start, `/shutdown`'s delayed exit); `_ble_thread`'s handlers for errors escaping asyncio's own `run_forever()` and task cleanup; and `run.py`'s Windows branch and `__main__` guard.
 
 ---
 
@@ -187,12 +206,21 @@ All user-tunable settings are now loaded from an optional `config.json` file, wi
 
 ---
 
-### 2.7 Continuous Integration
-- **Status:** Planned
-- **Priority:** Medium
-- **Problem:** There's no GitHub Actions workflow; nothing runs automatically on push/PR, even though a `pytest` suite now exists (2.5).
-- **Solution:** A GitHub Actions workflow that installs dependencies and runs the test suite plus a linter, on every push and PR.
-- **Implementation:** `.github/workflows/ci.yml` running on `ubuntu-latest`, `pip install -r requirements.txt -r requirements-dev.txt`, then `pytest` and a linter (e.g. `ruff`).
+### ✅ 2.7 Continuous Integration
+**Status:** ✅ Complete
+**Changelog:** `[1.9.0]`
+**Priority:** Medium
+**Files Modified:** `.github/workflows/ci.yml`, `.gitlab-ci.yml`, `requirements-dev.txt`, `ruff.toml`
+
+Pull/merge requests and pushes to `main`/`development` run the lint and test suite on both GitHub Actions and GitLab CI.
+
+| Feature | Description |
+|---|---|
+| **GitHub Actions** | `.github/workflows/ci.yml` on `ubuntu-latest`, Python 3.10 (the supported floor) and 3.13. Pushes run only on `main`/`development`, so a PR branch isn't tested twice |
+| **GitLab CI** | `.gitlab-ci.yml` on the `python:3.12` image. Runs a merge-request pipeline when an MR is open, otherwise a branch pipeline, and shows the coverage percentage and a Cobertura report in the MR |
+| **Steps** | `pip install -r requirements.txt -r requirements-dev.txt`, `ruff check .`, `python -m pytest --cov=.`. CI reports coverage but never fails on it |
+| **Lint** | `ruff` pinned in `requirements-dev.txt`, since its default rule set changes between releases. `pyproject.toml` ignores only rules that flag deliberate project style (root logger, catch-all excepts around BLE I/O, naive local datetimes, a `ValueError` raised to share an `except` clause) |
+| **Linux only** | BLE is fully mocked, so no Bluetooth hardware or OS-specific stack is needed. `tests/test_run.py` assumes POSIX (macOS/Linux) |
 
 ---
 
@@ -207,6 +235,7 @@ All user-tunable settings are now loaded from an optional `config.json` file, wi
 
 ### ✅ 2.9 SQLite Session Storage
 **Status:** ✅ Complete
+**Changelog:** `[1.8.0]`
 **Priority:** Medium
 **Files Modified:** `app.py`, `storage.py`, `units.py`, `samples.py`, `config.py`, `config.json.example`, `.gitignore`, `tests/`
 
@@ -219,7 +248,7 @@ Session data lives in a local SQLite database (`walkingdad.db`, configurable via
 | **Live Lifecycle** | Row created at Start; pauses recorded at manual pause, step-off auto-pause, and Bluetooth drop; completed at End, stale-pause auto-end (1.5), or graceful shutdown |
 | **Samples** | ~1/s while walking, at most 1 per 5 s while paused (in practice every idle-watchdog ping, ~10 s), plus one at the moment of each manual or auto pause, buffered in memory and flushed on the existing 5 s `_save_session_state()` cadence, so a crash loses at most ~5 s. Storage failures are logged, never allowed to stop the belt or block BLE handling |
 | **Crash Recovery Link** | `session_state.json` carries the `session_id`: Restore continues the same row (downtime recorded as a `shutdown` pause), Discard deletes it. Unreferenced `active` rows are swept at startup: completed from their last sample, or deleted if they have none |
-| **JSON Migration** | One-time, automatic, single transaction: backup to `session_history.json.bak-<timestamp>`, then rename to `.migrated`. Unparseable records are logged and skipped; an unreadable file is left untouched for a later retry |
+| **JSON Migration** | One-time, automatic, single transaction: backup to `session_history.json.bak-<timestamp>`, then rename to `.migrated` (both in `data/backups/`). Unparseable records are logged and skipped; an unreadable file is left untouched for a later retry |
 | **Unchanged Surface** | `units.legacy_record()` rebuilds the pre-SQLite record shape, so the history table, Apple Health export, and CSV columns are identical (CSV gains trailing `id`, `has_samples`) |
 
 ---
@@ -238,23 +267,23 @@ Session data lives in a local SQLite database (`walkingdad.db`, configurable via
 - **Priority:** Medium
 - **Problem:** Pinning versions (2.6) fixes what's installed but doesn't catch a known CVE in whatever gets pinned, or a new one disclosed later against an already-pinned version.
 - **Solution:** Enable Dependabot security alerts on the repo, and/or run `pip-audit` against `requirements.txt` in CI (2.7).
-- **Implementation:** A `.github/dependabot.yml` for version-update PRs plus security alerts; a `pip-audit` step added to the CI workflow from 2.7.
+- **Implementation:** A `.github/dependabot.yml` for version-update PRs plus security alerts; a `pip-audit` step added to both CI configs from 2.7.
 
 ---
 
 ### 2.12 Integration Smoke Test
 - **Status:** Planned
 - **Priority:** Medium
-- **Problem:** 2.5's unit tests cover pure functions, but nothing exercises the actual Start → Pause → Resume → End route flow end to end, so a template or routing regression could still slip through.
+- **Problem:** 2.5's tests drive each route through Flask's test client, but nothing loads the rendered pages in a real browser and clicks through Start → Pause → Resume → End, so a template JavaScript or front-end wiring regression could still slip through.
 - **Solution:** One browser-driven smoke test that boots the app against a mocked BLE device/controller and clicks through the full session lifecycle, asserting each screen renders and each transition lands where expected.
-- **Implementation:** Playwright (or Selenium) driving a test instance of the Flask app with `controller`/`BleakScanner` mocked out; run as part of the CI workflow from 2.7.
+- **Implementation:** Playwright (or Selenium) driving a test instance of the Flask app with `controller`/`BleakScanner` mocked out; run as part of the CI configs from 2.7.
 
 ---
 
 ### 2.13 CONTRIBUTING.md
 - **Status:** Planned
 - **Priority:** Low
-- **Problem:** There's no documented contribution process or versioning policy, which matters more once 2.7 (CI) and 2.5 (Unit Tests) make outside PRs realistically reviewable.
+- **Problem:** There's no documented contribution process or versioning policy, which matters more now that 2.7 (CI) and 2.5 (Unit Tests) make outside PRs realistically reviewable.
 - **Solution:** A `CONTRIBUTING.md` covering local setup, how to run tests/lint, commit/PR expectations, and the project's versioning policy (semver against `CHANGELOG.md`).
 - **Implementation:** Plain markdown doc, no tooling.
 
@@ -264,6 +293,7 @@ Session data lives in a local SQLite database (`walkingdad.db`, configurable via
 
 ### ✅ 3.1 Dark Mode
 **Status:** ✅ Complete
+**Changelog:** `[1.0.0]`
 **Priority:** Medium
 **Files Modified:** `templates/base.html`
 
@@ -273,12 +303,13 @@ Three-state theme toggle (Light → Dark → System) with `localStorage` persist
 
 ### ✅ 3.2 Server-Sent Events for Real-Time Updates
 **Status:** ✅ Complete
+**Changelog:** `[1.6.0]`
 **Priority:** Medium
 **Files Modified:** `app.py`, `run.py`, `config.py`, `config.json.example`, `templates/base.html`, `templates/active_session.html`, `templates/paused_session.html`, `templates/start_session.html`, `templates/settings.html`
 
 Replaced the three templates' `setInterval(fetch('/stats'))` polling loops (1.5s / 3s cadences) with a single `/stats_stream` Server-Sent Events endpoint. A daemon thread broadcasts a stats snapshot to all subscribers once a second via thread-safe per-client queues, independent of whether the belt is running, so active, paused, and start screens all get uniform live updates. `/stats` is kept unchanged for compatibility; both routes now share one `_build_stats_payload()` helper.
 
-Shipping this surfaced a real gap it needed to close first: a dead BLE connection while paused or idle went undetected entirely, since nothing was polling for liveness outside an active session. That's now covered by a dedicated idle/paused connection watchdog with its own staleness threshold, serialized against belt commands, the active stats poll, and speed changes via a lock recreated per connection attempt. See `CHANGELOG.md` `[1.6.0]` for details.
+Shipping this surfaced a real gap it needed to close first: a dead BLE connection while paused or idle went undetected entirely, since nothing was polling for liveness outside an active session. That's now covered by a dedicated idle/paused connection watchdog with its own staleness threshold, serialized against belt commands, the active stats poll, and speed changes via a lock recreated per connection attempt.
 
 ---
 
@@ -303,7 +334,7 @@ Shipping this surfaced a real gap it needed to close first: a dead BLE connectio
 - **Problem:** The app always displays imperial units (mph, miles). Users who prefer metric must mentally convert or edit code constants.
 - **Solution:** Add a unit toggle (Imperial ↔ Metric) in the header that switches between mph/miles and km/h/km in real time. Store preference in `localStorage`.
 - **Implementation:**
-    - Return both imperial and metric values from `/stats` JSON endpoint
+    - Return both imperial and metric values from `_build_stats_payload()` (shared by `/stats_stream` and `/stats`)
     - Frontend toggles display based on user preference
     - Add toggle button next to the theme toggle in the header
 
@@ -311,6 +342,7 @@ Shipping this surfaced a real gap it needed to close first: a dead BLE connectio
 
 ### ✅ 3.5 Session History Log
 **Status:** ✅ Complete
+**Changelog:** `[1.2.0]`
 **Priority:** Medium
 **Files Modified:** `app.py`, `templates/start_session.html`, `templates/active_session.html`, `templates/paused_session.html`, `templates/base.html`, `.gitignore`
 
@@ -349,19 +381,21 @@ Stores completed sessions and displays a summary table on the start screen. Incl
 
 ### ✅ 3.8 Selectable Color Themes
 **Status:** ✅ Complete
+**Changelog:** `[1.7.0]`
 **Priority:** Medium
 **Files Modified:** `templates/base.html`
 
-10 standard color themes (Slate default, plus 9 hues run in even 40° spectral steps: Red, Amber, Lime, Forest, Teal, Cyan, Blue, Violet, Pink) and 5 "special" themes (Virginia Tech, Bloom, Tide, Harvest, Frost), selectable independently of the Light/Dark/System toggle via a palette icon in the header. Each theme tints the whole surface (backgrounds, cards, browser chrome) through CSS custom properties, not just accent buttons. Special themes add a two-tone swatch, a heading font (fetched only if selected), and, except Virginia Tech, a non-interactive ambient effect (falling petals/snow/leaves, scuttling crabs, glowing eyes) that respects `prefers-reduced-motion`. See `CHANGELOG.md` `[1.7.0]` for details.
+10 standard color themes (Slate default, plus 9 hues run in even 40° spectral steps: Red, Amber, Lime, Forest, Teal, Cyan, Blue, Violet, Pink) and 5 "special" themes (Virginia Tech, Bloom, Tide, Harvest, Frost), selectable independently of the Light/Dark/System toggle via a palette icon in the header. Each theme tints the whole surface (backgrounds, cards, browser chrome) through CSS custom properties, not just accent buttons. Special themes add a two-tone swatch, a heading font (fetched only if selected), and, except Virginia Tech, a non-interactive ambient effect (falling petals/snow/leaves, scuttling crabs, glowing eyes) that respects `prefers-reduced-motion`.
 
 ---
 
 ### ✅ 3.9 Console-Style Interface Redesign
 **Status:** ✅ Complete
+**Changelog:** `[1.7.0]`
 **Priority:** Medium
 **Files Modified:** `templates/base.html`, `templates/active_session.html`, `templates/paused_session.html`, `templates/start_session.html`, `templates/connecting.html`, `static/favicon.ico`, `static/apple-touch-icon.png`
 
-Active, Paused, and Start screens redesigned to read like the WalkingPad's own onboard display: one large tabular-digit instrument-face reading (Speed while walking, elapsed time while paused, a Start control when idle) plus a compact Time/Distance/Steps/Calories readout strip below, with a brief mechanical tick animation on value changes and a colored connection status LED next to the logo. Also added a favicon and "Add to Home Screen" icon using the app's own logo mark instead of the browser default. See `CHANGELOG.md` `[1.7.0]` for details.
+Active, Paused, and Start screens redesigned to read like the WalkingPad's own onboard display: one large tabular-digit instrument-face reading (Speed while walking, elapsed time while paused, a Start control when idle) plus a compact Time/Distance/Steps/Calories readout strip below, with a brief mechanical tick animation on value changes and a colored connection status LED next to the logo. Also added a favicon and "Add to Home Screen" icon using the app's own logo mark instead of the browser default.
 
 ---
 
@@ -384,12 +418,13 @@ Active, Paused, and Start screens redesigned to read like the WalkingPad's own o
 
 ---
 
-### 3.12 Screen Wake Lock During Active Session
-- **Status:** Planned
-- **Priority:** Medium
-- **Problem:** Nothing actively touches the page while walking, so the browser can dim or lock the screen mid-session, right when a quick glance at speed/distance is most likely.
-- **Solution:** Request a screen wake lock while `belt_running` is true, and release it on pause/end.
-- **Implementation:** The native [Wake Lock API](https://developer.mozilla.org/en-US/docs/Web/API/Screen_Wake_Lock_API) (`navigator.wakeLock.request('screen')`), no dependency needed. Re-request on `visibilitychange` since the browser releases the lock automatically when the tab is hidden.
+### ✅ 3.12 Screen Wake Lock During Active Session
+**Status:** ✅ Complete
+**Changelog:** `[1.9.0]`
+**Priority:** Medium
+**Files Modified:** `templates/active_session.html`
+
+The Active screen requests a native screen wake lock (`navigator.wakeLock`) and re-requests it when the tab becomes visible again; leaving the page (Pause/End) releases it. The API only exists in a secure context, so it works on `localhost` and HTTPS but not on a phone loading the app over LAN HTTP.
 
 ---
 
@@ -432,9 +467,29 @@ Active, Paused, and Start screens redesigned to read like the WalkingPad's own o
 ### 3.17 Tablet-Width Responsive Breakpoint
 - **Status:** Planned
 - **Priority:** Low
-- **Problem:** `base.html` has exactly one `@media (max-width: 480px)` rule, tuned for phone-width screens. Desktop is the primary use case, but the app's own pitch covers "any browser on your network," and 2.7/3.7 (Touch/Swipe Gesture Controls) already anticipate a phone/tablet as a secondary device, so there's nothing tuned for the tablet width range in between.
+- **Problem:** `base.html` has exactly one `@media (max-width: 480px)` rule, tuned for phone-width screens. Desktop is the primary use case, but the app's own pitch covers "any browser on your network," and 3.7 (Touch/Swipe Gesture Controls) already anticipates a phone/tablet as a secondary device, so there's nothing tuned for the tablet width range in between.
 - **Solution:** Add an intermediate breakpoint (e.g. `max-width: 900px`) tuned for tablet-class screens (iPad-size), rather than jumping straight from desktop layout to the 480px phone rules.
 - **Implementation:** Audit `console-hero`/`console-strip`/history table layout at common tablet widths (768-1024px) and add a second `@media` block alongside the existing 480px one.
+
+---
+
+### ✅ 3.18 Transition Hint Shows on Every Button Press
+**Status:** ✅ Complete
+**Changelog:** `[1.9.0]`
+**Priority:** Medium
+**Files Modified:** `templates/base.html`, `templates/active_session.html`, `templates/paused_session.html`, `templates/start_session.html`
+
+Submitting a form only disables and dims the buttons now; each page's `#transitioning-hint` follows the SSE `belt_transitioning` flag alone, so it shows only during a real start/pause/resume/end belt sequence, with matching text. A `submitting` flag in `base.html` also keeps the buttons disabled through SSE ticks until the page navigates away (cleared on a back/forward-cache restore), closing a double-tap window. The hint still toggles `display`, so the legitimate post-Start/Resume hint shifts the layout briefly; reserving its space was skipped to avoid a permanent gap on the phone layout.
+
+---
+
+### ✅ 3.19 Phone Layout
+**Status:** ✅ Complete
+**Changelog:** `[1.9.0]`
+**Priority:** Medium
+**Files Modified:** `templates/base.html`, `templates/active_session.html`, `templates/paused_session.html`, `templates/start_session.html`, `static/manifest.json`
+
+Added the missing viewport meta, so phones get a real phone layout instead of a scaled-down desktop page. Under 480px: the reading fills the screen with preset and Pause/End rows docked at the bottom in thumb reach, 44px+ tap targets, a single menu button for the header controls, and session history as stacked cards. A web app manifest lets Add to Home Screen launch full-screen. Desktop layout is unchanged.
 
 ---
 
@@ -489,16 +544,17 @@ Active, Paused, and Start screens redesigned to read like the WalkingPad's own o
 
 ### ✅ 5.1 Apple Health Export via Shortcuts
 **Status:** ✅ Complete
+**Changelog:** `[1.8.0]`, `[1.9.0]`
 **Priority:** Low
 **Files Modified:** `app.py`, `config.py`, `config.json.example`, `templates/base.html`, `templates/start_session.html`, `templates/settings.html`, `README.md`
 
 Verified against current Apple documentation before building (the original plan below, kept for history, assumed a network-fetch design that turned out to need correcting): no Apple Developer Program membership is needed (a personal Shortcut is never distributed), and critically, the Health app does not exist on macOS as of Tahoe 26. This can only run on the iPhone, not the Mac WalkingDad itself runs on.
 
-Two QR codes, both self-contained (no fetch back to WalkingDad's server): a **setup QR** (a plain iCloud share link, `Share → Copy iCloud Link` in the Shortcuts app) installs the Shortcut once per phone, and a **per-session QR** (`shortcuts://run-shortcut?name=...&input=text&text=<session JSON>`) runs it with that session's data embedded directly in the URL. Hosting the `.shortcut` file on GitHub and using `shortcuts://import-shortcut?url=...` was tried first and abandoned. It reliably failed with "shortcut URL provided was invalid" across every URL encoding/ordering tried by hand, a known, documented unreliability of GitHub-hosted `.shortcut` files with that scheme, not an encoding bug on WalkingDad's end. An iCloud link is Apple's actual supported distribution path. The Shortcut itself (`Get Dictionary from Input` → `Log Workout`, Type Walking, Date/Duration/Calories/Distance bound via Magic Variable) was hand-built in the Shortcuts app and shared from there, since there's no official API to generate a `.shortcut` file programmatically.
+Two QR codes, both self-contained (no fetch back to WalkingDad's server): a **setup QR** (a plain iCloud share link, `Share → Copy iCloud Link` in the Shortcuts app) installs the Shortcut once per phone, and a **per-session QR** (`shortcuts://run-shortcut?name=...&input=text&text=<session JSON>`) runs it with that session's data embedded directly in the URL. Hosting the `.shortcut` file on GitHub and using `shortcuts://import-shortcut?url=...` was tried first and abandoned. It reliably failed with "shortcut URL provided was invalid" across every URL encoding/ordering tried by hand, a known, documented unreliability of GitHub-hosted `.shortcut` files with that scheme, not an encoding bug on WalkingDad's end. An iCloud link is Apple's actual supported distribution path. The Shortcut itself (`Get Dictionary from Input` → `Log Workout`, Type Walking, Date/Duration/Calories/Distance bound via Magic Variable, then `Log Health Sample` for Steps) was hand-built in the Shortcuts app and shared from there, since there's no official API to generate a `.shortcut` file programmatically. When rebuilding it, `Log Health Sample`'s Value row for Steps only appears after granting Shortcuts write access to Steps.
 
 **Off by default.** An `apple_health_export_enabled` setting (Settings page, styled as a pill/slide toggle) gates the whole feature; when off, neither QR nor the start-screen prompt appears. Turning it on doesn't retroactively surface an old, unrelated session that happened to be most recent before the feature existed: the currently-most-recent session is pre-marked as handled on that specific off→on transition, unless it's from today, in which case it's left showing (plausibly the reason someone would enable the feature mid-session in the first place).
 
-The start screen shows a persistent "Log to Apple Health" banner after a session ends, driven by a `health_logged` flag stored on the session record itself (not a one-shot flash). It survives navigation and reloads, and only clears on an explicit Dismiss or once a newer session supersedes it. This check is independent of the unrelated `history_display_limit` setting (querying the single most recent session directly rather than reusing the display-limited history list), so setting that to `0` doesn't silently disable Apple Health export too. Tapping the banner opens an in-page modal (no navigation) with the per-session QR, with a link inside to swap to the setup QR for anyone who hasn't installed the Shortcut yet. The Settings page also keeps a permanent copy of the setup QR (inside the same collapsing toggle section) for reinstalling later. QR rendering is client-side (`qrcodejs` via CDN, matching how `base.html` already pulls Bootstrap/Icons/Fonts), no new Python dependency.
+The start screen shows a persistent "Log to Apple Health" banner after a session ends, driven by a `health_logged` flag stored on the session record itself (not a one-shot flash). It survives navigation and reloads, and clears once the Shortcut reports success (an `x-success` callback to `/health_logged/<id>`), on an explicit Dismiss (stored as dismissed, not logged), or once a newer session supersedes it. This check is independent of the unrelated `history_display_limit` setting (querying the single most recent session directly rather than reusing the display-limited history list), so setting that to `0` doesn't silently disable Apple Health export too. Tapping the banner opens an in-page modal (no navigation) with the per-session QR, with a link inside to swap to the setup QR for anyone who hasn't installed the Shortcut yet. The Settings page also keeps a permanent copy of the setup QR (inside the same collapsing toggle section) for reinstalling later. QR rendering is client-side (`qrcodejs` via CDN, matching how `base.html` already pulls Bootstrap/Icons/Fonts), no new Python dependency.
 
 This also gave 3.6 (QR Code for LAN Access) a proven client-side QR-rendering approach to reuse rather than starting from scratch.
 
@@ -528,6 +584,15 @@ This also gave 3.6 (QR Code for LAN Access) a proven client-side QR-rendering ap
 - **Problem:** `/export_csv` gets history out, but there's no way back in. Migrating to a new machine currently means copying `walkingdad.db` by hand; restoring from a backup CSV isn't possible at all.
 - **Solution:** An import action on the Settings or start-screen "Recent Sessions" area that accepts a previously-exported CSV and merges it into the database.
 - **Implementation:** An `/import_history` route parsing the uploaded CSV (mirroring `export_csv()`'s column order), validating required fields, and inserting through `storage.py`. The row-to-SI mapping is the same one `storage.migrate_json()` already does for legacy records, so reuse it. Exported CSVs carry each session's `id`, which makes duplicate detection exact; fall back to date/start_time matching for CSVs exported before 2.9.
+
+---
+
+### 5.4 Native HealthKit Companion App
+- **Status:** Planned
+- **Priority:** Low
+- **Problem:** Shortcuts can't log what KS Fit (the WalkingPad's own app) does. As of iOS 27, `Log Workout` takes only type, date, duration, calories and distance: "Walking" has no indoor variant and there's no metadata field, so every session shows as an outdoor walk. `Log Health Sample` has no End Date, so steps are stamped at the session start, and no Shortcuts action (built-in, or third-party such as Actions or Toolbox Pro) can attach samples to a workout.
+- **Solution:** A small iOS app whose only job is one Shortcuts action, "Log Treadmill Walk", that takes the same JSON WalkingDad already sends. The installed Shortcut swaps `Log Workout` + `Log Health Sample` for that one action; WalkingDad and the `x-success` callback don't change.
+- **Implementation:** An App Intent using `HKWorkoutBuilder`: `.walking` with `HKMetadataKeyIndoorWorkout = true`, energy and distance samples, and a step-count sample spanning start to end, added to the builder so they're attached to the workout. HealthKit is available to a free Apple ID (Personal Team in Xcode; Apple's "Supported capabilities" table lists it for free accounts), so no $99 membership is needed. The catch is that free provisioning expires every 7 days and has to be reinstalled from Xcode on a Mac, and it can't be distributed to anyone else. Prototype first: KS Fit's own workouts don't attach steps either, and Fitness may not show workout steps even when attached, so check that the Indoor Walk label and steps actually appear before committing to the 7-day reinstalls.
 
 ---
 
