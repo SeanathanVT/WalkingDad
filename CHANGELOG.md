@@ -6,7 +6,7 @@ All notable changes to WalkingDad will be documented in this file.
 
 ### Added
 
-- **Keyboard shortcuts** (ROADMAP 3.3). `Space` starts, pauses, or resumes; `↑`/`W` and `↓`/`S` change speed; `L`, `K`, and `M` pick the Slow, Moderate, and Max presets. Press `?` for the list, or hover a button to see its key. End Session has no shortcut. Turn them off with the **Enable keyboard shortcuts** switch on the Settings page (`keyboard_shortcuts_enabled`).
+- **Keyboard shortcuts** (ROADMAP 3.3). `Space` pauses or resumes; `↑`/`W` and `↓`/`S` change speed; `L`, `K`, and `M` pick the Slow, Moderate, and Max presets. Press `?` for the list, or hover a button to see its key. Start and End Session have no shortcut. Turn them off with the **Enable keyboard shortcuts** switch on the Settings page (`keyboard_shortcuts_enabled`).
 - **The browser tab shows your speed and distance while walking** (ROADMAP 3.13), e.g. `3.2 mph · 1.40 mi - WalkingDad`.
 
 ### Changed

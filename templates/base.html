@@ -1983,18 +1983,18 @@
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body">
+                    <p id="shortcuts-none" class="mb-2">No shortcuts on this screen. They work while a session is running.</p>
                     <table class="table table-sm mb-2" style="--bs-table-bg:transparent;--bs-table-color:var(--text-color);--bs-table-border-color:var(--border-color);">
                         <tbody>
-                            <tr><td><kbd>Space</kbd></td><td>Start / Pause / Resume</td></tr>
-                            <tr><td><kbd>&uarr;</kbd> or <kbd>W</kbd></td><td>Faster</td></tr>
-                            <tr><td><kbd>&darr;</kbd> or <kbd>S</kbd></td><td>Slower</td></tr>
-                            <tr><td><kbd>L</kbd></td><td>Slow preset</td></tr>
-                            <tr><td><kbd>K</kbd></td><td>Moderate preset</td></tr>
-                            <tr><td><kbd>M</kbd></td><td>Max speed</td></tr>
-                            <tr><td><kbd>?</kbd></td><td>This list</td></tr>
+                            <tr data-keys="Space"><td><kbd>Space</kbd></td><td>Pause / Resume</td></tr>
+                            <tr data-keys="ArrowUp W"><td><kbd>&uarr;</kbd> or <kbd>W</kbd></td><td>Faster</td></tr>
+                            <tr data-keys="ArrowDown S"><td><kbd>&darr;</kbd> or <kbd>S</kbd></td><td>Slower</td></tr>
+                            <tr data-keys="L"><td><kbd>L</kbd></td><td>Slow preset</td></tr>
+                            <tr data-keys="K"><td><kbd>K</kbd></td><td>Moderate preset</td></tr>
+                            <tr data-keys="M"><td><kbd>M</kbd></td><td>Max speed</td></tr>
                         </tbody>
                     </table>
-                    <p class="text-muted mb-0" style="font-size:0.85rem;">End Session has no shortcut. Turn shortcuts off in Settings.</p>
+                    <p class="text-muted mb-0" style="font-size:0.85rem;">Start and End Session have no shortcut. Turn shortcuts off in Settings.</p>
                 </div>
             </div>
         </div>
@@ -2004,25 +2004,46 @@
     // goes through the same form submit, double-tap guard, and origin check.
     (function() {
         var helpModal = new bootstrap.Modal(document.getElementById('shortcuts-modal'));
+        function bound(key) {
+            return document.querySelector('button[aria-keyshortcuts~="' + CSS.escape(key) + '"]');
+        }
+        function showHelp() {
+            var any = false;
+            document.querySelectorAll('#shortcuts-modal tr[data-keys]').forEach(function(row) {
+                var on = row.dataset.keys.split(' ').some(bound);
+                row.hidden = !on;
+                any = any || on;
+            });
+            document.getElementById('shortcuts-none').hidden = any;
+            helpModal.show();
+        }
+
+        // Space on a button or link focused from the keyboard keeps its native
+        // meaning, but not after a mouse click (which focuses buttons in
+        // Chrome/Firefox, not Safari). Tracked by hand: Chrome's :focus-visible
+        // also starts matching a mouse-focused button once any key is pressed.
+        var pointerDown = false, keyboardFocused = null;
+        document.addEventListener('pointerdown', function() { pointerDown = true; keyboardFocused = null; }, true);
+        document.addEventListener('focusin', function(e) { keyboardFocused = pointerDown ? null : e.target; pointerDown = false; });
+
         document.addEventListener('keydown', function(e) {
+            pointerDown = false;
             // Held keys don't repeat: each press is a locked BLE command.
             if (e.defaultPrevented || e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
             if (e.target.closest('input, select, textarea, [contenteditable]')) return;
-            // Space on a keyboard-focused button or link keeps its native
-            // meaning. Mouse clicks focus buttons in Chrome/Firefox but not
-            // Safari; :focus-visible matches only keyboard focus, in all three.
-            if (e.key === ' ' && e.target.matches(':focus-visible') && e.target.closest('button, a, summary, [role="button"]')) return;
+            if (e.key === ' ' && e.target === keyboardFocused && e.target.closest('button, a, summary, [role="button"]')) return;
             if (document.querySelector('.modal.show, .color-theme-popover.show, .app-header.menu-open')) return;
             if (e.key === '?') {
                 e.preventDefault();
-                helpModal.show();
+                showHelp();
                 return;
             }
-            var key = e.key === ' ' ? 'Space' : (e.key.length === 1 ? e.key.toUpperCase() : e.key);
-            var btn = document.querySelector('button[aria-keyshortcuts~="' + CSS.escape(key) + '"]');
-            if (!btn || btn.disabled) return;
+            var btn = bound(e.key === ' ' ? 'Space' : (e.key.length === 1 ? e.key.toUpperCase() : e.key));
+            if (!btn) return;
+            // Swallowed even while disabled (belt transitioning), so Space and
+            // the arrows don't fall through to scrolling the page.
             e.preventDefault();
-            btn.click();
+            if (!btn.disabled) btn.click();
         });
     })();
     </script>

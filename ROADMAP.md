@@ -211,7 +211,7 @@ A `pytest` suite covering every module without a treadmill. How to run it: the R
 **Priority:** Medium
 **Files Modified:** `requirements.txt`
 
-Each dependency in `requirements.txt` has a floor at its tested version and a cap below the next major (e.g. `bleak>=3.0.2,<4`), so patch releases still arrive but a breaking major can't. `requirements.txt` is the one record of the tested versions.
+Each direct dependency in `requirements.txt` (including `markupsafe`, imported by `app.py`) has a floor at its tested version and a cap below the next major (e.g. `bleak>=3.0.2,<4`), so patch releases still arrive but a breaking major can't. `requirements.txt` is the one record of the tested versions.
 
 ---
 
@@ -325,15 +325,15 @@ Shipping this surfaced a real gap it needed to close first: a dead BLE connectio
 ### ✅ 3.3 Keyboard Shortcuts
 **Status:** ✅ Complete
 **Priority:** Medium
-**Files Modified:** `app.py`, `config.py`, `config.json.example`, `templates/base.html`, `templates/active_session.html`, `templates/paused_session.html`, `templates/start_session.html`, `templates/settings.html`, `README.md`, `tests/`
+**Files Modified:** `app.py`, `config.py`, `config.json.example`, `templates/base.html`, `templates/active_session.html`, `templates/paused_session.html`, `templates/settings.html`, `requirements.txt`, `README.md`, `tests/`
 
-`Space` starts, pauses, or resumes; `↑`/`W` and `↓`/`S` step the speed; `L`, `K`, and `M` pick the Slow, Moderate, and Max presets; `?` lists them all. End Session has no key, so a stray press can't end a walk.
+`Space` pauses or resumes; `↑`/`W` and `↓`/`S` step the speed; `L`, `K`, and `M` pick the Slow, Moderate, and Max presets; `?` lists them all. Start and End Session have no key, so a stray press can't start the belt with nobody on it or end a walk.
 
 | Feature | Description |
 |---|---|
 | **Clicks the Button** | `hotkey()` in `app.py` tags each button with the native `aria-keyshortcuts` attribute (also read by screen readers) plus a `title` tooltip; one listener in `base.html` clicks the matching enabled button, so a shortcut takes the same form-submit path, double-tap guard, and cross-site check as a click |
-| **Stays Out of the Way** | Ignored while typing in a field, with Ctrl/Alt/Cmd held, while a dialog, the color-theme popover, or the phone menu is open, and for `Space` on a button or link focused from the keyboard (Tab), not by a mouse click. Held keys don't repeat, deliberately unlike e.g. YouTube's volume keys: each press is a locked Bluetooth command |
-| **No Start During Restore** | `Space` isn't bound to Start while a crash-restore prompt is showing, since `/start` silently drops the pending restore |
+| **Stays Out of the Way** | Ignored while typing in a field, with Ctrl/Alt/Cmd held, while a dialog, the color-theme popover, or the phone menu is open, and for `Space` on a button or link focused from the keyboard (Tab), not by a mouse click. A key bound to a disabled button (belt transitioning) is still swallowed, so `Space` doesn't scroll the page. Held keys don't repeat, deliberately unlike e.g. YouTube's volume keys: each press is a locked Bluetooth command |
+| **Help Fits the Screen** | `?` lists only the shortcuts bound on the current screen |
 | **Can Be Turned Off** | `keyboard_shortcuts_enabled` (Settings page, default on), as WCAG 2.1.4 requires for single-character shortcuts. Off removes the attributes and the listener entirely |
 
 ---

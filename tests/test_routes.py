@@ -130,12 +130,10 @@ def test_shortcuts_disabled(client, running, monkeypatch):
     assert "shortcuts-modal" not in html
 
 
-@pytest.mark.parametrize(("restore", "start_key"), [(False, True), (True, False)])
-def test_start_shortcut_withheld_during_restore(client, monkeypatch, restore, start_key):
-    if restore:
-        monkeypatch.setattr(app, "_pending_restore", pending_state())
+def test_start_has_no_shortcut(client):
     html = client.get("/").get_data(as_text=True)
-    assert ('id="btn-start" aria-keyshortcuts="Space"' in html) is start_key
+    assert 'aria-keyshortcuts="' not in html
+    assert 'id="shortcuts-modal"' in html
 
 
 def test_start_not_connected(client, app_state, monkeypatch):

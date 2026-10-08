@@ -16,7 +16,7 @@ The official WalkingPad experience is a bloated mobile app that wants your email
 - **Real-time stats**: Speed, distance, steps, calories, and active time, updated live
 - **Smart pause & resume**: Auto-detects when you step off; remembers your speed; configurable grace period prevents re-triggering on restart; a session left paused too long (default 30 min) is ended and saved automatically
 - **Speed presets**: Slow (speed floor), Moderate, and Max buttons, plus incremental increase/decrease steppers
-- **Keyboard shortcuts**: `Space` start/pause/resume, `↑`/`W` and `↓`/`S` speed, `L`/`K`/`M` presets; press `?` for the list. Can be turned off in Settings
+- **Keyboard shortcuts**: `Space` pause/resume, `↑`/`W` and `↓`/`S` speed, `L`/`K`/`M` presets; press `?` for the list. Can be turned off in Settings
 - **Live tab title**: While walking, the browser tab shows speed and distance
 - **Console-style interface**: Active, Paused, and Start screens read like the WalkingPad's own onboard display, with one large tabular-digit reading up top and secondary stats in a compact readout strip below
 - **Session history**: Sessions saved to a local SQLite database (`data/walkingdad.db`) with full stats, pauses, and per-second speed/distance/steps samples; last 10 shown on the start screen. Includes CSV export, history clearing, and an **Edit** mode for deleting individual sessions. An existing `session_history.json` from an older version is imported automatically on first launch (the original is kept as `data/backups/session_history.json.bak-<timestamp>`).
