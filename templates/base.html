@@ -1543,23 +1543,39 @@
     // Toggles a "<verb> belt..." hint and disables/dims the buttons that
     // shouldn't be double-tapped while a belt sequence is in flight. Shared
     // by active/paused/start, which each pass their own hint id and button set.
+    // Once a form has submitted, buttons stay disabled regardless of `on`, so
+    // an SSE tick landing mid-request can't re-enable them.
+    var submitting = false;
     function setTransitioning(hintId, buttons, on) {
         var hint = document.getElementById(hintId);
         if (hint) hint.style.display = on ? '' : 'none';
+        var disable = on || submitting;
         buttons.forEach(function(b) {
-            b.disabled = on;
-            b.style.opacity = on ? '0.5' : '';
+            b.disabled = disable;
+            b.style.opacity = disable ? '0.5' : '';
         });
     }
 
     // Wires every form on the page to disable/dim `buttons` the instant any
     // of them is submitted -- the SSE-driven belt_transitioning update that
     // setTransitioning() above also responds to can lag behind by a full
-    // network round-trip, leaving a window for a double-tap otherwise.
-    function disableButtonsOnSubmit(hintId, buttons) {
+    // network round-trip, leaving a window for a double-tap otherwise. The
+    // hint is left to belt_transitioning alone: most submits (presets,
+    // steppers) start no belt sequence, and each page's hint text only fits
+    // the sequence that led to that page.
+    // `submitting` never clears in normal use since every submit navigates
+    // away; a back/forward-cache restore brings the page back with it set.
+    function disableButtonsOnSubmit(buttons) {
+        window.addEventListener('pageshow', function(e) {
+            if (e.persisted) {
+                submitting = false;
+                setTransitioning(null, buttons, false);
+            }
+        });
         document.querySelectorAll('form').forEach(function(form) {
             form.addEventListener('submit', function() {
-                setTransitioning(hintId, buttons, true);
+                submitting = true;
+                setTransitioning(null, buttons, true);
             });
         });
     }

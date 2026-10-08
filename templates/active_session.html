@@ -74,7 +74,7 @@
   // buttons need to stay disabled/dim until belt_transitioning clears, not
   // just during the on-submit window.
   var actionButtons = document.querySelectorAll('button[type="submit"]');
-  disableButtonsOnSubmit('transitioning-hint', actionButtons);
+  disableButtonsOnSubmit(actionButtons);
 
   // Native only: needs a secure context (localhost/HTTPS), so a phone on LAN HTTP skips it.
   if ('wakeLock' in navigator) {

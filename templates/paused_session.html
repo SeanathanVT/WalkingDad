@@ -47,7 +47,7 @@
 
 <script>
   var pausedButtons = [document.getElementById('btn-resume'), document.getElementById('btn-end')];
-  disableButtonsOnSubmit('transitioning-hint', pausedButtons);
+  disableButtonsOnSubmit(pausedButtons);
 
   startStatsStream(function(data) {
     if (data.session_active === false) {
