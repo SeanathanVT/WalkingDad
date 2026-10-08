@@ -687,6 +687,53 @@ def test_cancel_task_on_another_loop_cancels_there(app_state):
     dead.get_coro().close()  # never ran; avoids a "never awaited" warning
 
 
+@pytest.mark.parametrize("route", ["/pause", "/end_session"])
+def test_pause_and_end_cancel_a_pending_speed_change(app_state, pad, disconnects, route):
+    app.session_active, app.belt_running = True, True
+    app._session_start_time = datetime.now()
+    app.ble_loop = FakeLoop()
+    app.app.test_client().post(route)
+    [sequence] = app_state
+    app_state.clear()
+
+    async def body():
+        await app._ble_command_lock.acquire()  # the step is still waiting its turn
+        step = asyncio.create_task(app._locked_change_speed(36))
+        await _real_sleep(0)
+        app._ble_command_lock.release()
+        await sequence
+        assert step.cancelled()
+
+    run(body)
+    assert pad.calls == [("stop_belt",)]
+
+
+def test_cancel_task_logs_an_error_raised_while_cancelling(app_state, caplog):
+    async def fails_on_cancel():
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            raise ValueError("boom") from None
+
+    async def body():
+        task = asyncio.create_task(fails_on_cancel())
+        await _real_sleep(0)
+        await app._cancel_task(task)
+
+    run(body)
+    assert "while being cancelled: ValueError('boom')" in caplog.text
+
+
+def test_handle_disconnect_survives_task_on_closed_loop(app_state):
+    closed = asyncio.new_event_loop()
+    stale = closed.create_task(asyncio.Event().wait())
+    closed.run_until_complete(asyncio.sleep(0))  # now parked on a future
+    closed.close()
+    app._stats_monitor_task = stale
+    app._handle_disconnect(None)  # must not raise
+    stale.get_coro().close()
+
+
 def test_end_stops_belt_when_it_cancels_an_unfinished_pause(app_state, pad, disconnects):
     app.session_active, app.belt_running = True, True
     app._session_start_time = datetime.now()

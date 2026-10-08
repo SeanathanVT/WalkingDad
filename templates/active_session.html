@@ -88,7 +88,8 @@
 
   var speedEl = document.getElementById('speed'), distanceEl = document.getElementById('distance');
   function updateTitle() {
-    document.title = speedEl.textContent + ' mph \u00b7 ' + distanceEl.textContent + ' - WalkingDad';
+    var title = speedEl.textContent + ' mph \u00b7 ' + distanceEl.textContent + ' - WalkingDad';
+    if (document.title !== title) document.title = title;
   }
   updateTitle();
 

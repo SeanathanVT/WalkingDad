@@ -1079,6 +1079,8 @@ async def _cancel_task(task: asyncio.Task | None) -> None:
         # forwarded to `task`, which (like every belt sequence) may swallow it,
         # letting the caller run on as if never cancelled.
         await asyncio.wait({task})
+        if not task.cancelled() and task.exception():
+            logging.warning(f"Task ended with an error while being cancelled: {task.exception()!r}")
 
 
 async def _full_wake_sequence():
@@ -1407,7 +1409,8 @@ def _handle_disconnect(client):
             try:
                 task.get_loop().call_soon_threadsafe(task.cancel)
             except RuntimeError:  # loop closed
-                task.cancel()
+                with contextlib.suppress(RuntimeError):  # cancel() can't schedule on it either
+                    task.cancel()
 
     if will_auto_reconnect:
         try:
@@ -1596,6 +1599,7 @@ def _end_session(stale: bool = False):
             try:
                 await _cancel_task(prev)
                 await _cancel_task(_stats_monitor_task)
+                await _cancel_task(_speed_change_task)  # else a queued step could follow stop_belt
                 if (was_running or interrupted) and controller:
                     try:
                         await _run_locked(
@@ -2021,6 +2025,7 @@ def pause_session():
             try:
                 await _cancel_task(prev)
                 await _cancel_task(_stats_monitor_task)
+                await _cancel_task(_speed_change_task)  # else a queued step could follow stop_belt
                 await _run_locked(
                     lambda: asyncio.wait_for(controller.stop_belt(), timeout=_BLE_WRITE_TIMEOUT_SECONDS),
                     timeout=_BLE_SEQUENCE_LOCK_TIMEOUT_SECONDS,
@@ -2129,8 +2134,9 @@ def _set_preset_speed(speed_kmh: float):
     # Mid start/resume the reported speed is ~0 and the sequence sets its own
     # speed; a step queued now would land right after it (the UI's buttons are
     # disabled then too, but not on a second device).
-    # Under the lock the belt routes hold, so a Pause/End can't land between
-    # the check and the queueing, leaving this step to follow its stop_belt.
+    # Under the lock the belt routes hold, so this can't interleave with a
+    # Pause/End route's own check-and-queue; those sequences then cancel any
+    # step still pending before sending stop_belt.
     with _session_state_lock:
         if not belt_running or _belt_transitioning:
             return redirect(url_for("root"))
