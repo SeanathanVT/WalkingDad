@@ -108,7 +108,7 @@
         // logic below also clears the stale localStorage key on next init.
     })();
     </script>
-    <title>{% block title %}WalkingDad{% endblock %}</title>
+    <title>WalkingDad</title>
     <meta name="theme-color" content="#ffffff">
     <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}">
     <link rel="apple-touch-icon" href="{{ url_for('static', filename='apple-touch-icon.png') }}">
@@ -1504,13 +1504,20 @@
     // call this synchronously the moment their own inline <script> runs,
     // instead of waiting for scripts later in the document (e.g.
     // showShutdownOverlay below) to have executed first.
+    var shutdownShown = false;
+    var statsTickSeen = false;
     function startStatsStream(onMessage) {
-        var shutdownShown = false;
         var es = new EventSource("{{ url_for('stats_stream') }}");
         es.onmessage = function(event) {
+            statsTickSeen = true;
+            // Also set by the Close button's own call, so a tick already in
+            // flight can't redraw (or retitle) the page behind the overlay.
+            if (shutdownShown) {
+                es.close();
+                return;
+            }
             var data = JSON.parse(event.data);
-            if (data.stopping === true && !shutdownShown) {
-                shutdownShown = true;
+            if (data.stopping === true) {
                 showShutdownOverlay();
                 es.close();
                 return;
@@ -1556,6 +1563,14 @@
         });
     }
 
+    // Initial state from the server. Only an SSE tick re-enables the buttons,
+    // so if the stream never delivers (thread pool saturated, server unreachable)
+    // they come back after a while rather than staying dead.
+    function initTransitioning(hintId, buttons, on) {
+        setTransitioning(hintId, buttons, on);
+        if (on) setTimeout(function() { if (!statsTickSeen) setTransitioning(hintId, buttons, false); }, 15000);
+    }
+
     // Wires every form on the page to disable/dim `buttons` the instant any
     // of them is submitted -- the SSE-driven belt_transitioning update that
     // setTransitioning() above also responds to can lag behind by a full
@@ -1564,13 +1579,11 @@
     // steppers) start no belt sequence, and each page's hint text only fits
     // the sequence that led to that page.
     // `submitting` never clears in normal use since every submit navigates
-    // away; a back/forward-cache restore brings the page back with it set.
+    // away. A back/forward-cache restore brings back a stale page (wrong
+    // screen, stale belt state), so it reloads rather than re-enabling buttons.
     function disableButtonsOnSubmit(buttons) {
         window.addEventListener('pageshow', function(e) {
-            if (e.persisted) {
-                submitting = false;
-                setTransitioning(null, buttons, false);
-            }
+            if (e.persisted) window.location.reload();
         });
         document.querySelectorAll('form').forEach(function(form) {
             form.addEventListener('submit', function() {
@@ -1630,6 +1643,8 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
     function showShutdownOverlay() {
+        shutdownShown = true;
+        document.title = 'WalkingDad';
         document.body.style.minHeight = '100vh';
         document.body.style.display = 'flex';
         document.body.style.flexDirection = 'column';
@@ -1985,14 +2000,7 @@
                 <div class="modal-body">
                     <p id="shortcuts-none" class="mb-2">No shortcuts on this screen. They work while a session is running.</p>
                     <table class="table table-sm mb-2" style="--bs-table-bg:transparent;--bs-table-color:var(--text-color);--bs-table-border-color:var(--border-color);">
-                        <tbody>
-                            <tr data-keys="Space"><td><kbd>Space</kbd></td><td>Pause / Resume</td></tr>
-                            <tr data-keys="ArrowUp W"><td><kbd>&uarr;</kbd> or <kbd>W</kbd></td><td>Faster</td></tr>
-                            <tr data-keys="ArrowDown S"><td><kbd>&darr;</kbd> or <kbd>S</kbd></td><td>Slower</td></tr>
-                            <tr data-keys="L"><td><kbd>L</kbd></td><td>Slow preset</td></tr>
-                            <tr data-keys="K"><td><kbd>K</kbd></td><td>Moderate preset</td></tr>
-                            <tr data-keys="M"><td><kbd>M</kbd></td><td>Max speed</td></tr>
-                        </tbody>
+                        <tbody id="shortcuts-list"></tbody>
                     </table>
                     <p class="text-muted mb-0" style="font-size:0.85rem;">Start and End Session have no shortcut. Turn shortcuts off in Settings.</p>
                 </div>
@@ -2003,36 +2011,64 @@
     // Each shortcut clicks its button (tagged via hotkey() in app.py), so it
     // goes through the same form submit, double-tap guard, and origin check.
     (function() {
-        var helpModal = new bootstrap.Modal(document.getElementById('shortcuts-modal'));
         function bound(key) {
             return document.querySelector('button[aria-keyshortcuts~="' + CSS.escape(key) + '"]');
         }
+        var KEY_GLYPHS = { ArrowUp: '\u2191', ArrowDown: '\u2193' };
+        function keyNames(b) {
+            return b.getAttribute('aria-keyshortcuts').split(' ').map(function(k) { return KEY_GLYPHS[k] || k; });
+        }
+        var tagged = document.querySelectorAll('button[aria-keyshortcuts]');
+        tagged.forEach(function(b) { b.title = 'Shortcut: ' + keyNames(b).join(' or '); });
+
+        // Built from this screen's tagged buttons, so the list can't drift
+        // from the real bindings. Bootstrap is touched only here, so the
+        // shortcuts themselves survive its CDN failing to load.
+        var helpEl = document.getElementById('shortcuts-modal');
+        var returnFocus = null;
+        // Bootstrap restores focus only for data-bs-toggle triggers (WCAG 2.4.3).
+        helpEl.addEventListener('hidden.bs.modal', function() { if (returnFocus) returnFocus.focus(); });
         function showHelp() {
-            var any = false;
-            document.querySelectorAll('#shortcuts-modal tr[data-keys]').forEach(function(row) {
-                var on = row.dataset.keys.split(' ').some(bound);
-                row.hidden = !on;
-                any = any || on;
+            if (!helpEl.isConnected) return;  // body replaced by the shutdown overlay
+            var list = document.getElementById('shortcuts-list');
+            list.replaceChildren();
+            tagged.forEach(function(b) {
+                var row = list.insertRow();
+                var keys = row.insertCell();
+                keyNames(b).forEach(function(k, i) {
+                    if (i) keys.append(' or ');
+                    keys.appendChild(document.createElement('kbd')).textContent = k;
+                });
+                row.insertCell().textContent = b.getAttribute('aria-label') || b.textContent.trim();
             });
-            document.getElementById('shortcuts-none').hidden = any;
-            helpModal.show();
+            document.getElementById('shortcuts-none').hidden = list.rows.length > 0;
+            returnFocus = document.activeElement;
+            bootstrap.Modal.getOrCreateInstance(helpEl).show();
         }
 
         // Space on a button or link focused from the keyboard keeps its native
         // meaning, but not after a mouse click (which focuses buttons in
-        // Chrome/Firefox, not Safari). Tracked by hand: Chrome's :focus-visible
-        // also starts matching a mouse-focused button once any key is pressed.
-        var pointerDown = false, keyboardFocused = null;
-        document.addEventListener('pointerdown', function() { pointerDown = true; keyboardFocused = null; }, true);
-        document.addEventListener('focusin', function(e) { keyboardFocused = pointerDown ? null : e.target; pointerDown = false; });
+        // Chrome/Firefox, not Safari). Tracked by the last input rather than
+        // :focus-visible, which Chrome starts matching on a mouse-focused button
+        // once any key is pressed. Script focus (e.g. the theme popover handing
+        // focus back to its trigger) counts as whichever input caused it, so
+        // intent is set in the capture phase, ahead of handlers that move focus.
+        // Starts true: Tabbing in from the address bar sends no keydown here.
+        var keyboardIntent = true, keyboardFocused = null;
+        document.addEventListener('pointerdown', function() { keyboardIntent = false; keyboardFocused = null; }, true);
+        document.addEventListener('keydown', function() { keyboardIntent = true; }, true);
+        document.addEventListener('focusin', function(e) { keyboardFocused = keyboardIntent ? e.target : null; });
+        var menuToggle = document.getElementById('header-menu-toggle');
 
         document.addEventListener('keydown', function(e) {
-            pointerDown = false;
             // Held keys don't repeat: each press is a locked BLE command.
             if (e.defaultPrevented || e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
             if (e.target.closest('input, select, textarea, [contenteditable]')) return;
             if (e.key === ' ' && e.target === keyboardFocused && e.target.closest('button, a, summary, [role="button"]')) return;
-            if (document.querySelector('.modal.show, .color-theme-popover.show, .app-header.menu-open')) return;
+            // body.modal-open is set at once; .modal.show only after the fade-in.
+            if (document.querySelector('body.modal-open, .modal.show, .color-theme-popover.show')) return;
+            // menu-open can outlive the phone layout if the window is widened.
+            if (document.querySelector('.app-header.menu-open') && menuToggle.offsetParent) return;
             if (e.key === '?') {
                 e.preventDefault();
                 showHelp();

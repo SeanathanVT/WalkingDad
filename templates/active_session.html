@@ -1,5 +1,4 @@
 {% extends "base.html" %}
-{% block title %}{{ "%.1f"|format(speed) }} mph &middot; {{ "%.2f"|format(distance) }} mi - WalkingDad{% endblock %}
 {% block content %}
 <div class="text-center screen">
     <h1 class="visually-hidden">Active Session</h1>
@@ -76,6 +75,7 @@
   // just during the on-submit window.
   var actionButtons = document.querySelectorAll('button[type="submit"]');
   disableButtonsOnSubmit(actionButtons);
+  initTransitioning('transitioning-hint', actionButtons, {{ belt_transitioning|tojson }});
 
   // Native only: needs a secure context (localhost/HTTPS), so a phone on LAN HTTP skips it.
   if ('wakeLock' in navigator) {
@@ -86,6 +86,12 @@
     });
   }
 
+  var speedEl = document.getElementById('speed'), distanceEl = document.getElementById('distance');
+  function updateTitle() {
+    document.title = speedEl.textContent + ' mph \u00b7 ' + distanceEl.textContent + ' - WalkingDad';
+  }
+  updateTitle();
+
   startStatsStream(function(data) {
     setTransitioning('transitioning-hint', actionButtons, data.belt_transitioning === true);
     // Check if the server has auto-paused the session
@@ -93,11 +99,11 @@
       window.location.reload();
     } else {
       setStatValue(document.getElementById('time_active'), data.time_active);
-      setStatValue(document.getElementById('speed'), data.speed.toFixed(1));
-      setStatValue(document.getElementById('distance'), data.distance.toFixed(2) + ' mi');
+      setStatValue(speedEl, data.speed.toFixed(1));
+      setStatValue(distanceEl, data.distance.toFixed(2) + ' mi');
       setStatValue(document.getElementById('steps'), String(parseInt(data.steps, 10)));
       setStatValue(document.getElementById('calories'), data.calories.toFixed(0));
-      document.title = data.speed.toFixed(1) + ' mph \u00b7 ' + data.distance.toFixed(2) + ' mi - WalkingDad';
+      updateTitle();
     }
   });
 </script>

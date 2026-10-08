@@ -34,6 +34,8 @@ def app_state(monkeypatch, tmp_path):
         monkeypatch.setattr(config, name, getattr(config, name))
         if hasattr(app, name):
             monkeypatch.setattr(app, name, getattr(app, name))
+    # Pinned, since config.py reads the maintainer's real data/config.json at import.
+    monkeypatch.setattr(config, "KEYBOARD_SHORTCUTS_ENABLED", True)
     app.speed_history.clear()
     app._samples.reset()
     monkeypatch.setattr(app, "_sse_subscribers", [])

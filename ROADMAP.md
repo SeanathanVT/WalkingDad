@@ -140,6 +140,18 @@ A session left paused (manual, auto, Bluetooth drop, or restored after a crash) 
 
 ---
 
+### 1.8 Commands Ignored After the Physical Remote, and Speed Steps During a Ramp
+- **Status:** Planned
+- **Priority:** High
+- **Problem:** Seen on a C2 in a status-packet log:
+    - After a press on the physical remote, status byte 16 changed from 3 to 2, and a Pause's `stop_belt()` (speed 0) had no effect until Resume's `start_belt()` about 4 s later. Resume's light-wake probe then took the slowing belt for a running one, and the session auto-paused.
+    - A `change_speed()` sent ~0.3 s after another was silently not applied.
+    - `+`/`-` step from the reported speed, which lags the target while the belt ramps (Max from 2.2 km/h took ~7 s). The status packet's `app_speed` byte carries the app-set target immediately, in km/h × 10 (`ph4-walkingpad`'s `/30` is wrong for the C2); the remote doesn't update it.
+- **Solution:** Reproduce each on the treadmill, then: find what byte 16 means and what makes app commands take effect again after the remote; have the light-wake probe require a speed that isn't falling; space or coalesce back-to-back speed commands; step from `app_speed` while the belt ramps toward it.
+- **Implementation:** Its own `bugfix/` branch, checked on the treadmill, not just against the fake controller.
+
+---
+
 ## Security & Code Quality
 
 ### ✅ 2.1 External Configuration File
@@ -331,9 +343,9 @@ Shipping this surfaced a real gap it needed to close first: a dead BLE connectio
 
 | Feature | Description |
 |---|---|
-| **Clicks the Button** | `hotkey()` in `app.py` tags each button with the native `aria-keyshortcuts` attribute (also read by screen readers) plus a `title` tooltip; one listener in `base.html` clicks the matching enabled button, so a shortcut takes the same form-submit path, double-tap guard, and cross-site check as a click |
+| **Clicks the Button** | `hotkey()` in `app.py` tags each button with the native `aria-keyshortcuts` attribute (also read by screen readers), from which `base.html` adds a `title` tooltip; one listener in `base.html` clicks the matching enabled button, so a shortcut takes the same form-submit path, double-tap guard, and cross-site check as a click |
 | **Stays Out of the Way** | Ignored while typing in a field, with Ctrl/Alt/Cmd held, while a dialog, the color-theme popover, or the phone menu is open, and for `Space` on a button or link focused from the keyboard (Tab), not by a mouse click. A key bound to a disabled button (belt transitioning) is still swallowed, so `Space` doesn't scroll the page. Held keys don't repeat, deliberately unlike e.g. YouTube's volume keys: each press is a locked Bluetooth command |
-| **Help Fits the Screen** | `?` lists only the shortcuts bound on the current screen |
+| **Help Fits the Screen** | `?` builds its list from the current screen's tagged buttons, so it shows only what works there and can't drift from the real bindings. Only `?` needs Bootstrap; the shortcuts keep working if its CDN fails to load |
 | **Can Be Turned Off** | `keyboard_shortcuts_enabled` (Settings page, default on), as WCAG 2.1.4 requires for single-character shortcuts. Off removes the attributes and the listener entirely |
 
 ---
@@ -442,9 +454,9 @@ The Active screen requests a native screen wake lock (`navigator.wakeLock`) and 
 ### ✅ 3.13 Live Stats in Browser Tab Title
 **Status:** ✅ Complete
 **Priority:** Low
-**Files Modified:** `templates/base.html`, `templates/active_session.html`
+**Files Modified:** `templates/active_session.html`
 
-While walking, the tab reads `3.2 mph · 1.40 mi - WalkingDad`: live content first, app name last, the convention most sites follow (tabs truncate from the right). Rendered server-side on load, then updated from the existing `/stats_stream` handler. Pause and End load a new page, which restores the plain title.
+While walking, the tab reads `3.2 mph · 1.40 mi - WalkingDad`: live content first, app name last, the convention most sites follow (tabs truncate from the right). Built from the page's own speed and distance readouts, on load and on each `/stats_stream` tick, so there's one format to change. Pause and End load a new page, which restores the plain title.
 
 ---
 
@@ -490,7 +502,7 @@ While walking, the tab reads `3.2 mph · 1.40 mi - WalkingDad`: live content fir
 **Priority:** Medium
 **Files Modified:** `templates/base.html`, `templates/active_session.html`, `templates/paused_session.html`, `templates/start_session.html`
 
-Submitting a form only disables and dims the buttons now; each page's `#transitioning-hint` follows the SSE `belt_transitioning` flag alone, so it shows only during a real start/pause/resume/end belt sequence, with matching text. A `submitting` flag in `base.html` also keeps the buttons disabled through SSE ticks until the page navigates away (cleared on a back/forward-cache restore), closing a double-tap window. The hint still toggles `display`, so the legitimate post-Start/Resume hint shifts the layout briefly; reserving its space was skipped to avoid a permanent gap on the phone layout.
+Submitting a form only disables and dims the buttons now; each page's `#transitioning-hint` follows the SSE `belt_transitioning` flag alone, so it shows only during a real start/pause/resume/end belt sequence, with matching text. A `submitting` flag in `base.html` also keeps the buttons disabled through SSE ticks until the page navigates away (a back/forward-cache restore reloads the page instead, since its belt state is stale), closing a double-tap window. The routes also set `belt_transitioning` before scheduling the sequence, so the next screen renders its buttons already disabled; if no stats update ever arrives, they re-enable after 15 s rather than staying dead. The hint still toggles `display`, so the legitimate post-Start/Resume hint shifts the layout briefly; reserving its space was skipped to avoid a permanent gap on the phone layout.
 
 ---
 

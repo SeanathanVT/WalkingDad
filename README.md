@@ -137,8 +137,8 @@ Every setting except `database_path` can be changed from the **Settings page** (
 | `host` | `"0.0.0.0"` | Network interface to bind. Any device that can reach it can control the treadmill (other websites can't); use `"127.0.0.1"` to allow only this computer |
 | `port` | `5001` | Server port |
 | `waitress_threads` | `16` | Server worker thread count (4-128) |
-| `apple_health_export_enabled` | `false` | Shows the Log to Apple Health prompt after each session; see [Apple Health Export](#apple-health-export) |
 | `keyboard_shortcuts_enabled` | `true` | Single-key shortcuts (`?` lists them) |
+| `apple_health_export_enabled` | `false` | Shows the Log to Apple Health prompt after each session; see [Apple Health Export](#apple-health-export) |
 | `apple_health_shortcut_name` | `"Log WalkingDad Workout"` | Must match the installed Shortcut's name exactly; see [Apple Health Export](#apple-health-export) |
 | `database_path` | `"walkingdad.db"` | SQLite database file (relative to `data/`) |
 

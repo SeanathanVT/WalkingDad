@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import sqlite3
 from datetime import datetime, timedelta
 from types import SimpleNamespace
@@ -113,14 +114,11 @@ def test_root_pending_restore(client, monkeypatch):
     assert b"1,234 steps" in data
 
 
-def test_active_shortcuts_and_title(client, running, monkeypatch):
-    monkeypatch.setattr(app, "current_speed_kmh", 5.0)
+def test_active_shortcuts(client, running):
     html = client.get("/").get_data(as_text=True)
     for keys in ("ArrowUp W", "ArrowDown S", "L", "K", "M", "Space"):
         assert f'aria-keyshortcuts="{keys}"' in html
-    assert 'title="Shortcut: \u2191 / W"' in html
     assert 'id="shortcuts-modal"' in html
-    assert "<title>3.1 mph &middot; 0.00 mi - WalkingDad</title>" in html
 
 
 def test_shortcuts_disabled(client, running, monkeypatch):
@@ -128,6 +126,19 @@ def test_shortcuts_disabled(client, running, monkeypatch):
     html = client.get("/").get_data(as_text=True)
     assert "aria-keyshortcuts" not in html
     assert "shortcuts-modal" not in html
+
+
+def test_paused_shortcut(client, paused):
+    html = client.get("/").get_data(as_text=True)
+    assert re.search(r'<button id="btn-resume"[^>]*aria-keyshortcuts="Space"', html)
+    assert html.count('aria-keyshortcuts="') == 1
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+def test_settings_shortcuts_switch_reflects_config(client, monkeypatch, enabled):
+    monkeypatch.setattr(config, "KEYBOARD_SHORTCUTS_ENABLED", enabled)
+    html = client.get("/settings").get_data(as_text=True)
+    assert ('id="keyboard_shortcuts_enabled" checked>' in html) is enabled
 
 
 def test_start_has_no_shortcut(client):
@@ -168,6 +179,7 @@ def test_start_schedule_failure(client, no_loop):
     assert redirects_root(client.post("/start"))
     assert app.session_active
     assert not app.belt_running
+    assert not app._belt_transitioning
 
 
 # ── /pause, /pause_session ──
@@ -193,6 +205,7 @@ def test_pause_not_running(client, app_state, paused):
 def test_pause_schedule_failure(client, running, no_loop):
     assert redirects_root(client.post("/pause"))
     assert not app.belt_running
+    assert not app._belt_transitioning
 
 
 # ── /resume, /resume_session ──
@@ -221,6 +234,19 @@ def test_resume_already_running(client, app_state, running):
 def test_resume_schedule_failure(client, paused, no_loop):
     assert redirects_root(client.post("/resume"))
     assert not app.belt_running
+    assert not app._belt_transitioning
+
+
+def test_belt_routes_render_next_screen_disabled(client, app_state, monkeypatch):
+    # The flag is set by the route, not when the sequence first runs on ble_loop,
+    # so a quick second press can't hit an enabled Resume/Pause/Start.
+    monkeypatch.setattr(app, "ble_loop", SimpleNamespace(is_closed=lambda: False))
+    for path, buttons in [("/start", "actionButtons"), ("/pause", "pausedButtons"),
+                          ("/resume", "actionButtons"), ("/end_session", "startButtons")]:
+        monkeypatch.setattr(app, "_belt_transitioning", False)
+        client.post(path)
+        assert app._belt_transitioning, path
+        assert f"initTransitioning('transitioning-hint', {buttons}, true)" in client.get("/").get_data(as_text=True)
 
 
 # ── speed ──
@@ -246,6 +272,40 @@ def test_speed(client, app_state, running, speeds, monkeypatch, path, current, e
     monkeypatch.setattr(app, "current_speed_kmh", current)
     assert redirects_root(client.post(path))
     assert names(app_state) == ["_locked_change_speed"]
+    assert app_state[0].cr_frame.f_locals["dev_speed"] == expected
+
+
+
+
+def test_speed_change_queued_under_session_lock(client, app_state, running, monkeypatch):
+    held = []
+
+    def record(coro, loop):
+        held.append(app._session_state_lock.locked())
+        coro.close()
+
+    monkeypatch.setattr(app.asyncio, "run_coroutine_threadsafe", record)
+    client.post("/increase_speed")
+    assert held == [True]
+
+
+def test_speed_ignored_while_belt_transitioning(client, app_state, running, monkeypatch):
+    monkeypatch.setattr(app, "_belt_transitioning", True)
+    for path in ("/increase_speed", "/decrease_speed", "/min_speed", "/slow_speed", "/max_speed"):
+        assert redirects_root(client.post(path))
+    assert app_state == []
+
+
+
+
+@pytest.mark.parametrize(("path", "current", "expected"), [
+    ("/increase_speed", 3.8, 44),
+    ("/decrease_speed", 1.9, 13),
+])
+def test_speed_step_rounds_not_truncates(client, app_state, running, speeds, monkeypatch, path, current, expected):
+    monkeypatch.setattr(app, "SPEED_STEP", 0.6)
+    monkeypatch.setattr(app, "current_speed_kmh", current)
+    client.post(path)
     assert app_state[0].cr_frame.f_locals["dev_speed"] == expected
 
 
