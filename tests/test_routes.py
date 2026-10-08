@@ -113,6 +113,31 @@ def test_root_pending_restore(client, monkeypatch):
     assert b"1,234 steps" in data
 
 
+def test_active_shortcuts_and_title(client, running, monkeypatch):
+    monkeypatch.setattr(app, "current_speed_kmh", 5.0)
+    html = client.get("/").get_data(as_text=True)
+    for keys in ("ArrowUp W", "ArrowDown S", "L", "K", "M", "Space"):
+        assert f'aria-keyshortcuts="{keys}"' in html
+    assert 'title="Shortcut: \u2191 / W"' in html
+    assert 'id="shortcuts-modal"' in html
+    assert "<title>3.1 mph &middot; 0.00 mi - WalkingDad</title>" in html
+
+
+def test_shortcuts_disabled(client, running, monkeypatch):
+    monkeypatch.setattr(config, "KEYBOARD_SHORTCUTS_ENABLED", False)
+    html = client.get("/").get_data(as_text=True)
+    assert "aria-keyshortcuts" not in html
+    assert "shortcuts-modal" not in html
+
+
+@pytest.mark.parametrize(("restore", "start_key"), [(False, True), (True, False)])
+def test_start_shortcut_withheld_during_restore(client, monkeypatch, restore, start_key):
+    if restore:
+        monkeypatch.setattr(app, "_pending_restore", pending_state())
+    html = client.get("/").get_data(as_text=True)
+    assert ('id="btn-start" aria-keyshortcuts="Space"' in html) is start_key
+
+
 def test_start_not_connected(client, app_state, monkeypatch):
     monkeypatch.setattr(app, "connected", False)
     assert redirects_root(client.post("/start"))
@@ -460,6 +485,10 @@ def test_settings_post(client, monkeypatch):
     assert config.PORT == written["port"]
     assert config.APPLE_HEALTH_EXPORT_ENABLED is False
     assert app.APPLE_HEALTH_EXPORT_ENABLED is False
+    assert written["keyboard_shortcuts_enabled"] is False
+    assert config.KEYBOARD_SHORTCUTS_ENABLED is False
+    client.post("/settings", data={"keyboard_shortcuts_enabled": "on"})
+    assert config.KEYBOARD_SHORTCUTS_ENABLED is True
 
 
 @pytest.mark.parametrize(("days_ago", "dismissed"), [(0, False), (2, True)])

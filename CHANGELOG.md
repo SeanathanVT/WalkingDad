@@ -4,6 +4,15 @@ All notable changes to WalkingDad will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **Keyboard shortcuts** (ROADMAP 3.3). `Space` starts, pauses, or resumes; `↑`/`W` and `↓`/`S` change speed; `L`, `K`, and `M` pick the Slow, Moderate, and Max presets. Press `?` for the list, or hover a button to see its key. End Session has no shortcut. Turn them off with the **Enable keyboard shortcuts** switch on the Settings page (`keyboard_shortcuts_enabled`).
+- **The browser tab shows your speed and distance while walking** (ROADMAP 3.13), e.g. `3.2 mph · 1.40 mi - WalkingDad`.
+
+### Changed
+
+- **Dependency versions are bounded** (ROADMAP 2.6). `requirements.txt` now sets a tested minimum and blocks the next major version of each package, so a fresh install can't pull in a breaking release.
+
 ### Internal
 
 - **`AGENTS.md` asks agents to follow common UI conventions and WCAG 2.2 AA** wherever practical, and to call out deliberate deviations in their designs.

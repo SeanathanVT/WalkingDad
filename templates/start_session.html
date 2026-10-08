@@ -119,7 +119,8 @@
         <span class="console-hero-label">Ready</span>
         <div class="mt-2">
             <form method="post" action="{{ url_for('start_session') }}" style="display:inline-block">
-                <button type="submit" class="console-engage-btn" id="btn-start">
+                {# No shortcut while a restore is pending: /start silently drops it. #}
+                <button type="submit" class="console-engage-btn" id="btn-start"{% if not pending_restore %}{{ hotkey("Space") }}{% endif %}>
                     <i class="bi bi-play-fill"></i>
                     Start
                 </button>

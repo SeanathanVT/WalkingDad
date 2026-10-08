@@ -16,6 +16,8 @@ The official WalkingPad experience is a bloated mobile app that wants your email
 - **Real-time stats**: Speed, distance, steps, calories, and active time, updated live
 - **Smart pause & resume**: Auto-detects when you step off; remembers your speed; configurable grace period prevents re-triggering on restart; a session left paused too long (default 30 min) is ended and saved automatically
 - **Speed presets**: Slow (speed floor), Moderate, and Max buttons, plus incremental increase/decrease steppers
+- **Keyboard shortcuts**: `Space` start/pause/resume, `↑`/`W` and `↓`/`S` speed, `L`/`K`/`M` presets; press `?` for the list. Can be turned off in Settings
+- **Live tab title**: While walking, the browser tab shows speed and distance
 - **Console-style interface**: Active, Paused, and Start screens read like the WalkingPad's own onboard display, with one large tabular-digit reading up top and secondary stats in a compact readout strip below
 - **Session history**: Sessions saved to a local SQLite database (`data/walkingdad.db`) with full stats, pauses, and per-second speed/distance/steps samples; last 10 shown on the start screen. Includes CSV export, history clearing, and an **Edit** mode for deleting individual sessions. An existing `session_history.json` from an older version is imported automatically on first launch (the original is kept as `data/backups/session_history.json.bak-<timestamp>`).
 - **Crash recovery**: If the server crashes or restarts mid-session, your stats aren't lost. The start screen offers to restore the interrupted session (paused, ready to resume) or discard it.
@@ -136,6 +138,7 @@ Every setting except `database_path` can be changed from the **Settings page** (
 | `port` | `5001` | Server port |
 | `waitress_threads` | `16` | Server worker thread count (4-128) |
 | `apple_health_export_enabled` | `false` | Shows the Log to Apple Health prompt after each session; see [Apple Health Export](#apple-health-export) |
+| `keyboard_shortcuts_enabled` | `true` | Single-key shortcuts (`?` lists them) |
 | `apple_health_shortcut_name` | `"Log WalkingDad Workout"` | Must match the installed Shortcut's name exactly; see [Apple Health Export](#apple-health-export) |
 | `database_path` | `"walkingdad.db"` | SQLite database file (relative to `data/`) |
 

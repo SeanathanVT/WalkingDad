@@ -17,6 +17,7 @@ _DEFAULTS = {
     "waitress_threads": 16,
     "apple_health_shortcut_name": "Log WalkingDad Workout",
     "apple_health_export_enabled": False,
+    "keyboard_shortcuts_enabled": True,
     "database_path": "walkingdad.db",
 }
 
@@ -57,6 +58,7 @@ PORT: int                         = _get("port")
 WAITRESS_THREADS: int             = _get("waitress_threads")
 APPLE_HEALTH_SHORTCUT_NAME: str   = _get("apple_health_shortcut_name")
 APPLE_HEALTH_EXPORT_ENABLED: bool = _get("apple_health_export_enabled")
+KEYBOARD_SHORTCUTS_ENABLED: bool  = _get("keyboard_shortcuts_enabled")
 DATABASE_PATH: str               = _get("database_path")
 
 

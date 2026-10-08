@@ -25,6 +25,7 @@ from flask import (
     request,
     url_for,
 )
+from markupsafe import Markup
 from ph4_walkingpad.pad import Controller, WalkingPad
 
 import config
@@ -586,6 +587,19 @@ def _health_log_url(session_record: dict, base_url: str) -> str:
     return _build_log_shortcut_url(session_record, success_url)
 
 
+_KEY_LABELS = {"ArrowUp": "\u2191", "ArrowDown": "\u2193"}
+
+
+def hotkey(keys: str) -> Markup:
+    """Button attributes binding `keys` (aria-keyshortcuts syntax), or nothing
+    when shortcuts are off, so screen readers aren't told about dead keys
+    (WCAG 2.1.4 requires single-character shortcuts be switchable off)."""
+    if not config.KEYBOARD_SHORTCUTS_ENABLED:
+        return Markup("")
+    label = " / ".join(_KEY_LABELS.get(k, k) for k in keys.split())
+    return Markup(' aria-keyshortcuts="{}" title="Shortcut: {}"').format(keys, label)
+
+
 # ── Context processor so templates always know flags ────────────────────
 @app.context_processor
 def inject_flags():
@@ -593,6 +607,8 @@ def inject_flags():
         "connected": connected, "connecting": connecting, "connection_failed": connection_failed,
         "apple_health_shortcut_name": APPLE_HEALTH_SHORTCUT_NAME,
         "setup_shortcut_url": _build_setup_shortcut_url(),
+        "keyboard_shortcuts_enabled": config.KEYBOARD_SHORTCUTS_ENABLED,
+        "hotkey": hotkey,
     }
 
 
@@ -1732,10 +1748,11 @@ def settings_page():
         # Unlike every field above, a checkbox is absent from form data
         # entirely when unchecked rather than submitting a falsy value, so
         # the generic default-to-current-value loop above can't handle it --
-        # this is the one boolean setting, handled as a one-off rather than
-        # complicating _SETTINGS_SCHEMA's cast-function contract for it.
+        # the two boolean settings are handled as one-offs rather than
+        # complicating _SETTINGS_SCHEMA's cast-function contract for them.
         was_enabled = APPLE_HEALTH_EXPORT_ENABLED
         updates["apple_health_export_enabled"] = "apple_health_export_enabled" in request.form
+        updates["keyboard_shortcuts_enabled"] = "keyboard_shortcuts_enabled" in request.form
 
         _write_config(updates)
         for form_key, const_name, _cast, live in _SETTINGS_SCHEMA:
@@ -1744,6 +1761,7 @@ def settings_page():
                 globals()[const_name] = updates[form_key]
         config.APPLE_HEALTH_EXPORT_ENABLED = updates["apple_health_export_enabled"]
         APPLE_HEALTH_EXPORT_ENABLED = updates["apple_health_export_enabled"]
+        config.KEYBOARD_SHORTCUTS_ENABLED = updates["keyboard_shortcuts_enabled"]
 
         # Turning the feature on shouldn't retroactively surface a session
         # that predates it being enabled (pending_health_export only checks

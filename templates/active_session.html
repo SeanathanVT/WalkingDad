@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% block title %}{{ "%.1f"|format(speed) }} mph &middot; {{ "%.2f"|format(distance) }} mi - WalkingDad{% endblock %}
 {% block content %}
 <div class="text-center screen">
     <h1 class="visually-hidden">Active Session</h1>
@@ -6,13 +7,13 @@
         <span class="console-hero-label">Speed</span>
         <div class="console-hero-controls">
             <form method="post" action="{{ url_for('decrease_speed') }}" style="display:contents">
-                <button type="submit" class="stepper-btn" aria-label="Decrease speed"><i class="bi bi-dash-lg"></i></button>
+                <button type="submit" class="stepper-btn" aria-label="Decrease speed"{{ hotkey("ArrowDown S") }}><i class="bi bi-dash-lg"></i></button>
             </form>
             <div>
                 <span class="console-hero-value" id="speed">{{ "%.1f"|format(speed) }}</span><span class="console-hero-unit">mph</span>
             </div>
             <form method="post" action="{{ url_for('increase_speed') }}" style="display:contents">
-                <button type="submit" class="stepper-btn" aria-label="Increase speed"><i class="bi bi-plus-lg"></i></button>
+                <button type="submit" class="stepper-btn" aria-label="Increase speed"{{ hotkey("ArrowUp W") }}><i class="bi bi-plus-lg"></i></button>
             </form>
         </div>
         <p id="transitioning-hint" class="text-muted mt-3 mb-0" style="display:none;font-size:0.85rem;">
@@ -43,18 +44,18 @@
     <div class="dock">
         <div class="d-flex justify-content-center gap-2 mt-4 action-row">
             <form method="post" action="{{ url_for('min_speed') }}" style="display:contents">
-                <button type="submit" class="btn btn-preset">Slow</button>
+                <button type="submit" class="btn btn-preset"{{ hotkey("L") }}>Slow</button>
             </form>
             <form method="post" action="{{ url_for('slow_speed') }}" style="display:contents">
-                <button type="submit" class="btn btn-preset">Moderate</button>
+                <button type="submit" class="btn btn-preset"{{ hotkey("K") }}>Moderate</button>
             </form>
             <form method="post" action="{{ url_for('max_speed') }}" style="display:contents">
-                <button type="submit" class="btn btn-preset">Max</button>
+                <button type="submit" class="btn btn-preset"{{ hotkey("M") }}>Max</button>
             </form>
         </div>
         <div class="d-flex justify-content-center gap-2 mt-3 action-row">
             <form method="post" action="{{ url_for('pause_session') }}" style="display:contents">
-                <button type="submit" class="btn btn-custom-primary d-flex align-items-center gap-2">
+                <button type="submit" class="btn btn-custom-primary d-flex align-items-center gap-2"{{ hotkey("Space") }}>
                     <i class="bi bi-pause-fill"></i> Pause
                 </button>
             </form>
@@ -96,6 +97,7 @@
       setStatValue(document.getElementById('distance'), data.distance.toFixed(2) + ' mi');
       setStatValue(document.getElementById('steps'), String(parseInt(data.steps, 10)));
       setStatValue(document.getElementById('calories'), data.calories.toFixed(0));
+      document.title = data.speed.toFixed(1) + ' mph \u00b7 ' + data.distance.toFixed(2) + ' mi - WalkingDad';
     }
   });
 </script>

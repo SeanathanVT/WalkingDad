@@ -108,7 +108,7 @@
         // logic below also clears the stale localStorage key on next init.
     })();
     </script>
-    <title>WalkingDad</title>
+    <title>{% block title %}WalkingDad{% endblock %}</title>
     <meta name="theme-color" content="#ffffff">
     <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}">
     <link rel="apple-touch-icon" href="{{ url_for('static', filename='apple-touch-icon.png') }}">
@@ -1974,5 +1974,58 @@
         }
     })();
     </script>
+    {% if keyboard_shortcuts_enabled %}
+    <div class="modal fade" id="shortcuts-modal" tabindex="-1" aria-labelledby="shortcuts-modal-title" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content" style="background-color:var(--card-color);color:var(--text-color);">
+                <div class="modal-header" style="border-color:var(--border-color);">
+                    <h5 class="modal-title" id="shortcuts-modal-title">Keyboard shortcuts</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <table class="table table-sm mb-2" style="--bs-table-bg:transparent;--bs-table-color:var(--text-color);--bs-table-border-color:var(--border-color);">
+                        <tbody>
+                            <tr><td><kbd>Space</kbd></td><td>Start / Pause / Resume</td></tr>
+                            <tr><td><kbd>&uarr;</kbd> or <kbd>W</kbd></td><td>Faster</td></tr>
+                            <tr><td><kbd>&darr;</kbd> or <kbd>S</kbd></td><td>Slower</td></tr>
+                            <tr><td><kbd>L</kbd></td><td>Slow preset</td></tr>
+                            <tr><td><kbd>K</kbd></td><td>Moderate preset</td></tr>
+                            <tr><td><kbd>M</kbd></td><td>Max speed</td></tr>
+                            <tr><td><kbd>?</kbd></td><td>This list</td></tr>
+                        </tbody>
+                    </table>
+                    <p class="text-muted mb-0" style="font-size:0.85rem;">End Session has no shortcut. Turn shortcuts off in Settings.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script>
+    // Each shortcut clicks its button (tagged via hotkey() in app.py), so it
+    // goes through the same form submit, double-tap guard, and origin check.
+    (function() {
+        var helpModal = new bootstrap.Modal(document.getElementById('shortcuts-modal'));
+        document.addEventListener('keydown', function(e) {
+            // Held keys don't repeat: each press is a locked BLE command.
+            if (e.defaultPrevented || e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
+            if (e.target.closest('input, select, textarea, [contenteditable]')) return;
+            // Space on a keyboard-focused button or link keeps its native
+            // meaning. Mouse clicks focus buttons in Chrome/Firefox but not
+            // Safari; :focus-visible matches only keyboard focus, in all three.
+            if (e.key === ' ' && e.target.matches(':focus-visible') && e.target.closest('button, a, summary, [role="button"]')) return;
+            if (document.querySelector('.modal.show, .color-theme-popover.show, .app-header.menu-open')) return;
+            if (e.key === '?') {
+                e.preventDefault();
+                helpModal.show();
+                return;
+            }
+            var key = e.key === ' ' ? 'Space' : (e.key.length === 1 ? e.key.toUpperCase() : e.key);
+            var btn = document.querySelector('button[aria-keyshortcuts~="' + CSS.escape(key) + '"]');
+            if (!btn || btn.disabled) return;
+            e.preventDefault();
+            btn.click();
+        });
+    })();
+    </script>
+    {% endif %}
 </body>
 </html>

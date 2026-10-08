@@ -22,7 +22,7 @@ _RESET = {
     "_shutting_down": False, "_server_stopping": False, "_last_health_status_change": None,
 }
 # /settings POST rewrites these on both modules; registering them restores them after each test.
-_SETTINGS_CONSTS = [c for _, c, _, _ in app._SETTINGS_SCHEMA] + ["APPLE_HEALTH_EXPORT_ENABLED"]
+_SETTINGS_CONSTS = [c for _, c, _, _ in app._SETTINGS_SCHEMA] + ["APPLE_HEALTH_EXPORT_ENABLED", "KEYBOARD_SHORTCUTS_ENABLED"]
 
 
 @pytest.fixture

@@ -131,6 +131,15 @@ A session left paused (manual, auto, Bluetooth drop, or restored after a crash) 
 
 ---
 
+### 1.7 Bluetooth Disconnect Callback Never Registered
+- **Status:** Planned
+- **Priority:** High
+- **Problem:** `_connect_to_pad()` registers `_handle_disconnect` via `set_disconn_callback()` or `set_disconnected_callback()`, but `BleakClient` in Bleak 3.x has neither; it takes the callback only as a constructor argument, and `ph4-walkingpad`'s `Controller.connect()` builds the client without one. So a drop is only noticed by the staleness watchdogs (~15 s active, ~45 s idle/paused) instead of immediately. The tests' fake controller has `set_disconn_callback`, which hides this.
+- **Solution:** Pass `disconnected_callback=_handle_disconnect` when the `BleakClient` is built, by overriding `Controller.connect()`, and drop the dead old-API branches.
+- **Implementation:** Its own `bugfix/` branch, with a test against the real `BleakClient` signature rather than the fake.
+
+---
+
 ## Security & Code Quality
 
 ### ✅ 2.1 External Configuration File
@@ -197,12 +206,12 @@ A `pytest` suite covering every module without a treadmill. How to run it: the R
 
 ---
 
-### 2.6 Pin Dependency Versions
-- **Status:** Planned
-- **Priority:** Medium
-- **Problem:** `requirements.txt` lists `bleak`, `flask`, `ph4-walkingpad`, and `waitress` with no version constraints. A fresh `pip install` can silently pull a breaking major version with no warning.
-- **Solution:** Pin each dependency to a known-working version (exact `==` or a floor `>=` plus a documented upper bound), tested against the versions currently in use.
-- **Implementation:** Capture current working versions from an active `venv` (`pip freeze`), add them to `requirements.txt`, note the tested versions in the README.
+### ✅ 2.6 Pin Dependency Versions
+**Status:** ✅ Complete
+**Priority:** Medium
+**Files Modified:** `requirements.txt`
+
+Each dependency in `requirements.txt` has a floor at its tested version and a cap below the next major (e.g. `bleak>=3.0.2,<4`), so patch releases still arrive but a breaking major can't. `requirements.txt` is the one record of the tested versions.
 
 ---
 
@@ -313,18 +322,19 @@ Shipping this surfaced a real gap it needed to close first: a dead BLE connectio
 
 ---
 
-### 3.3 Keyboard Shortcuts
-- **Status:** Planned
-- **Priority:** Medium
-- **Problem:** Adjusting speed or pausing requires using a mouse/touch, which is inconvenient while walking.
-- **Solution:** Add keyboard shortcuts for core actions:
-    - `Arrow Up` / `W`: Increase speed
-    - `Arrow Down` / `S`: Decrease speed
-    - `Space`: Pause / Resume
-    - `M`: Max speed
-    - `L`: Slow preset
-    - `K`: Moderate preset
-- **Implementation:** Add a keyboard event listener in the active session template that sends `fetch()` requests to the corresponding routes.
+### ✅ 3.3 Keyboard Shortcuts
+**Status:** ✅ Complete
+**Priority:** Medium
+**Files Modified:** `app.py`, `config.py`, `config.json.example`, `templates/base.html`, `templates/active_session.html`, `templates/paused_session.html`, `templates/start_session.html`, `templates/settings.html`, `README.md`, `tests/`
+
+`Space` starts, pauses, or resumes; `↑`/`W` and `↓`/`S` step the speed; `L`, `K`, and `M` pick the Slow, Moderate, and Max presets; `?` lists them all. End Session has no key, so a stray press can't end a walk.
+
+| Feature | Description |
+|---|---|
+| **Clicks the Button** | `hotkey()` in `app.py` tags each button with the native `aria-keyshortcuts` attribute (also read by screen readers) plus a `title` tooltip; one listener in `base.html` clicks the matching enabled button, so a shortcut takes the same form-submit path, double-tap guard, and cross-site check as a click |
+| **Stays Out of the Way** | Ignored while typing in a field, with Ctrl/Alt/Cmd held, while a dialog, the color-theme popover, or the phone menu is open, and for `Space` on a button or link focused from the keyboard (Tab), not by a mouse click. Held keys don't repeat, deliberately unlike e.g. YouTube's volume keys: each press is a locked Bluetooth command |
+| **No Start During Restore** | `Space` isn't bound to Start while a crash-restore prompt is showing, since `/start` silently drops the pending restore |
+| **Can Be Turned Off** | `keyboard_shortcuts_enabled` (Settings page, default on), as WCAG 2.1.4 requires for single-character shortcuts. Off removes the attributes and the listener entirely |
 
 ---
 
@@ -337,6 +347,7 @@ Shipping this surfaced a real gap it needed to close first: a dead BLE connectio
     - Return both imperial and metric values from `_build_stats_payload()` (shared by `/stats_stream` and `/stats`)
     - Frontend toggles display based on user preference
     - Add toggle button next to the theme toggle in the header
+    - Cover the live tab title (3.13) too, which shows mph like the page
 
 ---
 
@@ -428,12 +439,12 @@ The Active screen requests a native screen wake lock (`navigator.wakeLock`) and 
 
 ---
 
-### 3.13 Live Stats in Browser Tab Title
-- **Status:** Planned
-- **Priority:** Low
-- **Problem:** If the WalkingDad tab isn't focused during a session, checking progress means switching back to it.
-- **Solution:** Update `document.title` with a compact live readout (e.g. "3.2 mph · 1.4 mi") while a session is active, reverting to the normal title on pause/end.
-- **Implementation:** Update `document.title` from the existing `/stats_stream` SSE handler already driving the on-page numbers; no new endpoint needed.
+### ✅ 3.13 Live Stats in Browser Tab Title
+**Status:** ✅ Complete
+**Priority:** Low
+**Files Modified:** `templates/base.html`, `templates/active_session.html`
+
+While walking, the tab reads `3.2 mph · 1.40 mi - WalkingDad`: live content first, app name last, the convention most sites follow (tabs truncate from the right). Rendered server-side on load, then updated from the existing `/stats_stream` handler. Pause and End load a new page, which restores the plain title.
 
 ---
 
