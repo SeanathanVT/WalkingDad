@@ -19,7 +19,7 @@ _RESET = {
     "_resume_grace_deadline": 0, "_last_moving_packet_monotonic": None, "resume_speed_kmh": 2.0,
     "current_speed_kmh": 0.0, "current_distance_km": 0.0, "current_steps": 0, "current_calories": 0.0,
     "current_session_active_seconds": 0, "_last_dev_dist": 0, "_last_dev_steps": 0,
-    "_shutting_down": False, "_server_stopping": False,
+    "_shutting_down": False, "_server_stopping": False, "_last_health_status_change": None,
 }
 # /settings POST rewrites these on both modules; registering them restores them after each test.
 _SETTINGS_CONSTS = [c for _, c, _, _ in app._SETTINGS_SCHEMA] + ["APPLE_HEALTH_EXPORT_ENABLED"]

@@ -96,21 +96,61 @@ def test_build_log_shortcut_url(monkeypatch):
         "date": "2026-01-02", "start_time": "08:30:00", "duration_seconds": 600,
         "distance_km": 1.5, "distance_mi": 0.932, "calories": 70, "steps": 999,
     }
-    url = app._build_log_shortcut_url(record)
-    assert url.startswith("shortcuts://run-shortcut?name=Log%20Walk%20%26%20Run&input=text&text=")
-    text = url.split("&text=", 1)[1]
+    url = app._build_log_shortcut_url(record, "http://192.168.1.5:5001/health_logged/abc")
+    assert url.startswith("shortcuts://x-callback-url/run-shortcut?name=Log%20Walk%20%26%20Run&input=text&text=")
+    text, success = url.split("&text=", 1)[1].split("&x-success=")
+    assert success == "http%3A%2F%2F192.168.1.5%3A5001%2Fhealth_logged%2Fabc"
     assert " " not in text
     assert '"' not in text
     assert "{" not in text
     assert "08:30:00" in text
     payload = json.loads(urllib.parse.unquote(text))
-    assert payload == {k: v for k, v in record.items() if k != "steps"}
+    assert payload == record
 
 
 def test_build_log_shortcut_url_keeps_colon_and_slash(monkeypatch):
     monkeypatch.setattr(app, "APPLE_HEALTH_SHORTCUT_NAME", "a:b/c")
-    record = dict.fromkeys(("date", "start_time", "duration_seconds", "distance_km", "distance_mi", "calories"), 0)
-    assert "name=a:b/c&" in app._build_log_shortcut_url(record)
+    record = dict.fromkeys(("date", "start_time", "duration_seconds", "distance_km", "distance_mi", "calories", "steps"), 0)
+    assert "name=a:b/c&" in app._build_log_shortcut_url(record, "http://x/")
+
+
+class _FakeUDPSocket:
+    def __init__(self, *args):
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def connect(self, addr):
+        pass
+
+    def getsockname(self):
+        return ("192.168.1.5", 40000)
+
+
+@pytest.mark.parametrize(("host_url", "expected"), [
+    ("http://localhost:5001/", "http://192.168.1.5:5001/"),
+    ("http://127.0.0.1:5001/", "http://192.168.1.5:5001/"),
+    ("http://[::1]:5001/", "http://192.168.1.5:5001/"),
+    ("http://192.168.1.9:5001/", "http://192.168.1.9:5001/"),
+])
+def test_phone_reachable_base_url(monkeypatch, host_url, expected):
+    monkeypatch.setattr(app.socket, "socket", _FakeUDPSocket)
+    with app.app.test_request_context(base_url=host_url):
+        assert app._phone_reachable_base_url() == expected
+
+
+def test_phone_reachable_base_url_no_route(monkeypatch):
+    class NoRoute(_FakeUDPSocket):
+        def connect(self, addr):
+            raise OSError("Network is unreachable")
+
+    monkeypatch.setattr(app.socket, "socket", NoRoute)
+    with app.app.test_request_context(base_url="http://localhost:5001/"):
+        assert app._phone_reachable_base_url() == "http://localhost:5001/"
 
 
 def test_inject_flags(app_state, monkeypatch):
@@ -147,6 +187,7 @@ def test_build_stats_payload(app_state, monkeypatch):
         "calories": 62,
         "time_active": "1:02:05",
         "stopping": True,
+        "health_status_changed": None,
     }
 
 
@@ -469,8 +510,9 @@ def test_dismiss_health_export_marks_most_recent(app_state):
     older = _completed("2026-01-01T08:00:00+00:00")
     newer = _completed("2026-01-02T08:00:00+00:00")
     app._dismiss_health_export()
-    assert storage.get_session(newer)["health_logged"] == 1
-    assert storage.get_session(older)["health_logged"] == 0
+    assert storage.get_session(newer)["health_logged"] == storage.HEALTH_DISMISSED
+    assert storage.get_session(older)["health_logged"] == storage.HEALTH_PENDING
+    assert app._last_health_status_change == {"id": newer, "status": storage.HEALTH_DISMISSED}
 
 
 def test_dismiss_health_export_empty_history(app_state):

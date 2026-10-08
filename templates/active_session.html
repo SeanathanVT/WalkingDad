@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="text-center">
+<div class="text-center screen">
     <h1 class="visually-hidden">Active Session</h1>
     <div class="console-hero">
         <span class="console-hero-label">Speed</span>
@@ -40,28 +40,30 @@
         </div>
     </div>
 
-    <div class="d-flex justify-content-center gap-2 mt-4">
-        <form method="post" action="{{ url_for('min_speed') }}" style="display:contents">
-            <button type="submit" class="btn btn-preset">Slow</button>
-        </form>
-        <form method="post" action="{{ url_for('slow_speed') }}" style="display:contents">
-            <button type="submit" class="btn btn-preset">Moderate</button>
-        </form>
-        <form method="post" action="{{ url_for('max_speed') }}" style="display:contents">
-            <button type="submit" class="btn btn-preset">Max</button>
-        </form>
-    </div>
-    <div class="d-flex justify-content-center gap-2 mt-3">
-        <form method="post" action="{{ url_for('pause_session') }}" style="display:contents">
-            <button type="submit" class="btn btn-custom-primary d-flex align-items-center gap-2">
-                <i class="bi bi-pause-fill"></i> Pause
-            </button>
-        </form>
-        <form method="post" action="{{ url_for('end_session') }}" style="display:contents">
-            <button type="submit" class="btn btn-custom-danger">
-                <i class="bi bi-stop-fill"></i> End Session
-            </button>
-        </form>
+    <div class="dock">
+        <div class="d-flex justify-content-center gap-2 mt-4 action-row">
+            <form method="post" action="{{ url_for('min_speed') }}" style="display:contents">
+                <button type="submit" class="btn btn-preset">Slow</button>
+            </form>
+            <form method="post" action="{{ url_for('slow_speed') }}" style="display:contents">
+                <button type="submit" class="btn btn-preset">Moderate</button>
+            </form>
+            <form method="post" action="{{ url_for('max_speed') }}" style="display:contents">
+                <button type="submit" class="btn btn-preset">Max</button>
+            </form>
+        </div>
+        <div class="d-flex justify-content-center gap-2 mt-3 action-row">
+            <form method="post" action="{{ url_for('pause_session') }}" style="display:contents">
+                <button type="submit" class="btn btn-custom-primary d-flex align-items-center gap-2">
+                    <i class="bi bi-pause-fill"></i> Pause
+                </button>
+            </form>
+            <form method="post" action="{{ url_for('end_session') }}" style="display:contents">
+                <button type="submit" class="btn btn-custom-danger">
+                    <i class="bi bi-stop-fill"></i> End Session
+                </button>
+            </form>
+        </div>
     </div>
 </div>
 
@@ -73,6 +75,15 @@
   // just during the on-submit window.
   var actionButtons = document.querySelectorAll('button[type="submit"]');
   disableButtonsOnSubmit('transitioning-hint', actionButtons);
+
+  // Native only: needs a secure context (localhost/HTTPS), so a phone on LAN HTTP skips it.
+  if ('wakeLock' in navigator) {
+    var requestWakeLock = function() { navigator.wakeLock.request('screen').catch(function() {}); };
+    requestWakeLock();
+    document.addEventListener('visibilitychange', function() {
+      if (document.visibilityState === 'visible') requestWakeLock();
+    });
+  }
 
   startStatsStream(function(data) {
     setTransitioning('transitioning-hint', actionButtons, data.belt_transitioning === true);

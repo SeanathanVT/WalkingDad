@@ -82,6 +82,19 @@ def test_backup_and_rename(db):
     assert json.loads(backups[0].read_text()) == [NORMAL]
 
 
+def test_backup_dir(db, tmp_path):
+    json_path = _write(db / "session_history.json", [NORMAL])
+    backups = tmp_path / "backups"
+    backups.mkdir()
+
+    storage.migrate_json(json_path, str(backups))
+
+    assert not (db / "session_history.json").exists()
+    assert (backups / "session_history.json.migrated").exists()
+    assert len(list(backups.glob("session_history.json.bak-*"))) == 1
+    assert list(db.glob("session_history.json.*")) == []
+
+
 def test_second_run_is_noop(db):
     storage.migrate_json(_write(db / "session_history.json", [NORMAL]))
     # A new legacy file appearing later must not be imported again.

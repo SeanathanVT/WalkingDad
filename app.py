@@ -7,6 +7,7 @@ import logging
 import os
 import queue
 import signal
+import socket
 import threading
 import time
 import urllib.parse
@@ -91,11 +92,11 @@ _belt_sequence_task: asyncio.Task | None = None  # Track an in-flight start/resu
 _belt_transitioning = False  # True while a belt sequence is in flight; exposed in /stats for UI
 _auto_reconnect_task: asyncio.Task | None = None  # Track an in-flight auto-reconnect retry loop
 _speed_change_task: asyncio.Task | None = None  # Track an in-flight _locked_change_speed() call
-HISTORY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "session_history.json")  # legacy; migrated into the DB at startup
-_CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
+HISTORY_FILE = os.path.join(config.DATA_DIR, "session_history.json")  # legacy; migrated into the DB at startup
+_CONFIG_FILE = config.CONFIG_FILE
 
 _session_state_file_lock = threading.Lock()  # Protect session_state.json reads/writes
-SESSION_STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "session_state.json")
+SESSION_STATE_FILE = os.path.join(config.DATA_DIR, "session_state.json")
 _SESSION_STATE_SAVE_INTERVAL_SECONDS = 5
 # ask_stats() only sends a request. The ph4_walkingpad library never returns the reply
 # synchronously; the real data always lands via the on_cur_status_received notification
@@ -395,14 +396,41 @@ def _clear_session_history():
         logging.exception("Failed to clear session history")
 
 
-def _dismiss_health_export():
-    """Mark the most recent session as no longer pending an Apple Health export."""
+# {"id", "status"} of the last Apple Health status change, pushed over SSE so other open
+# pages (e.g. the desktop prompt while the phone logs) update without a reload.
+_last_health_status_change = None
+
+
+def _set_health_status(session_id, status) -> bool:
+    """Only completed sessions have an Apple Health status; False for anything else or a failed write."""
+    global _last_health_status_change
     try:
-        recent = storage.list_sessions(limit=1)
-        if recent:
-            storage.mark_health_logged(recent[0]["id"])
+        row = storage.get_session(session_id)
+        if not row or row["status"] != "completed":
+            return False
+        # A Dismiss from a page that hasn't seen the log yet must not undo it.
+        if status == storage.HEALTH_DISMISSED and row["health_logged"] == storage.HEALTH_LOGGED:
+            return True
+        storage.set_health_status(session_id, status)
     except Exception:
-        logging.exception("Failed to dismiss health export flag")
+        logging.exception("Failed to update Apple Health status")
+        return False
+    _last_health_status_change = {"id": session_id, "status": status}
+    return True
+
+
+def _dismiss_health_export(session_id=None):
+    """Mark session_id (default: the most recent session) as no longer pending an Apple Health export."""
+    if session_id is None:
+        try:
+            recent = storage.list_sessions(limit=1)
+        except Exception:
+            logging.exception("Failed to dismiss health export flag")
+            return
+        if not recent:
+            return
+        session_id = recent[0]["id"]
+    _set_health_status(session_id, storage.HEALTH_DISMISSED)
 
 
 # ── Session State Persistence (crash/restart recovery) ──────────────────
@@ -482,8 +510,9 @@ def _write_config(updates: dict) -> None:
 _STARTUP_ENABLED = os.environ.get("WALKINGDAD_NO_STARTUP") != "1"
 
 if _STARTUP_ENABLED:
-    storage.init_db(os.path.join(os.path.dirname(os.path.abspath(__file__)), config.DATABASE_PATH))
-    storage.migrate_json(HISTORY_FILE)
+    config.relocate_legacy_files()
+    storage.init_db(os.path.join(config.DATA_DIR, config.DATABASE_PATH))
+    storage.migrate_json(HISTORY_FILE, config.BACKUP_DIR)
 
     _pending_restore = _load_session_state()  # Check for an interrupted session at startup
     _sweep_orphaned_sessions((_pending_restore or {}).get("session_id"))
@@ -501,7 +530,7 @@ if _STARTUP_ENABLED:
 # ultimately hands off to one of these under the hood. It's also just a
 # plain https:// link, not the shortcuts:// scheme -- Apple's own "Get
 # Shortcut" page at the other end handles the import itself.
-_APPLE_HEALTH_SHORTCUT_ICLOUD_LINK = "https://www.icloud.com/shortcuts/c832ad7548ac425898fae31920bcb8c3"
+_APPLE_HEALTH_SHORTCUT_ICLOUD_LINK = "https://www.icloud.com/shortcuts/fb023c69aa204562afff9587b0b6441a"
 
 
 def _build_setup_shortcut_url() -> str:
@@ -511,10 +540,28 @@ def _build_setup_shortcut_url() -> str:
     return _APPLE_HEALTH_SHORTCUT_ICLOUD_LINK
 
 
-def _build_log_shortcut_url(session_record: dict) -> str:
-    """shortcuts://run-shortcut runs the already-installed Shortcut with that
-    session's data embedded directly in the URL -- no fetch back to this server
-    needed. Percent-encodes name= and the JSON text= payload (which has its own
+def _phone_reachable_base_url() -> str:
+    """request.host_url, but with a loopback host (the desktop's usual
+    http://localhost:<port>) swapped for this machine's LAN IP, since a phone
+    opens this URL. Falls back to request.host_url if no route exists."""
+    parts = urllib.parse.urlsplit(request.host_url)
+    if parts.hostname not in ("localhost", "127.0.0.1", "::1"):
+        return request.host_url
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("10.254.254.254", 1))  # UDP connect only picks a route; nothing is sent.
+            ip = s.getsockname()[0]
+    except OSError:
+        return request.host_url
+    port = f":{parts.port}" if parts.port else ""
+    return f"{parts.scheme}://{ip}{port}/"
+
+
+def _build_log_shortcut_url(session_record: dict, success_url: str) -> str:
+    """shortcuts://x-callback-url/run-shortcut runs the already-installed
+    Shortcut with that session's data embedded directly in the URL, then opens
+    success_url once it finishes, which marks the session logged. Percent-encodes
+    name= and the JSON text= payload (which has its own
     unsafe characters -- spaces, quotes, braces), but leaves ":" and "/" alone:
     a raw, un-percent-encoded space isn't valid inside a URI at all (unlike :
     and /, which are allowed unencoded in a query component per RFC 3986), and
@@ -526,10 +573,17 @@ def _build_log_shortcut_url(session_record: dict) -> str:
         "distance_km": session_record["distance_km"],
         "distance_mi": session_record["distance_mi"],
         "calories": session_record["calories"],
+        "steps": session_record["steps"],
     })
     name = urllib.parse.quote(APPLE_HEALTH_SHORTCUT_NAME, safe=":/")
     text = urllib.parse.quote(payload, safe=":/")
-    return f"shortcuts://run-shortcut?name={name}&input=text&text={text}"
+    success = urllib.parse.quote(success_url, safe="")
+    return f"shortcuts://x-callback-url/run-shortcut?name={name}&input=text&text={text}&x-success={success}"
+
+
+def _health_log_url(session_record: dict, base_url: str) -> str:
+    success_url = base_url.rstrip("/") + url_for("health_logged", session_id=session_record["id"])
+    return _build_log_shortcut_url(session_record, success_url)
 
 
 # ── Context processor so templates always know flags ────────────────────
@@ -1409,9 +1463,14 @@ def root():
         pending_health_export = (
             APPLE_HEALTH_EXPORT_ENABLED
             and bool(most_recent_session)
-            and not most_recent_session[0].get("health_logged", False)
+            and most_recent_session[0]["health_status"] == storage.HEALTH_PENDING
         )
-        log_shortcut_url = _build_log_shortcut_url(most_recent_session[0]) if pending_health_export else None
+        if APPLE_HEALTH_EXPORT_ENABLED:
+            base_url = _phone_reachable_base_url()
+            for record in history:
+                if record["health_status"] != storage.HEALTH_LOGGED:
+                    record["log_shortcut_url"] = _health_log_url(record, base_url)
+        log_shortcut_url = _health_log_url(most_recent_session[0], base_url) if pending_health_export else None
 
         pending_restore = None
         if _pending_restore:
@@ -1425,6 +1484,8 @@ def root():
         return render_template(
             "start_session.html", time_active="0:00:00", history=history, pending_restore=pending_restore,
             pending_health_export=pending_health_export, log_shortcut_url=log_shortcut_url,
+            health_session_id=most_recent_session[0]["id"] if pending_health_export else None,
+            health_export_enabled=APPLE_HEALTH_EXPORT_ENABLED,
         )
 
     template = "active_session.html" if belt_running else "paused_session.html"
@@ -1561,9 +1622,35 @@ def clear_history():
 # ── Dismiss Apple Health Export Prompt ───────────────────────────────────
 @app.route("/dismiss_health_export", methods=["POST"])
 def dismiss_health_export():
-    """Mark the most recent session as dismissed from the Apple Health export prompt."""
-    _dismiss_health_export()
+    """Dismiss the prompt's session (sent by the banner), so a session that ended
+    meanwhile on another device isn't dismissed in its place."""
+    _dismiss_health_export(request.form.get("session_id"))
     return jsonify({"status": "dismissed"})
+
+
+@app.route("/delete_session/<session_id>", methods=["POST"])
+def delete_session(session_id):
+    """Delete one completed session (and its pauses/samples). Never an
+    in-progress or awaiting-restore one, same rule as Clear History."""
+    try:
+        row = storage.get_session(session_id)
+        if not row or row["status"] != "completed":
+            return jsonify({"status": "not_found"}), 404
+        storage.delete_session(session_id)
+    except Exception:
+        logging.exception("Failed to delete session")
+        return jsonify({"status": "error"}), 500
+    return jsonify({"status": "deleted"})
+
+
+@app.route("/health_logged/<session_id>")
+def health_logged(session_id):
+    """x-success target of the Log to Apple Health link. A GET because Shortcuts
+    opens it as a Safari navigation; the CSRF guard skips GETs, so another
+    website could at most mark one session as logged."""
+    if not _set_health_status(session_id, storage.HEALTH_LOGGED):
+        return "Session not found, or it couldn't be marked as logged.", 404
+    return redirect(url_for("root"))
 
 
 # Waitress won't necessarily start (or will be unusably starved) with too
@@ -2012,6 +2099,7 @@ def _build_stats_payload() -> dict:
         "calories": round(current_calories),
         "time_active": format_seconds_to_hms(current_session_active_seconds),
         "stopping": _server_stopping,
+        "health_status_changed": _last_health_status_change,
     }
 
 

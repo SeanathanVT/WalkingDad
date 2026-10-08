@@ -99,6 +99,13 @@ def test_root_paused(client, paused):
     assert b"Session Paused" in client.get("/").data
 
 
+def test_phone_viewport_and_manifest(client):
+    html = client.get("/").get_data(as_text=True)
+    assert 'name="viewport" content="width=device-width' in html
+    assert 'rel="manifest"' in html
+    assert client.get("/static/manifest.json").get_json()["display"] == "standalone"
+
+
 def test_root_pending_restore(client, monkeypatch):
     monkeypatch.setattr(app, "_pending_restore", pending_state())
     data = client.get("/").data
@@ -353,7 +360,78 @@ def test_dismiss_health_export(client):
     sid = completed_session(datetime.now())
     resp = client.post("/dismiss_health_export")
     assert resp.get_json() == {"status": "dismissed"}
-    assert storage.get_session(sid)["health_logged"]
+    assert storage.get_session(sid)["health_logged"] == storage.HEALTH_DISMISSED
+
+
+def test_dismiss_keeps_logged_session_logged(client):
+    sid = completed_session(datetime.now())
+    storage.set_health_status(sid, storage.HEALTH_LOGGED)
+    client.post("/dismiss_health_export", json={"session_id": sid})
+    assert storage.get_session(sid)["health_logged"] == storage.HEALTH_LOGGED
+
+
+def test_health_logged_callback(client, monkeypatch):
+    monkeypatch.setattr(app, "APPLE_HEALTH_EXPORT_ENABLED", True)
+    sid = completed_session(datetime.now())
+    html = client.get("/").get_data(as_text=True)
+    assert "x-success=" in html and f'data-session-id="{sid}"' in html
+
+    assert redirects_root(client.get(f"/health_logged/{sid}"))
+    assert storage.get_session(sid)["health_logged"] == storage.HEALTH_LOGGED
+    assert app._build_stats_payload()["health_status_changed"] == {"id": sid, "status": storage.HEALTH_LOGGED}
+    assert 'id="health-export-banner"' not in client.get("/").get_data(as_text=True)
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+def test_history_log_buttons_only_for_unlogged(client, monkeypatch, enabled):
+    monkeypatch.setattr(app, "APPLE_HEALTH_EXPORT_ENABLED", enabled)
+    logged = completed_session(datetime.now() - timedelta(days=1))
+    dismissed = completed_session(datetime.now())
+    storage.set_health_status(logged, storage.HEALTH_LOGGED)
+    storage.set_health_status(dismissed, storage.HEALTH_DISMISSED)
+    html = client.get("/").get_data(as_text=True)
+    assert ("health_logged%2F" + dismissed in html) is enabled
+    assert "health_logged%2F" + logged not in html
+    assert ('class="bi bi-heart-fill health-icon"' in html) is enabled
+
+
+def test_delete_session(client):
+    sid = completed_session(datetime.now())
+    storage.append_samples(sid, [(0, 1.0, 1.0, 1, 1, None)])
+    resp = client.post(f"/delete_session/{sid}")
+    assert resp.get_json() == {"status": "deleted"}
+    assert storage.get_session(sid) is None
+    assert storage.get_samples(sid) == []
+
+
+def test_delete_session_refuses_in_progress(client):
+    sid = storage.create_session(datetime.now().astimezone().isoformat(timespec="seconds"), "pad", None)
+    assert client.post(f"/delete_session/{sid}").status_code == 404
+    assert client.post("/delete_session/no-such-id").status_code == 404
+    assert storage.get_session(sid) is not None
+
+
+def test_dismiss_targets_banner_session(client):
+    shown = completed_session(datetime.now() - timedelta(hours=1))
+    newer = completed_session(datetime.now())  # Ended on another device while the banner was open.
+    client.post("/dismiss_health_export", data={"session_id": shown})
+    assert storage.get_session(shown)["health_logged"] == storage.HEALTH_DISMISSED
+    assert storage.get_session(newer)["health_logged"] == storage.HEALTH_PENDING
+
+
+def test_health_logged_rejects_unknown_and_in_progress(client):
+    active = storage.create_session(datetime.now().astimezone().isoformat(timespec="seconds"), "pad", None)
+    assert client.get(f"/health_logged/{active}").status_code == 404
+    assert client.get("/health_logged/no-such-id").status_code == 404
+    assert storage.get_session(active)["health_logged"] == storage.HEALTH_PENDING
+    assert app._build_stats_payload()["health_status_changed"] is None
+
+
+def test_dismissed_session_does_not_reprompt(client, monkeypatch):
+    monkeypatch.setattr(app, "APPLE_HEALTH_EXPORT_ENABLED", True)
+    completed_session(datetime.now())
+    client.post("/dismiss_health_export")
+    assert 'id="health-export-banner"' not in client.get("/").get_data(as_text=True)
 
 
 # ── /settings ──

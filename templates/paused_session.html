@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="text-center">
+<div class="text-center screen">
     <h1 class="visually-hidden">Session Paused</h1>
     <div class="console-hero">
         <span class="console-hero-label">Paused</span>
@@ -29,17 +29,19 @@
         </div>
     </div>
 
-    <div class="d-flex justify-content-center gap-3 mt-4">
-        <form method="post" action="{{ url_for('resume_session') }}" style="display:contents">
-            <button id="btn-resume" type="submit" class="btn btn-custom-primary d-flex align-items-center gap-2">
-                <i class="bi bi-play-fill"></i> Resume
-            </button>
-        </form>
-        <form method="post" action="{{ url_for('end_session') }}" style="display:contents">
-            <button id="btn-end" type="submit" class="btn btn-custom-danger">
-                <i class="bi bi-stop-fill"></i> End Session
-            </button>
-        </form>
+    <div class="dock">
+        <div class="d-flex justify-content-center gap-3 mt-4 action-row">
+            <form method="post" action="{{ url_for('resume_session') }}" style="display:contents">
+                <button id="btn-resume" type="submit" class="btn btn-custom-primary d-flex align-items-center gap-2">
+                    <i class="bi bi-play-fill"></i> Resume
+                </button>
+            </form>
+            <form method="post" action="{{ url_for('end_session') }}" style="display:contents">
+                <button id="btn-end" type="submit" class="btn btn-custom-danger">
+                    <i class="bi bi-stop-fill"></i> End Session
+                </button>
+            </form>
+        </div>
     </div>
 </div>
 

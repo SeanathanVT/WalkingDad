@@ -4,8 +4,21 @@ All notable changes to WalkingDad will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **Add to Home Screen opens WalkingDad full-screen** (ROADMAP 3.19), like an app, without the browser's address and tool bars.
+- **Log to Apple Health from the iPhone or iPad running WalkingDad.** A phone can't scan its own screen, so on iPhone/iPad the per-session QR code is now a **Log to Apple Health** button, and the setup QR on the Settings page is an **Install Shortcut** button. Computers still show the QR codes, since a Mac can't write to Apple Health.
+- **The Log to Apple Health prompt clears itself once the workout is logged**, on every open WalkingDad page. After the Shortcut finishes, the phone opens WalkingDad in Safari, which marks that session as logged. Dismissing the prompt is now recorded separately from logging. The installed Shortcut doesn't need to change.
+- **See which sessions were logged to Apple Health, and log missed ones later.** With Apple Health export on, each session in Recent Sessions shows a filled heart once logged and an outline heart if not. **Edit** adds a **Log** button to each unlogged session.
+- **Apple Health export logs steps.** WalkingDad now sends the session's step count to the Shortcut, which logs it as a Steps sample alongside the workout. Reinstall the Shortcut from Settings to pick this up; the old one keeps working without steps.
+- **Delete individual sessions.** **Edit** also adds a delete button to each session in Recent Sessions, handy for removing test walks without clearing everything.
+- **The screen stays on during an active session** (ROADMAP 3.12), and returns to normal on Pause or End. Browsers only allow this on `localhost` or HTTPS, so it works on the computer running WalkingDad but not on a phone connecting over your network.
+
 ### Changed
 
+- **WalkingDad now has a real phone layout** (ROADMAP 3.19). Phones previously showed a shrunken desktop page. Now the speed reading fills the screen, the preset and Pause/End buttons sit full-width at the bottom within thumb reach, every button is large enough to tap while walking, the header controls fold into one menu button, and Recent Sessions shows as cards instead of a wide table. The desktop layout is unchanged.
+- **Buttons show a pressed state when clicked or tapped**, instead of fading to transparent while held.
+- **Everything WalkingDad writes now lives in a `data/` folder** instead of next to the code: settings (`data/config.json`), the session database, crash-recovery state, and the old JSON-migration backups (`data/backups/`). Existing files move there automatically the first time you start this version; nothing is overwritten. To edit settings by hand, use `data/config.json`.
 - **`/reconnect` is now POST-only**, like the belt-control routes. The Connect and Try Again buttons on the connecting screen look and work the same.
 
 ### Fixed
@@ -19,6 +32,7 @@ All notable changes to WalkingDad will be documented in this file.
 - **Tests now cover nearly all of the Python code** (ROADMAP 2.5): routes, Bluetooth sequences against a fake treadmill, status-packet math, persistence, and `run.py`'s launcher. The suite runs in about a second.
 - **Continuous integration** (ROADMAP 2.7): `ruff` lint and the test suite run on pull/merge requests and on pushes to `main`/`development` via GitHub Actions (Python 3.10 and 3.13) and GitLab CI (Python 3.12, with coverage shown in merge requests). `ruff` is pinned in `requirements-dev.txt`, and lint fixes in `app.py` (imports sorted, unused `global` declarations removed) have no behavior change.
 - **Importing `app.py` with `WALKINGDAD_NO_STARTUP=1` no longer installs the Ctrl+C/SIGTERM handlers or the `atexit` hook**, so pressing Ctrl+C during a test run interrupts pytest instead of killing the process two seconds later. Running the app normally is unchanged.
+- **pytest, ruff, and coverage settings merged into `pyproject.toml`**, replacing `pytest.ini`, `ruff.toml`, and `.coveragerc`. `requirements-dev.txt` adds `coverage[toml]` so coverage reads it on Python 3.10.
 - **`run.py`'s launcher logic moved into a `main()` function** so it can be tested. `python run.py` behaves the same.
 
 ---

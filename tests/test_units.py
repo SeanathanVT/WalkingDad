@@ -50,6 +50,18 @@ def test_new_session_record_matches_old_builder():
     assert rec["avg_speed_kmh"] == 4.9
     assert rec["avg_speed_mph"] == 3.1
     assert rec["health_logged"] is False
+    assert rec["health_status"] == 0
+
+
+def test_dismissed_is_not_logged():
+    row = {
+        "id": "x", "start_time": "2026-07-15T12:00:00-04:00", "end_time": None,
+        "moving_s": 0, "distance_m": 0.0, "steps": 0, "calories_kcal": 0.0,
+        "health_logged": 2, "has_samples": 0,
+    }
+    rec = legacy_record(row)
+    assert rec["health_logged"] is False
+    assert rec["health_status"] == 2
 
 
 def test_zero_moving_time_does_not_divide_by_zero():

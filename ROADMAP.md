@@ -209,7 +209,7 @@ Pull/merge requests and pushes to `main`/`development` run the lint and test sui
 | **GitHub Actions** | `.github/workflows/ci.yml` on `ubuntu-latest`, Python 3.10 (the supported floor) and 3.13. Pushes run only on `main`/`development`, so a PR branch isn't tested twice |
 | **GitLab CI** | `.gitlab-ci.yml` on the `python:3.12` image. Runs a merge-request pipeline when an MR is open, otherwise a branch pipeline, and shows the coverage percentage and a Cobertura report in the MR |
 | **Steps** | `pip install -r requirements.txt -r requirements-dev.txt`, `ruff check .`, `python -m pytest --cov=.`. CI reports coverage but never fails on it |
-| **Lint** | `ruff` pinned in `requirements-dev.txt`, since its default rule set changes between releases. `ruff.toml` ignores only rules that flag deliberate project style (root logger, catch-all excepts around BLE I/O, naive local datetimes, a `ValueError` raised to share an `except` clause) |
+| **Lint** | `ruff` pinned in `requirements-dev.txt`, since its default rule set changes between releases. `pyproject.toml` ignores only rules that flag deliberate project style (root logger, catch-all excepts around BLE I/O, naive local datetimes, a `ValueError` raised to share an `except` clause) |
 | **Linux only** | BLE is fully mocked, so no Bluetooth hardware or OS-specific stack is needed. `tests/test_run.py` assumes POSIX (macOS/Linux) |
 
 ---
@@ -237,7 +237,7 @@ Session data lives in a local SQLite database (`walkingdad.db`, configurable via
 | **Live Lifecycle** | Row created at Start; pauses recorded at manual pause, step-off auto-pause, and Bluetooth drop; completed at End, stale-pause auto-end (1.5), or graceful shutdown |
 | **Samples** | ~1/s while walking, at most 1 per 5 s while paused (in practice every idle-watchdog ping, ~10 s), plus one at the moment of each manual or auto pause, buffered in memory and flushed on the existing 5 s `_save_session_state()` cadence, so a crash loses at most ~5 s. Storage failures are logged, never allowed to stop the belt or block BLE handling |
 | **Crash Recovery Link** | `session_state.json` carries the `session_id`: Restore continues the same row (downtime recorded as a `shutdown` pause), Discard deletes it. Unreferenced `active` rows are swept at startup: completed from their last sample, or deleted if they have none |
-| **JSON Migration** | One-time, automatic, single transaction: backup to `session_history.json.bak-<timestamp>`, then rename to `.migrated`. Unparseable records are logged and skipped; an unreadable file is left untouched for a later retry |
+| **JSON Migration** | One-time, automatic, single transaction: backup to `session_history.json.bak-<timestamp>`, then rename to `.migrated` (both in `data/backups/`). Unparseable records are logged and skipped; an unreadable file is left untouched for a later retry |
 | **Unchanged Surface** | `units.legacy_record()` rebuilds the pre-SQLite record shape, so the history table, Apple Health export, and CSV columns are identical (CSV gains trailing `id`, `has_samples`) |
 
 ---
@@ -402,12 +402,12 @@ Active, Paused, and Start screens redesigned to read like the WalkingPad's own o
 
 ---
 
-### 3.12 Screen Wake Lock During Active Session
-- **Status:** Planned
-- **Priority:** Medium
-- **Problem:** Nothing actively touches the page while walking, so the browser can dim or lock the screen mid-session, right when a quick glance at speed/distance is most likely.
-- **Solution:** Request a screen wake lock while `belt_running` is true, and release it on pause/end.
-- **Implementation:** The native [Wake Lock API](https://developer.mozilla.org/en-US/docs/Web/API/Screen_Wake_Lock_API) (`navigator.wakeLock.request('screen')`), no dependency needed. Re-request on `visibilitychange` since the browser releases the lock automatically when the tab is hidden.
+### ✅ 3.12 Screen Wake Lock During Active Session
+**Status:** ✅ Complete
+**Priority:** Medium
+**Files Modified:** `templates/active_session.html`
+
+The Active screen requests a native screen wake lock (`navigator.wakeLock`) and re-requests it when the tab becomes visible again; leaving the page (Pause/End) releases it. The API only exists in a secure context, so it works on `localhost` and HTTPS but not on a phone loading the app over LAN HTTP. See `CHANGELOG.md` `[Unreleased]`.
 
 ---
 
@@ -470,12 +470,12 @@ Active, Paused, and Start screens redesigned to read like the WalkingPad's own o
 
 ---
 
-### 3.19 Phone Layout
-- **Status:** Planned
-- **Priority:** Medium
-- **Problem:** `base.html` has no `<meta name="viewport">`, so iOS Safari renders the desktop layout at ~980px and scales it down: tiny text, small tap targets (±, presets, Pause/End), and most of the screen empty. The existing `@media (max-width: 480px)` rules have never applied on a phone for the same reason. Confirmed on an iPhone over the LAN (2026-10-07).
-- **Solution:** Add `<meta name="viewport" content="width=device-width, initial-scale=1">`, then tune the 480px block for walking-while-tapping use: tap targets of at least 44px, Pause/End and presets full-width, the stats strip as a 2x2 grid, and the speed readout using the freed vertical space. Desktop layout unchanged.
-- **Implementation:** `templates/base.html` (meta tag and the 480px block); check active, paused, start, connecting, and settings screens on a real phone, since the 480px rules are untested. Do before 3.6, since the QR code is what brings phones in. 3.7 (swipe gestures) and 3.17 (tablet breakpoint) build on a working phone baseline.
+### ✅ 3.19 Phone Layout
+**Status:** ✅ Complete
+**Priority:** Medium
+**Files Modified:** `templates/base.html`, `templates/active_session.html`, `templates/paused_session.html`, `templates/start_session.html`, `static/manifest.json`
+
+Added the missing viewport meta, so phones get a real phone layout instead of a scaled-down desktop page. Under 480px: the reading fills the screen with preset and Pause/End rows docked at the bottom in thumb reach, 44px+ tap targets, a single menu button for the header controls, and session history as stacked cards. A web app manifest lets Add to Home Screen launch full-screen. Desktop layout is unchanged. See `CHANGELOG.md` `[Unreleased]`.
 
 ---
 
@@ -539,7 +539,7 @@ Two QR codes, both self-contained (no fetch back to WalkingDad's server): a **se
 
 **Off by default.** An `apple_health_export_enabled` setting (Settings page, styled as a pill/slide toggle) gates the whole feature; when off, neither QR nor the start-screen prompt appears. Turning it on doesn't retroactively surface an old, unrelated session that happened to be most recent before the feature existed: the currently-most-recent session is pre-marked as handled on that specific off→on transition, unless it's from today, in which case it's left showing (plausibly the reason someone would enable the feature mid-session in the first place).
 
-The start screen shows a persistent "Log to Apple Health" banner after a session ends, driven by a `health_logged` flag stored on the session record itself (not a one-shot flash). It survives navigation and reloads, and only clears on an explicit Dismiss or once a newer session supersedes it. This check is independent of the unrelated `history_display_limit` setting (querying the single most recent session directly rather than reusing the display-limited history list), so setting that to `0` doesn't silently disable Apple Health export too. Tapping the banner opens an in-page modal (no navigation) with the per-session QR, with a link inside to swap to the setup QR for anyone who hasn't installed the Shortcut yet. The Settings page also keeps a permanent copy of the setup QR (inside the same collapsing toggle section) for reinstalling later. QR rendering is client-side (`qrcodejs` via CDN, matching how `base.html` already pulls Bootstrap/Icons/Fonts), no new Python dependency.
+The start screen shows a persistent "Log to Apple Health" banner after a session ends, driven by a `health_logged` flag stored on the session record itself (not a one-shot flash). It survives navigation and reloads, and clears once the Shortcut reports success (an `x-success` callback to `/health_logged/<id>`), on an explicit Dismiss (stored as dismissed, not logged), or once a newer session supersedes it. This check is independent of the unrelated `history_display_limit` setting (querying the single most recent session directly rather than reusing the display-limited history list), so setting that to `0` doesn't silently disable Apple Health export too. Tapping the banner opens an in-page modal (no navigation) with the per-session QR, with a link inside to swap to the setup QR for anyone who hasn't installed the Shortcut yet. The Settings page also keeps a permanent copy of the setup QR (inside the same collapsing toggle section) for reinstalling later. QR rendering is client-side (`qrcodejs` via CDN, matching how `base.html` already pulls Bootstrap/Icons/Fonts), no new Python dependency.
 
 This also gave 3.6 (QR Code for LAN Access) a proven client-side QR-rendering approach to reuse rather than starting from scratch.
 
