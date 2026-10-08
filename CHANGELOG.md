@@ -2,7 +2,7 @@
 
 All notable changes to WalkingDad will be documented in this file.
 
-## [Unreleased]
+## [1.9.0] (2026-10-08)
 
 ### Added
 

@@ -6,6 +6,7 @@ Organized by theme (Area), not build order. Work has never moved through these t
 
 ### ✅ 1.1 macOS / Cross-Platform BLE Reliability Fixes
 **Status:** ✅ Complete
+**Changelog:** `[1.0.0]`
 **Priority:** High
 **Files Modified:** `app.py`
 
@@ -29,6 +30,7 @@ A comprehensive set of reliability improvements for Bluetooth Low Energy communi
 
 ### ✅ 1.2 Graceful Shutdown
 **Status:** ✅ Complete
+**Changelog:** `[1.1.0]`
 **Priority:** High
 **Files Modified:** `app.py`, `run.py`, `templates/*.html`
 
@@ -57,6 +59,7 @@ Additional fixes:
 
 ### ✅ 1.3 Session State Persistence
 **Status:** ✅ Complete
+**Changelog:** `[1.5.0]`
 **Priority:** High
 **Files Modified:** `app.py`, `templates/start_session.html`, `.gitignore`
 
@@ -77,6 +80,7 @@ Cumulative session stats now survive a server crash or restart. In-progress sess
 
 ### ✅ 1.4 Automatic Reconnect on Disconnection
 **Status:** ✅ Complete
+**Changelog:** `[1.8.0]`
 **Priority:** High
 **Files Modified:** `app.py`
 
@@ -96,6 +100,7 @@ Not configurable: retry counts and delays are module constants in `app.py`.
 
 ### ✅ 1.5 Auto-End Stale Paused Session
 **Status:** ✅ Complete
+**Changelog:** `[1.8.0]`
 **Priority:** Medium
 **Files Modified:** `app.py`, `config.py`, `config.json.example`, `templates/paused_session.html`, `templates/settings.html`, `README.md`, `tests/test_stale_pause.py`
 
@@ -111,6 +116,7 @@ A session left paused (manual, auto, Bluetooth drop, or restored after a crash) 
 
 ### ✅ 1.6 Port-in-Use Check on Startup
 **Status:** ✅ Complete
+**Changelog:** `[1.8.0]`
 **Priority:** Medium
 **Files Modified:** `run.py`, `start_app.bat`, `README.md`, `tests/test_port_check.py`
 
@@ -129,6 +135,7 @@ A session left paused (manual, auto, Bluetooth drop, or restored after a crash) 
 
 ### ✅ 2.1 External Configuration File
 **Status:** ✅ Complete
+**Changelog:** `[1.4.0]`
 **Priority:** High
 **Files Modified:** `config.py`, `config.json.example`, `app.py`, `run.py`, `.gitignore`, `README.md`, `templates/base.html`, `templates/settings.html`
 
@@ -138,6 +145,7 @@ All user-tunable settings are now loaded from an optional `config.json` file, wi
 
 ### ✅ 2.2 Route Security
 **Status:** ✅ Complete
+**Changelog:** `[1.9.0]`
 **Priority:** High
 **Files Modified:** `app.py`, `templates/connecting.html`, `tests/test_csrf.py`, `tests/test_routes.py`
 
@@ -168,6 +176,7 @@ Routes like `/start`, `/pause`, `/increase_speed` had no CSRF protection, so any
 
 ### ✅ 2.5 Unit Tests
 **Status:** ✅ Complete
+**Changelog:** `[1.8.0]`, `[1.9.0]`
 **Priority:** Medium
 **Files Modified:** `app.py`, `run.py`, `requirements-dev.txt`, `pytest.ini`, `ruff.toml`, `.coveragerc`, `.gitignore`, `README.md`, `tests/`
 
@@ -199,6 +208,7 @@ A `pytest` suite covering every module without a treadmill. How to run it: the R
 
 ### ✅ 2.7 Continuous Integration
 **Status:** ✅ Complete
+**Changelog:** `[1.9.0]`
 **Priority:** Medium
 **Files Modified:** `.github/workflows/ci.yml`, `.gitlab-ci.yml`, `requirements-dev.txt`, `ruff.toml`
 
@@ -225,6 +235,7 @@ Pull/merge requests and pushes to `main`/`development` run the lint and test sui
 
 ### ✅ 2.9 SQLite Session Storage
 **Status:** ✅ Complete
+**Changelog:** `[1.8.0]`
 **Priority:** Medium
 **Files Modified:** `app.py`, `storage.py`, `units.py`, `samples.py`, `config.py`, `config.json.example`, `.gitignore`, `tests/`
 
@@ -282,6 +293,7 @@ Session data lives in a local SQLite database (`walkingdad.db`, configurable via
 
 ### ✅ 3.1 Dark Mode
 **Status:** ✅ Complete
+**Changelog:** `[1.0.0]`
 **Priority:** Medium
 **Files Modified:** `templates/base.html`
 
@@ -291,12 +303,13 @@ Three-state theme toggle (Light → Dark → System) with `localStorage` persist
 
 ### ✅ 3.2 Server-Sent Events for Real-Time Updates
 **Status:** ✅ Complete
+**Changelog:** `[1.6.0]`
 **Priority:** Medium
 **Files Modified:** `app.py`, `run.py`, `config.py`, `config.json.example`, `templates/base.html`, `templates/active_session.html`, `templates/paused_session.html`, `templates/start_session.html`, `templates/settings.html`
 
 Replaced the three templates' `setInterval(fetch('/stats'))` polling loops (1.5s / 3s cadences) with a single `/stats_stream` Server-Sent Events endpoint. A daemon thread broadcasts a stats snapshot to all subscribers once a second via thread-safe per-client queues, independent of whether the belt is running, so active, paused, and start screens all get uniform live updates. `/stats` is kept unchanged for compatibility; both routes now share one `_build_stats_payload()` helper.
 
-Shipping this surfaced a real gap it needed to close first: a dead BLE connection while paused or idle went undetected entirely, since nothing was polling for liveness outside an active session. That's now covered by a dedicated idle/paused connection watchdog with its own staleness threshold, serialized against belt commands, the active stats poll, and speed changes via a lock recreated per connection attempt. See `CHANGELOG.md` `[1.6.0]` for details.
+Shipping this surfaced a real gap it needed to close first: a dead BLE connection while paused or idle went undetected entirely, since nothing was polling for liveness outside an active session. That's now covered by a dedicated idle/paused connection watchdog with its own staleness threshold, serialized against belt commands, the active stats poll, and speed changes via a lock recreated per connection attempt.
 
 ---
 
@@ -329,6 +342,7 @@ Shipping this surfaced a real gap it needed to close first: a dead BLE connectio
 
 ### ✅ 3.5 Session History Log
 **Status:** ✅ Complete
+**Changelog:** `[1.2.0]`
 **Priority:** Medium
 **Files Modified:** `app.py`, `templates/start_session.html`, `templates/active_session.html`, `templates/paused_session.html`, `templates/base.html`, `.gitignore`
 
@@ -367,19 +381,21 @@ Stores completed sessions and displays a summary table on the start screen. Incl
 
 ### ✅ 3.8 Selectable Color Themes
 **Status:** ✅ Complete
+**Changelog:** `[1.7.0]`
 **Priority:** Medium
 **Files Modified:** `templates/base.html`
 
-10 standard color themes (Slate default, plus 9 hues run in even 40° spectral steps: Red, Amber, Lime, Forest, Teal, Cyan, Blue, Violet, Pink) and 5 "special" themes (Virginia Tech, Bloom, Tide, Harvest, Frost), selectable independently of the Light/Dark/System toggle via a palette icon in the header. Each theme tints the whole surface (backgrounds, cards, browser chrome) through CSS custom properties, not just accent buttons. Special themes add a two-tone swatch, a heading font (fetched only if selected), and, except Virginia Tech, a non-interactive ambient effect (falling petals/snow/leaves, scuttling crabs, glowing eyes) that respects `prefers-reduced-motion`. See `CHANGELOG.md` `[1.7.0]` for details.
+10 standard color themes (Slate default, plus 9 hues run in even 40° spectral steps: Red, Amber, Lime, Forest, Teal, Cyan, Blue, Violet, Pink) and 5 "special" themes (Virginia Tech, Bloom, Tide, Harvest, Frost), selectable independently of the Light/Dark/System toggle via a palette icon in the header. Each theme tints the whole surface (backgrounds, cards, browser chrome) through CSS custom properties, not just accent buttons. Special themes add a two-tone swatch, a heading font (fetched only if selected), and, except Virginia Tech, a non-interactive ambient effect (falling petals/snow/leaves, scuttling crabs, glowing eyes) that respects `prefers-reduced-motion`.
 
 ---
 
 ### ✅ 3.9 Console-Style Interface Redesign
 **Status:** ✅ Complete
+**Changelog:** `[1.7.0]`
 **Priority:** Medium
 **Files Modified:** `templates/base.html`, `templates/active_session.html`, `templates/paused_session.html`, `templates/start_session.html`, `templates/connecting.html`, `static/favicon.ico`, `static/apple-touch-icon.png`
 
-Active, Paused, and Start screens redesigned to read like the WalkingPad's own onboard display: one large tabular-digit instrument-face reading (Speed while walking, elapsed time while paused, a Start control when idle) plus a compact Time/Distance/Steps/Calories readout strip below, with a brief mechanical tick animation on value changes and a colored connection status LED next to the logo. Also added a favicon and "Add to Home Screen" icon using the app's own logo mark instead of the browser default. See `CHANGELOG.md` `[1.7.0]` for details.
+Active, Paused, and Start screens redesigned to read like the WalkingPad's own onboard display: one large tabular-digit instrument-face reading (Speed while walking, elapsed time while paused, a Start control when idle) plus a compact Time/Distance/Steps/Calories readout strip below, with a brief mechanical tick animation on value changes and a colored connection status LED next to the logo. Also added a favicon and "Add to Home Screen" icon using the app's own logo mark instead of the browser default.
 
 ---
 
@@ -404,10 +420,11 @@ Active, Paused, and Start screens redesigned to read like the WalkingPad's own o
 
 ### ✅ 3.12 Screen Wake Lock During Active Session
 **Status:** ✅ Complete
+**Changelog:** `[1.9.0]`
 **Priority:** Medium
 **Files Modified:** `templates/active_session.html`
 
-The Active screen requests a native screen wake lock (`navigator.wakeLock`) and re-requests it when the tab becomes visible again; leaving the page (Pause/End) releases it. The API only exists in a secure context, so it works on `localhost` and HTTPS but not on a phone loading the app over LAN HTTP. See `CHANGELOG.md` `[Unreleased]`.
+The Active screen requests a native screen wake lock (`navigator.wakeLock`) and re-requests it when the tab becomes visible again; leaving the page (Pause/End) releases it. The API only exists in a secure context, so it works on `localhost` and HTTPS but not on a phone loading the app over LAN HTTP.
 
 ---
 
@@ -458,19 +475,21 @@ The Active screen requests a native screen wake lock (`navigator.wakeLock`) and 
 
 ### ✅ 3.18 Transition Hint Shows on Every Button Press
 **Status:** ✅ Complete
+**Changelog:** `[1.9.0]`
 **Priority:** Medium
 **Files Modified:** `templates/base.html`, `templates/active_session.html`, `templates/paused_session.html`, `templates/start_session.html`
 
-Submitting a form only disables and dims the buttons now; each page's `#transitioning-hint` follows the SSE `belt_transitioning` flag alone, so it shows only during a real start/pause/resume/end belt sequence, with matching text. A `submitting` flag in `base.html` also keeps the buttons disabled through SSE ticks until the page navigates away (cleared on a back/forward-cache restore), closing a double-tap window. The hint still toggles `display`, so the legitimate post-Start/Resume hint shifts the layout briefly; reserving its space was skipped to avoid a permanent gap on the phone layout. See `CHANGELOG.md` `[Unreleased]`.
+Submitting a form only disables and dims the buttons now; each page's `#transitioning-hint` follows the SSE `belt_transitioning` flag alone, so it shows only during a real start/pause/resume/end belt sequence, with matching text. A `submitting` flag in `base.html` also keeps the buttons disabled through SSE ticks until the page navigates away (cleared on a back/forward-cache restore), closing a double-tap window. The hint still toggles `display`, so the legitimate post-Start/Resume hint shifts the layout briefly; reserving its space was skipped to avoid a permanent gap on the phone layout.
 
 ---
 
 ### ✅ 3.19 Phone Layout
 **Status:** ✅ Complete
+**Changelog:** `[1.9.0]`
 **Priority:** Medium
 **Files Modified:** `templates/base.html`, `templates/active_session.html`, `templates/paused_session.html`, `templates/start_session.html`, `static/manifest.json`
 
-Added the missing viewport meta, so phones get a real phone layout instead of a scaled-down desktop page. Under 480px: the reading fills the screen with preset and Pause/End rows docked at the bottom in thumb reach, 44px+ tap targets, a single menu button for the header controls, and session history as stacked cards. A web app manifest lets Add to Home Screen launch full-screen. Desktop layout is unchanged. See `CHANGELOG.md` `[Unreleased]`.
+Added the missing viewport meta, so phones get a real phone layout instead of a scaled-down desktop page. Under 480px: the reading fills the screen with preset and Pause/End rows docked at the bottom in thumb reach, 44px+ tap targets, a single menu button for the header controls, and session history as stacked cards. A web app manifest lets Add to Home Screen launch full-screen. Desktop layout is unchanged.
 
 ---
 
@@ -525,6 +544,7 @@ Added the missing viewport meta, so phones get a real phone layout instead of a 
 
 ### ✅ 5.1 Apple Health Export via Shortcuts
 **Status:** ✅ Complete
+**Changelog:** `[1.8.0]`, `[1.9.0]`
 **Priority:** Low
 **Files Modified:** `app.py`, `config.py`, `config.json.example`, `templates/base.html`, `templates/start_session.html`, `templates/settings.html`, `README.md`
 
