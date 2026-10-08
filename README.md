@@ -100,11 +100,12 @@ Logs a completed session to Apple Health as a Workout, without typing anything i
 1. With the toggle on, scan the QR code shown there with your iPhone's Camera app, or tap **Install Shortcut** if you're on the iPhone/iPad itself. Either opens Apple's own "Get Shortcut" page for a Shortcut that reads the workout data WalkingDad hands it and logs it via the built-in **Log Workout** action.
 2. Tap **Add Shortcut**. That's it. This only needs to happen once per phone.
 
-If you'd rather build the Shortcut by hand (e.g. you're maintaining a fork and want your own copy rather than relying on a link tied to someone else's iCloud account), it's three actions:
+If you'd rather build the Shortcut by hand (e.g. you're maintaining a fork and want your own copy rather than relying on a link tied to someone else's iCloud account), it's four steps:
 
 1. `Get Dictionary from Input` (reads the JSON handed to the Shortcut).
 2. `Log Workout`, with **Type** set to **Walking**, and **Date** / **Duration** / **Calories** / **Distance** each bound via Magic Variable to the matching key from the dictionary above (`start_time`+`date`, `duration_seconds`, `calories`, `distance_km` or `distance_mi`).
-3. Name the Shortcut to match the **Shortcut Name** setting on the Settings page (default `Log WalkingDad Workout`) exactly. This is how WalkingDad's QR code knows which Shortcut to run.
+3. `Log Health Sample`, with **Type** set to **Steps**, **Value** bound to `steps`, and **Date** to the same start date. The Value field only appears once Shortcuts is allowed to write Steps to Health.
+4. Name the Shortcut to match the **Shortcut Name** setting on the Settings page (default `Log WalkingDad Workout`) exactly. This is how WalkingDad's QR code knows which Shortcut to run.
 
 Then Share → Copy iCloud Link in the Shortcuts app, and swap `_APPLE_HEALTH_SHORTCUT_ICLOUD_LINK` in `app.py` for your own link.
 

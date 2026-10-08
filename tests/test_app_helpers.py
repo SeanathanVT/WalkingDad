@@ -105,12 +105,12 @@ def test_build_log_shortcut_url(monkeypatch):
     assert "{" not in text
     assert "08:30:00" in text
     payload = json.loads(urllib.parse.unquote(text))
-    assert payload == {k: v for k, v in record.items() if k != "steps"}
+    assert payload == record
 
 
 def test_build_log_shortcut_url_keeps_colon_and_slash(monkeypatch):
     monkeypatch.setattr(app, "APPLE_HEALTH_SHORTCUT_NAME", "a:b/c")
-    record = dict.fromkeys(("date", "start_time", "duration_seconds", "distance_km", "distance_mi", "calories"), 0)
+    record = dict.fromkeys(("date", "start_time", "duration_seconds", "distance_km", "distance_mi", "calories", "steps"), 0)
     assert "name=a:b/c&" in app._build_log_shortcut_url(record, "http://x/")
 
 

@@ -527,7 +527,7 @@ if _STARTUP_ENABLED:
 # ultimately hands off to one of these under the hood. It's also just a
 # plain https:// link, not the shortcuts:// scheme -- Apple's own "Get
 # Shortcut" page at the other end handles the import itself.
-_APPLE_HEALTH_SHORTCUT_ICLOUD_LINK = "https://www.icloud.com/shortcuts/c832ad7548ac425898fae31920bcb8c3"
+_APPLE_HEALTH_SHORTCUT_ICLOUD_LINK = "https://www.icloud.com/shortcuts/fb023c69aa204562afff9587b0b6441a"
 
 
 def _build_setup_shortcut_url() -> str:
@@ -570,6 +570,7 @@ def _build_log_shortcut_url(session_record: dict, success_url: str) -> str:
         "distance_km": session_record["distance_km"],
         "distance_mi": session_record["distance_mi"],
         "calories": session_record["calories"],
+        "steps": session_record["steps"],
     })
     name = urllib.parse.quote(APPLE_HEALTH_SHORTCUT_NAME, safe=":/")
     text = urllib.parse.quote(payload, safe=":/")
