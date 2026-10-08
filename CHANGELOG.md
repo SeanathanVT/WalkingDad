@@ -26,6 +26,8 @@ All notable changes to WalkingDad will be documented in this file.
 - **Other websites can no longer control the treadmill** (ROADMAP 2.2). A page open in your browser could previously submit Start, speed, Clear History, Bluetooth reconnect, or Shutdown requests to WalkingDad behind your back. Requests that come from another website are now refused. Using WalkingDad from any device on your network works exactly as before.
 - **Pause and speed buttons no longer error out when Bluetooth isn't running.** If the Bluetooth connection had already gone away, pressing Pause or a speed button showed a server error page. Pause now still pauses the session, and the speed buttons do nothing.
 - **A corrupted crash-recovery file no longer stops the app from starting.** If `session_state.json` contained unreadable (non-UTF-8) bytes, startup crashed. Startup now ignores the file, the same as an unparseable one.
+- **Speed buttons no longer flash a "Getting the belt moving…" message** (ROADMAP 3.18). Presets and the +/- buttons briefly showed it and pushed the buttons down, and Start, Pause, Resume and End flashed the wrong message ("Stopping belt…", "Pausing belt…"). The message now appears only while the belt is actually starting, pausing or stopping.
+- **A quick double-tap can no longer send a button press twice.** Buttons could re-enable mid-request on a live stats update; they now stay disabled from the moment you press one until the next screen loads.
 
 ### Internal
 
@@ -34,6 +36,7 @@ All notable changes to WalkingDad will be documented in this file.
 - **Importing `app.py` with `WALKINGDAD_NO_STARTUP=1` no longer installs the Ctrl+C/SIGTERM handlers or the `atexit` hook**, so pressing Ctrl+C during a test run interrupts pytest instead of killing the process two seconds later. Running the app normally is unchanged.
 - **pytest, ruff, and coverage settings merged into `pyproject.toml`**, replacing `pytest.ini`, `ruff.toml`, and `.coveragerc`. `requirements-dev.txt` adds `coverage[toml]` so coverage reads it on Python 3.10.
 - **`run.py`'s launcher logic moved into a `main()` function** so it can be tested. `python run.py` behaves the same.
+- **`AGENTS.md` added for AI coding agents** (`CLAUDE.md` is a symlink to it): keep docs in sync with code, the git workflow (PRs target `development`, the maintainer commits), the desktop-first design target, and the supported platforms.
 
 ---
 
