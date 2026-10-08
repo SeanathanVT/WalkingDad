@@ -408,6 +408,9 @@ def _set_health_status(session_id, status) -> bool:
         row = storage.get_session(session_id)
         if not row or row["status"] != "completed":
             return False
+        # A Dismiss from a page that hasn't seen the log yet must not undo it.
+        if status == storage.HEALTH_DISMISSED and row["health_logged"] == storage.HEALTH_LOGGED:
+            return True
         storage.set_health_status(session_id, status)
     except Exception:
         logging.exception("Failed to update Apple Health status")

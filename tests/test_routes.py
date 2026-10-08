@@ -363,6 +363,13 @@ def test_dismiss_health_export(client):
     assert storage.get_session(sid)["health_logged"] == storage.HEALTH_DISMISSED
 
 
+def test_dismiss_keeps_logged_session_logged(client):
+    sid = completed_session(datetime.now())
+    storage.set_health_status(sid, storage.HEALTH_LOGGED)
+    client.post("/dismiss_health_export", json={"session_id": sid})
+    assert storage.get_session(sid)["health_logged"] == storage.HEALTH_LOGGED
+
+
 def test_health_logged_callback(client, monkeypatch):
     monkeypatch.setattr(app, "APPLE_HEALTH_EXPORT_ENABLED", True)
     sid = completed_session(datetime.now())
