@@ -14,3 +14,5 @@ The maintainer runs macOS (primary) and Fedora Linux, never Windows. Suggest man
 
 ## Design target
 The primary client is a laptop browser at a desk above the treadmill. Design for desktop width and mouse/keyboard first; keep the phone layout working, but it doesn't drive layout or feature decisions.
+
+Follow common UI conventions (what major web apps do) and [WCAG 2.2](https://www.w3.org/TR/WCAG22/) level AA wherever practical. When a design knowingly deviates from either, say so in the design and why.

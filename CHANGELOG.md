@@ -2,6 +2,14 @@
 
 All notable changes to WalkingDad will be documented in this file.
 
+## [Unreleased]
+
+### Internal
+
+- **`AGENTS.md` asks agents to follow common UI conventions and WCAG 2.2 AA** wherever practical, and to call out deliberate deviations in their designs.
+
+---
+
 ## [1.9.0] (2026-10-08)
 
 ### Added
