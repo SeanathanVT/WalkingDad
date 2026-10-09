@@ -16,3 +16,4 @@ htmlcov/
 coverage.xml
 
 data/
+tmp/
