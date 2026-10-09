@@ -6,13 +6,13 @@
         <span class="console-hero-label">Speed</span>
         <div class="console-hero-controls">
             <form method="post" action="{{ url_for('decrease_speed') }}" style="display:contents">
-                <button type="submit" class="stepper-btn" aria-label="Decrease speed"><i class="bi bi-dash-lg"></i></button>
+                <button type="submit" class="stepper-btn" aria-label="Decrease speed"{{ hotkey("ArrowDown S") }}><i class="bi bi-dash-lg"></i></button>
             </form>
             <div>
                 <span class="console-hero-value" id="speed">{{ "%.1f"|format(speed) }}</span><span class="console-hero-unit">mph</span>
             </div>
             <form method="post" action="{{ url_for('increase_speed') }}" style="display:contents">
-                <button type="submit" class="stepper-btn" aria-label="Increase speed"><i class="bi bi-plus-lg"></i></button>
+                <button type="submit" class="stepper-btn" aria-label="Increase speed"{{ hotkey("ArrowUp W") }}><i class="bi bi-plus-lg"></i></button>
             </form>
         </div>
         <p id="transitioning-hint" class="text-muted mt-3 mb-0" style="display:none;font-size:0.85rem;">
@@ -43,18 +43,18 @@
     <div class="dock">
         <div class="d-flex justify-content-center gap-2 mt-4 action-row">
             <form method="post" action="{{ url_for('min_speed') }}" style="display:contents">
-                <button type="submit" class="btn btn-preset">Slow</button>
+                <button type="submit" class="btn btn-preset"{{ hotkey("L") }}>Slow</button>
             </form>
             <form method="post" action="{{ url_for('slow_speed') }}" style="display:contents">
-                <button type="submit" class="btn btn-preset">Moderate</button>
+                <button type="submit" class="btn btn-preset"{{ hotkey("K") }}>Moderate</button>
             </form>
             <form method="post" action="{{ url_for('max_speed') }}" style="display:contents">
-                <button type="submit" class="btn btn-preset">Max</button>
+                <button type="submit" class="btn btn-preset"{{ hotkey("M") }}>Max</button>
             </form>
         </div>
         <div class="d-flex justify-content-center gap-2 mt-3 action-row">
             <form method="post" action="{{ url_for('pause_session') }}" style="display:contents">
-                <button type="submit" class="btn btn-custom-primary d-flex align-items-center gap-2">
+                <button type="submit" class="btn btn-custom-primary d-flex align-items-center gap-2"{{ hotkey("Space") }}>
                     <i class="bi bi-pause-fill"></i> Pause
                 </button>
             </form>
@@ -75,6 +75,7 @@
   // just during the on-submit window.
   var actionButtons = document.querySelectorAll('button[type="submit"]');
   disableButtonsOnSubmit(actionButtons);
+  initTransitioning('transitioning-hint', actionButtons, {{ belt_transitioning|tojson }});
 
   // Native only: needs a secure context (localhost/HTTPS), so a phone on LAN HTTP skips it.
   if ('wakeLock' in navigator) {
@@ -85,6 +86,13 @@
     });
   }
 
+  var speedEl = document.getElementById('speed'), distanceEl = document.getElementById('distance');
+  function updateTitle() {
+    var title = speedEl.textContent + ' mph \u00b7 ' + distanceEl.textContent + ' - WalkingDad';
+    if (document.title !== title) document.title = title;
+  }
+  updateTitle();
+
   startStatsStream(function(data) {
     setTransitioning('transitioning-hint', actionButtons, data.belt_transitioning === true);
     // Check if the server has auto-paused the session
@@ -92,10 +100,11 @@
       window.location.reload();
     } else {
       setStatValue(document.getElementById('time_active'), data.time_active);
-      setStatValue(document.getElementById('speed'), data.speed.toFixed(1));
-      setStatValue(document.getElementById('distance'), data.distance.toFixed(2) + ' mi');
+      setStatValue(speedEl, data.speed.toFixed(1));
+      setStatValue(distanceEl, data.distance.toFixed(2) + ' mi');
       setStatValue(document.getElementById('steps'), String(parseInt(data.steps, 10)));
       setStatValue(document.getElementById('calories'), data.calories.toFixed(0));
+      updateTitle();
     }
   });
 </script>

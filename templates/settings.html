@@ -72,6 +72,16 @@
         </div>
 
         <div class="stat-card mb-4">
+            <h2 class="settings-section-title">Keyboard</h2>
+            <div class="mb-3 form-check form-switch">
+                <input type="checkbox" class="form-check-input" role="switch" name="keyboard_shortcuts_enabled"
+                       id="keyboard_shortcuts_enabled" {% if keyboard_shortcuts_enabled %}checked{% endif %}>
+                <label class="form-check-label fw-medium" for="keyboard_shortcuts_enabled">Enable keyboard shortcuts</label>
+                <div><small class="text-muted settings-hint">keyboard_shortcuts_enabled (press ? on any screen for the list)</small></div>
+            </div>
+        </div>
+
+        <div class="stat-card mb-4">
             <h2 class="settings-section-title mb-2">Server</h2>
             <p class="text-muted mb-3" style="font-size:0.875rem;">Changes to Host, Port, and Waitress Threads require restarting the app to take effect.</p>
             <div class="mb-3">

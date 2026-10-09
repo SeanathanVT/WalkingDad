@@ -22,6 +22,11 @@
                 var es = new EventSource("{{ url_for('stats_stream') }}");
                 es.onmessage = function(event) {
                     var data = JSON.parse(event.data);
+                    if (shutdownShown || data.stopping === true) {
+                        if (!shutdownShown) showShutdownOverlay();
+                        es.close();
+                        return;
+                    }
                     if (data.is_connected === true || data.connection_failed === true) {
                         window.location.reload();
                     }

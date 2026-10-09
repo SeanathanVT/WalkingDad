@@ -2,6 +2,31 @@
 
 All notable changes to WalkingDad will be documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- **Keyboard shortcuts** (ROADMAP 3.3). `Space` pauses or resumes; `↑`/`W` and `↓`/`S` change speed; `L`, `K`, and `M` pick the Slow, Moderate, and Max presets. Press `?` for the list, or hover a button to see its key. Start and End Session have no shortcut. Turn them off with the **Enable keyboard shortcuts** switch on the Settings page (`keyboard_shortcuts_enabled`).
+- **The browser tab shows your speed and distance while walking** (ROADMAP 3.13), e.g. `3.2 mph · 1.40 mi - WalkingDad`.
+
+### Changed
+
+- **Dependency versions are bounded** (ROADMAP 2.6). `requirements.txt` now sets a tested minimum and blocks the next major version of each package, so a fresh install can't pull in a breaking release.
+
+### Fixed
+
+- **A quick second press can no longer undo Start, Pause, Resume, or End.** The next screen used to load with its buttons enabled for about a second, so a double-tap on Pause could resume the belt while it was still stopping. Buttons now stay disabled until the belt finishes, and a page brought back with the browser's Back or Forward button reloads instead of showing stale, enabled buttons.
+- **End Session right after Pause always stops the belt.** Ending a session (e.g. from a second device) while a Pause was still reaching the treadmill could cancel the Pause before it stopped the belt, leaving it running.
+- **Speed changes no longer land on top of a Start, Resume, Pause, or End.** A speed button pressed while the belt was still starting or resuming (e.g. from a second device) could take effect right after it, from a near-zero reading; it's now ignored until the belt is moving. A speed change still on its way when you pause or end could reach the treadmill after it stopped; Pause and End now cancel it first.
+- **Speed buttons and Resume no longer land 0.1 km/h short.** A rounding error made some steps fall short, e.g. 3.8 + 0.6 km/h set 4.3 instead of 4.4.
+
+### Internal
+
+- **`AGENTS.md` asks agents to follow common UI conventions and WCAG 2.2 AA** wherever practical, and to call out deliberate deviations in their designs.
+- **`AGENTS.md` asks agents to run new or changed tests on every Python version CI uses**, after a test passed locally on 3.12 but failed in CI on 3.10.
+
+---
+
 ## [1.9.0] (2026-10-08)
 
 ### Added

@@ -162,6 +162,7 @@ def test_inject_flags(app_state, monkeypatch):
         "connected": False, "connecting": True, "connection_failed": True,
         "apple_health_shortcut_name": "My Shortcut",
         "setup_shortcut_url": app._build_setup_shortcut_url(),
+        "keyboard_shortcuts_enabled": True, "hotkey": app.hotkey, "belt_transitioning": False,
     }
 
 

@@ -212,6 +212,25 @@ def test_cancel_task(app_state):
     run(body)
 
 
+def test_cancel_task_keeps_callers_own_cancellation(app_state):
+    async def swallows():  # like every belt sequence
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            pass
+
+    async def body():
+        target = asyncio.create_task(swallows())
+        await _real_sleep(0)
+        caller = asyncio.create_task(app._cancel_task(target))
+        await _real_sleep(0)
+        caller.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await caller
+
+    run(body)
+
+
 def test_check_staleness_and_disconnect(app_state, monkeypatch, disconnects):
     monkeypatch.setattr(app.time, "monotonic", lambda: 1000.0)
     app._last_status_update_monotonic = 1000.0 - app._STALE_STATUS_TIMEOUT_SECONDS
@@ -632,6 +651,144 @@ def test_route_belt_sequence(app_state, pad, disconnects, monkeypatch, route, fa
             assert app._stats_monitor_task is not None
 
 
+def test_speed_change_registers_before_waiting_on_predecessor(app_state, pad):
+    async def body():
+        await app._ble_command_lock.acquire()
+        first = asyncio.create_task(app._locked_change_speed(30))
+        await _real_sleep(0)
+        second = asyncio.create_task(app._locked_change_speed(36))
+        await _real_sleep(0)
+        assert app._speed_change_task is second  # so a disconnect at this point cancels it
+        second.cancel()
+        await asyncio.wait({first, second})
+        app._ble_command_lock.release()
+        assert second.cancelled() and first.done()
+
+    run(body)
+    assert pad.calls == []
+
+
+def test_cancel_task_on_another_loop_cancels_there(app_state):
+    other = asyncio.new_event_loop()
+    stray = other.create_task(asyncio.Event().wait())
+
+    async def body():
+        # Bounded: waiting across threads would hang (nothing runs `other`).
+        await asyncio.wait_for(app._cancel_task(stray), timeout=1)
+
+    run(body)
+    other.run_until_complete(asyncio.wait({stray}))
+    assert stray.cancelled()
+    other.close()
+    closed = asyncio.new_event_loop()
+    dead = closed.create_task(asyncio.Event().wait())
+    closed.close()
+    run(lambda: app._cancel_task(dead))  # closed loop: nothing to do, no error
+    dead.get_coro().close()  # never ran; avoids a "never awaited" warning
+
+
+@pytest.mark.parametrize("route", ["/pause", "/end_session"])
+def test_pause_and_end_cancel_a_pending_speed_change(app_state, pad, disconnects, route):
+    app.session_active, app.belt_running = True, True
+    app._session_start_time = datetime.now()
+    app.ble_loop = FakeLoop()
+    app.app.test_client().post(route)
+    [sequence] = app_state
+    app_state.clear()
+
+    async def slow_to_unwind():  # an earlier step, still finishing its cancellation
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            for _ in range(5):
+                await _real_sleep(0)
+
+    async def body():
+        app._speed_change_task = asyncio.create_task(slow_to_unwind())
+        await _real_sleep(0)
+        # Waits on its predecessor outside the BLE lock, so without the cancel
+        # Pause/End would take the lock first and this step would follow stop_belt.
+        step = asyncio.create_task(app._locked_change_speed(36))
+        await _real_sleep(0)
+        await sequence
+        await asyncio.wait({step})
+        assert step.cancelled()
+
+    run(body)
+    assert pad.calls == [("stop_belt",)]
+
+
+def test_cancel_task_logs_an_error_raised_while_cancelling(app_state, caplog):
+    async def fails_on_cancel():
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            raise ValueError("boom") from None
+
+    async def body():
+        task = asyncio.create_task(fails_on_cancel())
+        await _real_sleep(0)
+        await app._cancel_task(task)
+
+    run(body)
+    assert "while being cancelled: ValueError('boom')" in caplog.text
+
+
+def test_handle_disconnect_survives_task_on_closed_loop(app_state):
+    closed = asyncio.new_event_loop()
+    stale = closed.create_task(asyncio.Event().wait())
+    closed.run_until_complete(asyncio.sleep(0))  # now parked on a future
+    closed.close()
+    app._stats_monitor_task = stale
+    app._handle_disconnect(None)  # must not raise
+    stale.get_coro().close()
+
+
+def test_end_stops_belt_when_it_cancels_an_unfinished_pause(app_state, pad, disconnects):
+    app.session_active, app.belt_running = True, True
+    app._session_start_time = datetime.now()
+    app.ble_loop = FakeLoop()
+    client = app.app.test_client()
+    client.post("/pause")
+    client.post("/end_session")  # was_running is False: the pause already flipped it
+    pause_seq, end_seq = app_state
+    app_state.clear()
+
+    async def body():
+        await app._ble_command_lock.acquire()  # pause is stuck before its stop_belt
+        pause = asyncio.create_task(pause_seq)
+        await _real_sleep(0)
+        end = asyncio.create_task(end_seq)
+        await _real_sleep(0)
+        app._ble_command_lock.release()
+        await end
+        assert pause.done()
+
+    run(body)
+    assert pad.calls == [("stop_belt",)]
+    assert app._belt_transitioning is False
+
+
+
+
+def test_superseded_sequence_leaves_newer_transition(app_state, pad, disconnects, monkeypatch):
+    async def monitor():
+        pass
+
+    monkeypatch.setattr(app, "_stats_monitor", monitor)
+    app.session_active, app.belt_running, app.resume_speed_kmh = True, True, 3.0
+    client = app.app.test_client()
+    client.post("/pause")
+    client.post("/resume")
+    pause_seq, resume_seq = app_state
+    app_state.clear()
+    pad.hook = reply(3.0)
+    run(lambda: pause_seq)
+    assert app._belt_transitioning is True  # resume is still queued
+    run(lambda: resume_seq)
+    assert app._belt_transitioning is False
+
+
 @pytest.mark.parametrize("route", ["/start", "/pause", "/resume"])
 def test_route_belt_sequence_cancelled_waiting_for_lock(app_state, pad, disconnects, route):
     state = _ROUTES[route][0]
@@ -740,17 +897,17 @@ def test_handle_disconnect_reconnect_scheduling_fails(app_state, monkeypatch):
     assert (app.connected, app.connecting, app.connection_failed) == (False, False, True)
 
 
-def test_handle_disconnect_cancels_tasks_via_live_loop(app_state):
-    loop = FakeLoop()
+def test_handle_disconnect_cancels_tasks_on_their_own_loop(app_state):
+    newer = FakeLoop()  # e.g. a manual reconnect already replaced ble_loop
 
     async def body():
         tasks = [asyncio.create_task(asyncio.Event().wait()) for _ in range(2)]
         app._stats_monitor_task, app._belt_sequence_task = tasks
         await _real_sleep(0)
-        app.ble_loop = loop
+        app.ble_loop = newer
         app._handle_disconnect(None)
         await asyncio.gather(*tasks, return_exceptions=True)
-        assert loop.scheduled == [t.cancel for t in tasks]
+        assert newer.scheduled == []
         assert all(t.cancelled() for t in tasks)
 
     run(body)
@@ -926,6 +1083,7 @@ def _connect_then(during_run):
 
 
 def test_ble_thread_runs_until_stopped(ble_thread):
+    app._begin_belt_transition()  # e.g. queued on the previous loop, cancelled before it ran
     seen = []
 
     def during_run(loop):
@@ -937,9 +1095,19 @@ def test_ble_thread_runs_until_stopped(ble_thread):
     [(connected, connecting, current, lock)] = seen
     assert (connected, connecting, current) == (True, False, True)
     assert isinstance(lock, asyncio.Lock) and not lock.locked()
+    assert app._belt_transitioning is False
     assert app.connected is False
     assert app.ble_loop.is_closed()
     assert leftovers[0].cancelled()
+
+
+def test_ble_thread_resets_transition_before_publishing_loop(ble_thread, monkeypatch):
+    old = app.ble_loop = FakeLoop()
+    seen = []
+    reset = app._end_belt_transition
+    monkeypatch.setattr(app, "_end_belt_transition", lambda gen=None: (seen.append(app.ble_loop), reset(gen)))
+    ble_thread(_refuse)
+    assert seen == [old]
 
 
 def test_ble_thread_superseded_cleanup_keeps_newer_state(ble_thread):

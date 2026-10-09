@@ -32,7 +32,7 @@
     <div class="dock">
         <div class="d-flex justify-content-center gap-3 mt-4 action-row">
             <form method="post" action="{{ url_for('resume_session') }}" style="display:contents">
-                <button id="btn-resume" type="submit" class="btn btn-custom-primary d-flex align-items-center gap-2">
+                <button id="btn-resume" type="submit" class="btn btn-custom-primary d-flex align-items-center gap-2"{{ hotkey("Space") }}>
                     <i class="bi bi-play-fill"></i> Resume
                 </button>
             </form>
@@ -48,6 +48,7 @@
 <script>
   var pausedButtons = [document.getElementById('btn-resume'), document.getElementById('btn-end')];
   disableButtonsOnSubmit(pausedButtons);
+  initTransitioning('transitioning-hint', pausedButtons, {{ belt_transitioning|tojson }});
 
   startStatsStream(function(data) {
     if (data.session_active === false) {
