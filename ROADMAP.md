@@ -153,11 +153,15 @@ A session left paused (manual, auto, Bluetooth drop, or restored after a crash) 
 ---
 
 ### 1.9 Firmware Version Check and Update
-- **Status:** Planned (investigation)
+- **Status:** Declined: the check requires a KS Fit account, which WalkingDad won't use. Findings kept below in case this is revisited.
 - **Priority:** Low
 - **Problem:** Updating the pad's firmware takes KingSmith's KS Fit app and an account. The pad reports its versions over the standard Device Information service (a C2 here: firmware 6.1.2, software 6.3.0, Beken BK-BLE-1.0 module) and exposes TI-style over-the-air update characteristics (`f000ffc1`/`f000ffc2`, "Img Identify"/"Img Block"), so WalkingDad could check and update without the app. Firmware behavior also affects 1.8.
 - **Solution:** Replicate KS Fit's check and update. On a button press (opt-in, nothing automatic), ask KingSmith's server for the latest firmware for the connected model and compare it with the pad's versions; if newer, download the image from KingSmith and flash it. No firmware is bundled or redistributed.
-- **Implementation:** Spike first: decompile KS Fit 6.6.0 (`com.kingsmith.xiaojin`, base APK with jadx; the arm64 split with Ghidra if the logic is native) to find the version endpoint and whether it needs an account, the image format (signed or encrypted), and the update procedure (handshake, block size, acks, retries, verification). Build only the check unless the update procedure proves safe. A failed flash could brick the controller, recoverable at best over a serial connection.
+- **Spike findings (KS Fit 6.6.0, static analysis only, unverified against the live server or a pad):** KS Fit is a Flutter app; the logic is in the Dart AOT snapshot (`libapp.so`, Dart 3.11.1, read with blutter), not Java.
+    - **Check needs an account.** `POST {host}/V0.1/index.php` (`xj.kingsmith.com.cn` CN, `eu.api.ks.fit` EU) with form `service=user.firmware`, `xjid`, `token`, `model`, `firmware_ver`, `app_ver`, `type=1`, `product_detail_id`, `uuid`, `wifi_ver`; headers `Authorization` (the same session token), `language`, `appver`, `country`, `timeZoneName`, `timeZoneOffset`. No request signing. `xjid`/`token` come from `service=user.login` (email or phone, `pwd` = MD5 of the password). Response fields: `version`, `url`, `content`, `isLatest`, `model`, `status`. The check means storing the user's KS Fit credentials or token.
+    - **Image:** downloaded from the response `url` and sent as raw bytes; the app neither decrypts it nor checks a hash. Whether the pad verifies a signature is unknown.
+    - **Procedure:** for Bluetooth-only treadmills (`SingleBleDevice` → `BlueMcuFirmwareManager` → `SingleBlueOta`), the update runs over `fe02`, the normal command characteristic, not the Beken `f000ffc1`/`f000ffc2` OAD service (unused by KS Fit). Framed like normal commands (`0xF7` … `0xFD`): `hand_shake` (2 s reply timeout), then `ing` frames of 15 image bytes each with a reply per frame (1.2 s timeout), then `end`, then reset. Exact frame bytes not yet decoded.
+- **Implementation:** Not built. If revisited, build the check only: an update over a 15-byte-per-frame custom protocol on the command characteristic, with no image verification on the app side, risks bricking the controller (recoverable at best over a serial connection). First confirm the parameters and the `model`/`product_detail_id` values for a C2 with one live `user.firmware` request. Decompiled output (jadx, blutter) is kept locally, untracked, in `tmp/ksfit-6.6.0/`.
 
 ---
 
