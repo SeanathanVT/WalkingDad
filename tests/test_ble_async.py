@@ -696,12 +696,22 @@ def test_pause_and_end_cancel_a_pending_speed_change(app_state, pad, disconnects
     [sequence] = app_state
     app_state.clear()
 
+    async def slow_to_unwind():  # an earlier step, still finishing its cancellation
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            for _ in range(5):
+                await _real_sleep(0)
+
     async def body():
-        await app._ble_command_lock.acquire()  # the step is still waiting its turn
+        app._speed_change_task = asyncio.create_task(slow_to_unwind())
+        await _real_sleep(0)
+        # Waits on its predecessor outside the BLE lock, so without the cancel
+        # Pause/End would take the lock first and this step would follow stop_belt.
         step = asyncio.create_task(app._locked_change_speed(36))
         await _real_sleep(0)
-        app._ble_command_lock.release()
         await sequence
+        await asyncio.wait({step})
         assert step.cancelled()
 
     run(body)
