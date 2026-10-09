@@ -23,6 +23,7 @@ All notable changes to WalkingDad will be documented in this file.
 ### Internal
 
 - **`AGENTS.md` asks agents to follow common UI conventions and WCAG 2.2 AA** wherever practical, and to call out deliberate deviations in their designs.
+- **`AGENTS.md` asks agents to run new or changed tests on every Python version CI uses**, after a test passed locally on 3.12 but failed in CI on 3.10.
 
 ---
 
