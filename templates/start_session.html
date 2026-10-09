@@ -211,6 +211,7 @@
   // itself reacts to the belt_transitioning SSE signal below, since
   // Restore/Discard aren't an in-flight belt sequence the same way.
   disableButtonsOnSubmit(document.querySelectorAll('button[type="submit"]'));
+  initTransitioning('transitioning-hint', startButtons, {{ belt_transitioning|tojson }});
 
   startStatsStream(function(data) {
     setTransitioning('transitioning-hint', startButtons, data.belt_transitioning === true);

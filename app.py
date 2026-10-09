@@ -1,5 +1,6 @@
 import asyncio
 import atexit
+import contextlib
 import csv
 import io
 import json
@@ -25,6 +26,7 @@ from flask import (
     request,
     url_for,
 )
+from markupsafe import Markup
 from ph4_walkingpad.pad import Controller, WalkingPad
 
 import config
@@ -90,6 +92,10 @@ _stats_monitor_task: asyncio.Task | None = None  # Track the stats monitor task
 _idle_watchdog_task: asyncio.Task | None = None  # Track the paused/idle connection watchdog
 _belt_sequence_task: asyncio.Task | None = None  # Track an in-flight start/resume/pause belt sequence
 _belt_transitioning = False  # True while a belt sequence is in flight; exposed in /stats for UI
+# Bumped per queued sequence; only the newest may clear _belt_transitioning, so a
+# superseded or cancelled one can't re-enable the UI under a newer one.
+_belt_transition_gen = 0
+_belt_transition_lock = threading.Lock()
 _auto_reconnect_task: asyncio.Task | None = None  # Track an in-flight auto-reconnect retry loop
 _speed_change_task: asyncio.Task | None = None  # Track an in-flight _locked_change_speed() call
 HISTORY_FILE = os.path.join(config.DATA_DIR, "session_history.json")  # legacy; migrated into the DB at startup
@@ -586,6 +592,16 @@ def _health_log_url(session_record: dict, base_url: str) -> str:
     return _build_log_shortcut_url(session_record, success_url)
 
 
+def hotkey(keys: str) -> Markup:
+    """The aria-keyshortcuts attribute binding `keys`, or nothing when shortcuts
+    are off, so screen readers aren't told about dead keys (WCAG 2.1.4 requires
+    single-character shortcuts be switchable off). base.html derives the
+    tooltip and the `?` list from it."""
+    if not config.KEYBOARD_SHORTCUTS_ENABLED:
+        return Markup("")
+    return Markup(' aria-keyshortcuts="{}"').format(keys)
+
+
 # ── Context processor so templates always know flags ────────────────────
 @app.context_processor
 def inject_flags():
@@ -593,6 +609,9 @@ def inject_flags():
         "connected": connected, "connecting": connecting, "connection_failed": connection_failed,
         "apple_health_shortcut_name": APPLE_HEALTH_SHORTCUT_NAME,
         "setup_shortcut_url": _build_setup_shortcut_url(),
+        "keyboard_shortcuts_enabled": config.KEYBOARD_SHORTCUTS_ENABLED,
+        "hotkey": hotkey,
+        "belt_transitioning": _belt_transitioning,
     }
 
 
@@ -1039,19 +1058,29 @@ async def _stats_monitor():
 
 
 async def _cancel_task(task: asyncio.Task | None) -> None:
-    """Cancel a task if it's still running and wait for it to fully unwind.
+    """Cancel a task if it's still running and wait for it to finish.
 
     Shared by every module-level task this app tracks (stats monitor, idle
     watchdog, in-flight belt sequence) -- callers pass their own task
     variable; this never reassigns it (the global gets overwritten next
-    time a new task is created).
+    time a new task is created). Waits for `task` only, not for a task that
+    `task` was itself cancelling; _ble_command_lock and the belt-transition
+    generation keep any such stragglers' side effects in order.
     """
     if task and not task.done():
+        if task.get_loop() is not asyncio.get_running_loop():
+            # Left over from a previous connection's loop, which is tearing it
+            # down; cancel it there and don't wait across threads.
+            with contextlib.suppress(RuntimeError):  # that loop already closed
+                task.get_loop().call_soon_threadsafe(task.cancel)
+            return
         task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
+        # wait(), not `await task`: cancelling the caller mid-await would be
+        # forwarded to `task`, which (like every belt sequence) may swallow it,
+        # letting the caller run on as if never cancelled.
+        await asyncio.wait({task})
+        if not task.cancelled() and task.exception():
+            logging.warning(f"Task ended with an error while being cancelled: {task.exception()!r}")
 
 
 async def _full_wake_sequence():
@@ -1133,7 +1162,7 @@ async def _wake_and_start_belt(target_speed_kmh: float | None = None, try_light_
 
         if target_speed_kmh is not None:
             logging.info(f"Setting speed to {target_speed_kmh:.1f} km/h.")
-            await asyncio.wait_for(controller.change_speed(int(target_speed_kmh * 10)), timeout=_BLE_WRITE_TIMEOUT_SECONDS)
+            await asyncio.wait_for(controller.change_speed(round(target_speed_kmh * 10)), timeout=_BLE_WRITE_TIMEOUT_SECONDS)
             await asyncio.sleep(0.5)
 
     await _run_locked(_body, timeout=_BLE_SEQUENCE_LOCK_TIMEOUT_SECONDS)
@@ -1155,9 +1184,11 @@ async def _locked_change_speed(dev_speed: int):
     the paragraph above assumes.
     """
     global _speed_change_task
-    await _cancel_task(_speed_change_task)
-    _speed_change_task = asyncio.current_task()
+    # Registered before waiting on the predecessor, so a disconnect meanwhile
+    # cancels this one too (the belt sequences do the same).
+    prev, _speed_change_task = _speed_change_task, asyncio.current_task()
     try:
+        await _cancel_task(prev)
         await _run_locked(
             lambda: asyncio.wait_for(controller.change_speed(dev_speed), timeout=_BLE_WRITE_TIMEOUT_SECONDS),
             timeout=_BLE_SEQUENCE_LOCK_TIMEOUT_SECONDS,
@@ -1180,6 +1211,9 @@ def _ble_thread():
         connection_failed = True
         return
 
+    # Reset before publishing the loop, so a route that begins a transition
+    # on the new loop can't have its flag cleared under its running sequence.
+    _end_belt_transition()  # anything queued on the previous loop died with it
     ble_loop = loop
     # Fresh lock per connection attempt -- see the module-level comment on
     # _ble_command_lock for why this can't just be created once at import time.
@@ -1361,8 +1395,9 @@ def _handle_disconnect(client):
     # task's own event loop -- routed through call_soon_threadsafe() so this
     # is correct regardless of which thread actually called _handle_disconnect
     # (per the docstring above, that's not guaranteed to be ble_loop's own
-    # thread). Falls back to a direct call only if ble_loop is already gone,
-    # in which case there's no loop left to schedule onto anyway.
+    # thread), and onto the task's own loop, which after a manual reconnect
+    # may be the previous connection's. Falls back to a direct call only if
+    # that loop is already closed, leaving nothing to schedule onto anyway.
     for name, task in (
         ("stats monitor", _stats_monitor_task),
         ("idle watchdog", _idle_watchdog_task),
@@ -1371,10 +1406,11 @@ def _handle_disconnect(client):
     ):
         if task and not task.done() and task is not current:
             logging.info(f"Cancelling {name} due to disconnect")
-            if ble_loop and not ble_loop.is_closed():
-                ble_loop.call_soon_threadsafe(task.cancel)
-            else:
-                task.cancel()
+            try:
+                task.get_loop().call_soon_threadsafe(task.cancel)
+            except RuntimeError:  # loop closed
+                with contextlib.suppress(RuntimeError):  # cancel() can't schedule on it either
+                    task.cancel()
 
     if will_auto_reconnect:
         try:
@@ -1501,6 +1537,38 @@ def root():
 
 
 # ── End Session ────────────────────────────────────────────────────────
+def _begin_belt_transition() -> int:
+    """Mark the belt transitioning from the route, not when the sequence first runs
+    on ble_loop, so the page the route redirects to already renders its buttons
+    disabled. Returns the generation the sequence passes to _end_belt_transition()."""
+    global _belt_transitioning, _belt_transition_gen
+    with _belt_transition_lock:
+        _belt_transition_gen += 1
+        _belt_transitioning = True
+        return _belt_transition_gen
+
+
+def _end_belt_transition(gen: int | None = None):
+    """Clear the flag if `gen` is still the newest sequence; None clears it
+    unconditionally (a new BLE loop: nothing from the old one is in flight)."""
+    global _belt_transitioning, _belt_transition_gen
+    with _belt_transition_lock:
+        if gen is None:
+            _belt_transition_gen += 1
+        elif gen != _belt_transition_gen:
+            return
+        _belt_transitioning = False
+
+
+def _queue_belt_sequence(coro, gen: int):
+    """Schedule a belt sequence; on failure clear its transition and re-raise."""
+    try:
+        asyncio.run_coroutine_threadsafe(coro, ble_loop)
+    except Exception:
+        _end_belt_transition(gen)
+        raise
+
+
 def _end_session(stale: bool = False):
     """Save the session to history, reset counters. stale=True (auto-end of a long
     pause) re-checks under the lock so a Resume racing the timer wins."""
@@ -1518,17 +1586,21 @@ def _end_session(stale: bool = False):
         # Without cancelling, an in-flight resume sequence could keep running
         # after end_session returns, recreating a monitor for a dead session.
         async def _end_belt_sequence():
-            global _belt_sequence_task, _belt_transitioning
-            # Registers itself as _belt_sequence_task and sets
-            # _belt_transitioning like its three siblings (start/pause/resume),
-            # so an in-flight End Session can be observed and cancelled the
-            # same way as the others.
-            await _cancel_task(_belt_sequence_task)
-            _belt_sequence_task = asyncio.current_task()
-            _belt_transitioning = True
+            global _belt_sequence_task
+            # Registers itself as _belt_sequence_task like its three siblings
+            # (start/pause/resume), so an in-flight End Session can be observed
+            # and cancelled the same way as the others. Registering before
+            # awaiting the predecessor's cancellation means a sequence queued
+            # meanwhile cancels this one instead of running alongside it.
+            prev, _belt_sequence_task = _belt_sequence_task, asyncio.current_task()
+            # A Pause cancelled here may not have sent its stop_belt yet (and a
+            # Start/Resume may have started the belt), so stop it ourselves.
+            interrupted = prev is not None and not prev.done()
             try:
+                await _cancel_task(prev)
                 await _cancel_task(_stats_monitor_task)
-                if was_running and controller:
+                await _cancel_task(_speed_change_task)  # else a queued step could follow stop_belt
+                if (was_running or interrupted) and controller:
                     try:
                         await _run_locked(
                             lambda: asyncio.wait_for(controller.stop_belt(), timeout=_BLE_WRITE_TIMEOUT_SECONDS),
@@ -1542,12 +1614,17 @@ def _end_session(stale: bool = False):
                         logging.error(f"Error stopping belt on end_session: {exc}")
                         _handle_disconnect(None)
             finally:
-                _belt_sequence_task = None
-                _belt_transitioning = False
+                if _belt_sequence_task is asyncio.current_task():
+                    _belt_sequence_task = None
+                _end_belt_transition(gen)
 
         # Guarded so a dead loop can't skip the history save below.
         if ble_loop and not ble_loop.is_closed():
-            asyncio.run_coroutine_threadsafe(_end_belt_sequence(), ble_loop)
+            gen = _begin_belt_transition()
+            try:
+                _queue_belt_sequence(_end_belt_sequence(), gen)
+            except Exception as exc:  # the loop closed after the check above
+                logging.error(f"Failed to queue end sequence: {exc}")
 
         # Save session to history
         _save_session()
@@ -1732,10 +1809,11 @@ def settings_page():
         # Unlike every field above, a checkbox is absent from form data
         # entirely when unchecked rather than submitting a falsy value, so
         # the generic default-to-current-value loop above can't handle it --
-        # this is the one boolean setting, handled as a one-off rather than
-        # complicating _SETTINGS_SCHEMA's cast-function contract for it.
+        # the two boolean settings are handled as one-offs rather than
+        # complicating _SETTINGS_SCHEMA's cast-function contract for them.
         was_enabled = APPLE_HEALTH_EXPORT_ENABLED
         updates["apple_health_export_enabled"] = "apple_health_export_enabled" in request.form
+        updates["keyboard_shortcuts_enabled"] = "keyboard_shortcuts_enabled" in request.form
 
         _write_config(updates)
         for form_key, const_name, _cast, live in _SETTINGS_SCHEMA:
@@ -1744,6 +1822,7 @@ def settings_page():
                 globals()[const_name] = updates[form_key]
         config.APPLE_HEALTH_EXPORT_ENABLED = updates["apple_health_export_enabled"]
         APPLE_HEALTH_EXPORT_ENABLED = updates["apple_health_export_enabled"]
+        config.KEYBOARD_SHORTCUTS_ENABLED = updates["keyboard_shortcuts_enabled"]
 
         # Turning the feature on shouldn't retroactively surface a session
         # that predates it being enabled (pending_health_export only checks
@@ -1869,13 +1948,14 @@ def start_session():
         _pending_restore = None  # A fresh session supersedes any unresolved restore prompt
         _save_session_state()
 
+        gen = _begin_belt_transition()
+
         async def _start_belt_sequence():
-            global belt_running, _stats_monitor_task, _belt_sequence_task, _belt_transitioning
+            global belt_running, _stats_monitor_task, _belt_sequence_task
             global _resume_grace_deadline
-            await _cancel_task(_belt_sequence_task)
-            _belt_sequence_task = asyncio.current_task()
-            _belt_transitioning = True
+            prev, _belt_sequence_task = _belt_sequence_task, asyncio.current_task()
             try:
+                await _cancel_task(prev)
                 logging.info("Starting belt...")
                 await _cancel_task(_stats_monitor_task)
                 # Always the full STANDBY/MANUAL toggle here, never light-wake:
@@ -1895,8 +1975,9 @@ def start_session():
                 belt_running = False
                 _handle_disconnect(None)
             finally:
-                _belt_sequence_task = None
-                _belt_transitioning = False
+                if _belt_sequence_task is asyncio.current_task():
+                    _belt_sequence_task = None
+                _end_belt_transition(gen)
                 # Re-stamped here, not just once when the button was clicked:
                 # _wake_and_start_belt() can legitimately run long on a slow
                 # connection, which would otherwise eat into (or exhaust) the
@@ -1906,7 +1987,7 @@ def start_session():
                 _resume_grace_deadline = time.time() + RESUME_GRACE_PERIOD_SECONDS
 
         try:
-            asyncio.run_coroutine_threadsafe(_start_belt_sequence(), ble_loop)
+            _queue_belt_sequence(_start_belt_sequence(), gen)
         except Exception as exc:
             logging.error(f"Failed to queue start sequence: {exc}")
             belt_running = False
@@ -1935,14 +2016,16 @@ def pause_session():
 
         # Single ordered sequence on ble_loop: cancel monitor before stop_belt()
         # so an immediate resume can't interleave with the monitor's in-flight polls.
+        gen = _begin_belt_transition()
+
         async def _pause_belt_sequence():
-            global _belt_sequence_task, _belt_transitioning
+            global _belt_sequence_task
             # Cancel any prior belt sequence before self-registering.
-            await _cancel_task(_belt_sequence_task)
-            _belt_sequence_task = asyncio.current_task()
-            _belt_transitioning = True
+            prev, _belt_sequence_task = _belt_sequence_task, asyncio.current_task()
             try:
+                await _cancel_task(prev)
                 await _cancel_task(_stats_monitor_task)
+                await _cancel_task(_speed_change_task)  # else a queued step could follow stop_belt
                 await _run_locked(
                     lambda: asyncio.wait_for(controller.stop_belt(), timeout=_BLE_WRITE_TIMEOUT_SECONDS),
                     timeout=_BLE_SEQUENCE_LOCK_TIMEOUT_SECONDS,
@@ -1958,11 +2041,12 @@ def pause_session():
                 logging.error(f"Error stopping belt on pause: {exc}")
                 _handle_disconnect(None)
             finally:
-                _belt_sequence_task = None
-                _belt_transitioning = False
+                if _belt_sequence_task is asyncio.current_task():
+                    _belt_sequence_task = None
+                _end_belt_transition(gen)
 
         try:
-            asyncio.run_coroutine_threadsafe(_pause_belt_sequence(), ble_loop)
+            _queue_belt_sequence(_pause_belt_sequence(), gen)
         except Exception as exc:
             logging.error(f"Failed to queue pause sequence: {exc}")
 
@@ -1992,15 +2076,16 @@ def resume_session():
         _record_resume()
         _save_session_state()
 
+        gen = _begin_belt_transition()
+
         async def _resume_belt_sequence():
-            global belt_running, _stats_monitor_task, _belt_sequence_task, _belt_transitioning
+            global belt_running, _stats_monitor_task, _belt_sequence_task
             global _resume_grace_deadline
             # Cancel any prior in-flight sequence (e.g. pause) before sending
             # commands; concurrent coroutines on ble_loop interleave BLE writes.
-            await _cancel_task(_belt_sequence_task)
-            _belt_sequence_task = asyncio.current_task()
-            _belt_transitioning = True
+            prev, _belt_sequence_task = _belt_sequence_task, asyncio.current_task()
             try:
+                await _cancel_task(prev)
                 logging.info("Attempting resume: Sending wake-up and start sequence to device...")
                 await _cancel_task(_stats_monitor_task)
                 # try_light_wake=True: Resume typically follows our own recent
@@ -2019,15 +2104,16 @@ def resume_session():
                 belt_running = False
                 _handle_disconnect(None)
             finally:
-                _belt_sequence_task = None
-                _belt_transitioning = False
+                if _belt_sequence_task is asyncio.current_task():
+                    _belt_sequence_task = None
+                _end_belt_transition(gen)
                 # See _start_belt_sequence()'s matching comment: re-stamped here
                 # so a slow wake-up sequence can't eat into the post-completion
                 # ramp-up protection this deadline is meant to provide.
                 _resume_grace_deadline = time.time() + RESUME_GRACE_PERIOD_SECONDS
 
         try:
-            asyncio.run_coroutine_threadsafe(_resume_belt_sequence(), ble_loop)
+            _queue_belt_sequence(_resume_belt_sequence(), gen)
         except Exception as exc:
             logging.error(f"Failed to queue resume sequence: {exc}")
             belt_running = False
@@ -2045,14 +2131,21 @@ def decrease_speed():
 
 def _set_preset_speed(speed_kmh: float):
     """Shared body for the fixed-speed presets (min/slow/max) below."""
-    if not belt_running:
-        return redirect(url_for("root"))
+    # Mid start/resume the reported speed is ~0 and the sequence sets its own
+    # speed; a step queued now would land right after it (the UI's buttons are
+    # disabled then too, but not on a second device).
+    # Under the lock the belt routes hold, so this can't interleave with a
+    # Pause/End route's own check-and-queue; those sequences then cancel any
+    # step still pending before sending stop_belt.
+    with _session_state_lock:
+        if not belt_running or _belt_transitioning:
+            return redirect(url_for("root"))
 
-    dev_speed = int(speed_kmh * 10)
-    try:
-        asyncio.run_coroutine_threadsafe(_locked_change_speed(dev_speed), ble_loop)
-    except Exception as exc:
-        logging.error(f"Failed to queue speed change: {exc}")
+        dev_speed = round(speed_kmh * 10)  # not int(): float sums like (3.8 + 0.6) * 10 land at 43.99...
+        try:
+            asyncio.run_coroutine_threadsafe(_locked_change_speed(dev_speed), ble_loop)
+        except Exception as exc:
+            logging.error(f"Failed to queue speed change: {exc}")
     return redirect(url_for("root"))
 
 

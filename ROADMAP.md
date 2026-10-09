@@ -131,6 +131,36 @@ A session left paused (manual, auto, Bluetooth drop, or restored after a crash) 
 
 ---
 
+### 1.7 Bluetooth Disconnect Callback Never Registered
+- **Status:** Planned
+- **Priority:** High
+- **Problem:** `_connect_to_pad()` registers `_handle_disconnect` via `set_disconn_callback()` or `set_disconnected_callback()`, but `BleakClient` in Bleak 3.x has neither; it takes the callback only as a constructor argument, and `ph4-walkingpad`'s `Controller.connect()` builds the client without one. So a drop is only noticed by the staleness watchdogs (~15 s active, ~45 s idle/paused) instead of immediately. The tests' fake controller has `set_disconn_callback`, which hides this.
+- **Solution:** Pass `disconnected_callback=_handle_disconnect` when the `BleakClient` is built, by overriding `Controller.connect()`, and drop the dead old-API branches.
+- **Implementation:** Its own `bugfix/` branch, with a test against the real `BleakClient` signature rather than the fake.
+
+---
+
+### 1.8 Commands Ignored After the Physical Remote, and Speed Steps During a Ramp
+- **Status:** Planned
+- **Priority:** High
+- **Problem:** Seen on a C2 (firmware 6.1.2, software 6.3.0) in a status-packet log:
+    - After a press on the physical remote, status byte 16 changed from 3 to 2, and a Pause's `stop_belt()` (speed 0) had no effect until Resume's `start_belt()` about 4 s later. Resume's light-wake probe then took the slowing belt for a running one, and the session auto-paused.
+    - A `change_speed()` sent ~0.3 s after another was silently not applied.
+    - `+`/`-` step from the reported speed, which lags the target while the belt ramps (Max from 2.2 km/h took ~7 s). The status packet's `app_speed` byte carries the app-set target immediately, in km/h × 10 (`ph4-walkingpad`'s `/30` is wrong for the C2); the remote doesn't update it.
+- **Solution:** Reproduce each on the treadmill, then: find what byte 16 means and what makes app commands take effect again after the remote; have the light-wake probe require a speed that isn't falling; space or coalesce back-to-back speed commands; step from `app_speed` while the belt ramps toward it.
+- **Implementation:** Its own `bugfix/` branch, checked on the treadmill, not just against the fake controller.
+
+---
+
+### 1.9 Firmware Version Check and Update
+- **Status:** Planned (investigation)
+- **Priority:** Low
+- **Problem:** Updating the pad's firmware takes KingSmith's KS Fit app and an account. The pad reports its versions over the standard Device Information service (a C2 here: firmware 6.1.2, software 6.3.0, Beken BK-BLE-1.0 module) and exposes TI-style over-the-air update characteristics (`f000ffc1`/`f000ffc2`, "Img Identify"/"Img Block"), so WalkingDad could check and update without the app. Firmware behavior also affects 1.8.
+- **Solution:** Replicate KS Fit's check and update. On a button press (opt-in, nothing automatic), ask KingSmith's server for the latest firmware for the connected model and compare it with the pad's versions; if newer, download the image from KingSmith and flash it. No firmware is bundled or redistributed.
+- **Implementation:** Spike first: decompile KS Fit 6.6.0 (`com.kingsmith.xiaojin`, base APK with jadx; the arm64 split with Ghidra if the logic is native) to find the version endpoint and whether it needs an account, the image format (signed or encrypted), and the update procedure (handshake, block size, acks, retries, verification). Build only the check unless the update procedure proves safe. A failed flash could brick the controller, recoverable at best over a serial connection.
+
+---
+
 ## Security & Code Quality
 
 ### ✅ 2.1 External Configuration File
@@ -197,12 +227,12 @@ A `pytest` suite covering every module without a treadmill. How to run it: the R
 
 ---
 
-### 2.6 Pin Dependency Versions
-- **Status:** Planned
-- **Priority:** Medium
-- **Problem:** `requirements.txt` lists `bleak`, `flask`, `ph4-walkingpad`, and `waitress` with no version constraints. A fresh `pip install` can silently pull a breaking major version with no warning.
-- **Solution:** Pin each dependency to a known-working version (exact `==` or a floor `>=` plus a documented upper bound), tested against the versions currently in use.
-- **Implementation:** Capture current working versions from an active `venv` (`pip freeze`), add them to `requirements.txt`, note the tested versions in the README.
+### ✅ 2.6 Pin Dependency Versions
+**Status:** ✅ Complete
+**Priority:** Medium
+**Files Modified:** `requirements.txt`
+
+Each direct dependency in `requirements.txt` (including `markupsafe`, imported by `app.py`) has a floor at its tested version and a cap below the next major (e.g. `bleak>=3.0.2,<4`), so patch releases still arrive but a breaking major can't. `requirements.txt` is the one record of the tested versions.
 
 ---
 
@@ -313,18 +343,19 @@ Shipping this surfaced a real gap it needed to close first: a dead BLE connectio
 
 ---
 
-### 3.3 Keyboard Shortcuts
-- **Status:** Planned
-- **Priority:** Medium
-- **Problem:** Adjusting speed or pausing requires using a mouse/touch, which is inconvenient while walking.
-- **Solution:** Add keyboard shortcuts for core actions:
-    - `Arrow Up` / `W`: Increase speed
-    - `Arrow Down` / `S`: Decrease speed
-    - `Space`: Pause / Resume
-    - `M`: Max speed
-    - `L`: Slow preset
-    - `K`: Moderate preset
-- **Implementation:** Add a keyboard event listener in the active session template that sends `fetch()` requests to the corresponding routes.
+### ✅ 3.3 Keyboard Shortcuts
+**Status:** ✅ Complete
+**Priority:** Medium
+**Files Modified:** `app.py`, `config.py`, `config.json.example`, `templates/base.html`, `templates/active_session.html`, `templates/paused_session.html`, `templates/settings.html`, `requirements.txt`, `README.md`, `tests/`
+
+`Space` pauses or resumes; `↑`/`W` and `↓`/`S` step the speed; `L`, `K`, and `M` pick the Slow, Moderate, and Max presets; `?` lists them all. Start and End Session have no key, so a stray press can't start the belt with nobody on it or end a walk.
+
+| Feature | Description |
+|---|---|
+| **Clicks the Button** | `hotkey()` in `app.py` tags each button with the native `aria-keyshortcuts` attribute (also read by screen readers), from which `base.html` adds a `title` tooltip; one listener in `base.html` clicks the matching enabled button, so a shortcut takes the same form-submit path, double-tap guard, and cross-site check as a click |
+| **Stays Out of the Way** | Ignored while typing in a field, with Ctrl/Alt/Cmd held, while a dialog, the color-theme popover, or the phone menu is open, and for `Space` on a button or link focused from the keyboard (Tab), not by a mouse click. A key bound to a disabled button (belt transitioning) is still swallowed, so `Space` doesn't scroll the page. Held keys don't repeat, deliberately unlike e.g. YouTube's volume keys: each press is a locked Bluetooth command |
+| **Help Fits the Screen** | `?` builds its list from the current screen's tagged buttons, so it shows only what works there and can't drift from the real bindings. Only `?` needs Bootstrap; the shortcuts keep working if its CDN fails to load |
+| **Can Be Turned Off** | `keyboard_shortcuts_enabled` (Settings page, default on), as WCAG 2.1.4 requires for single-character shortcuts. Off removes the attributes and the listener entirely |
 
 ---
 
@@ -337,6 +368,7 @@ Shipping this surfaced a real gap it needed to close first: a dead BLE connectio
     - Return both imperial and metric values from `_build_stats_payload()` (shared by `/stats_stream` and `/stats`)
     - Frontend toggles display based on user preference
     - Add toggle button next to the theme toggle in the header
+    - Cover the live tab title (3.13) too, which shows mph like the page
 
 ---
 
@@ -428,12 +460,12 @@ The Active screen requests a native screen wake lock (`navigator.wakeLock`) and 
 
 ---
 
-### 3.13 Live Stats in Browser Tab Title
-- **Status:** Planned
-- **Priority:** Low
-- **Problem:** If the WalkingDad tab isn't focused during a session, checking progress means switching back to it.
-- **Solution:** Update `document.title` with a compact live readout (e.g. "3.2 mph · 1.4 mi") while a session is active, reverting to the normal title on pause/end.
-- **Implementation:** Update `document.title` from the existing `/stats_stream` SSE handler already driving the on-page numbers; no new endpoint needed.
+### ✅ 3.13 Live Stats in Browser Tab Title
+**Status:** ✅ Complete
+**Priority:** Low
+**Files Modified:** `templates/active_session.html`
+
+While walking, the tab reads `3.2 mph · 1.40 mi - WalkingDad`: live content first, app name last, the convention most sites follow (tabs truncate from the right). Built from the page's own speed and distance readouts, on load and on each `/stats_stream` tick, so there's one format to change. Pause and End load a new page, which restores the plain title.
 
 ---
 
@@ -479,7 +511,7 @@ The Active screen requests a native screen wake lock (`navigator.wakeLock`) and 
 **Priority:** Medium
 **Files Modified:** `templates/base.html`, `templates/active_session.html`, `templates/paused_session.html`, `templates/start_session.html`
 
-Submitting a form only disables and dims the buttons now; each page's `#transitioning-hint` follows the SSE `belt_transitioning` flag alone, so it shows only during a real start/pause/resume/end belt sequence, with matching text. A `submitting` flag in `base.html` also keeps the buttons disabled through SSE ticks until the page navigates away (cleared on a back/forward-cache restore), closing a double-tap window. The hint still toggles `display`, so the legitimate post-Start/Resume hint shifts the layout briefly; reserving its space was skipped to avoid a permanent gap on the phone layout.
+Submitting a form only disables and dims the buttons now; each page's `#transitioning-hint` follows the SSE `belt_transitioning` flag alone, so it shows only during a real start/pause/resume/end belt sequence, with matching text. A `submitting` flag in `base.html` also keeps the buttons disabled through SSE ticks until the page navigates away (a back/forward-cache restore reloads the page instead, since its belt state is stale), closing a double-tap window. The routes also set `belt_transitioning` before scheduling the sequence, so the next screen renders its buttons already disabled; if no stats update ever arrives, they re-enable after 15 s rather than staying dead. The hint still toggles `display`, so the legitimate post-Start/Resume hint shifts the layout briefly; reserving its space was skipped to avoid a permanent gap on the phone layout.
 
 ---
 

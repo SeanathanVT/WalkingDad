@@ -12,5 +12,10 @@ Keep all docs (ROADMAP.md, CHANGELOG.md `[Unreleased]`, README.md, docs/) in syn
 ## Platforms
 The maintainer runs macOS (primary) and Fedora Linux, never Windows. Suggest manual checks on macOS first, Fedora when Linux behavior differs. Windows-only code (`start_app.bat`, `WSAE*` errnos, Windows socket semantics) can't be verified by the maintainer; flag it rather than asking for a test.
 
+## Testing
+When adding or changing a test, run the suite on every Python version CI runs (the matrices in `.github/workflows/ci.yml` and `.gitlab-ci.yml` are the source of truth), not just the local interpreter; e.g. `uv venv --python 3.10 <dir>`. asyncio timing and cancellation differ between versions.
+
 ## Design target
 The primary client is a laptop browser at a desk above the treadmill. Design for desktop width and mouse/keyboard first; keep the phone layout working, but it doesn't drive layout or feature decisions.
+
+Follow common UI conventions (what major web apps do) and [WCAG 2.2](https://www.w3.org/TR/WCAG22/) level AA wherever practical. When a design knowingly deviates from either, say so in the design and why.
