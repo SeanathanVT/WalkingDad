@@ -373,6 +373,7 @@ Shipping this surfaced a real gap it needed to close first: a dead BLE connectio
     - Frontend toggles display based on user preference
     - Add toggle button next to the theme toggle in the header
     - Cover the live tab title (3.13) too, which shows mph like the page
+    - Cover the Settings speed fields too, which are entered in km/h while the rest of the UI shows mph (left as-is by 3.20)
 
 ---
 
@@ -528,6 +529,15 @@ Submitting a form only disables and dims the buttons now; each page's `#transiti
 **Files Modified:** `templates/base.html`, `templates/active_session.html`, `templates/paused_session.html`, `templates/start_session.html`, `static/manifest.json`
 
 Added the missing viewport meta, so phones get a real phone layout instead of a scaled-down desktop page. Under 480px: the reading fills the screen with preset and Pause/End rows docked at the bottom in thumb reach, 44px+ tap targets, a single menu button for the header controls, and session history as stacked cards. A web app manifest lets Add to Home Screen launch full-screen. Desktop layout is unchanged.
+
+---
+
+### 3.20 Settings Sub-Pages
+- **Status:** Planned
+- **Priority:** Medium
+- **Problem:** Settings is one long page whose sections are in the order features shipped (Device first, Server mid-page). Profiles (4.5) sits below Save with its own save model. Labels aren't associated with their inputs (WCAG 1.3.1, 4.1.2), and hints show raw `config.json` keys.
+- **Solution:** GitLab/GitHub-style sub-pages with a left nav, in conventional order: Walking, Profiles, Calories, History, Keyboard, Apple Health (setup QR at the end of its page), Advanced (Bluetooth name, host/port/threads). Each page has its own Save, which changes only that page's settings. Profiles become opt-in via a `profiles_enabled` switch, off by default; turning it off hides the picker, walker names, and history column/filter/CSV column but keeps profiles and session tags.
+- **Implementation:** `/settings/<section>` routes (`/settings` redirects to Walking); `_SETTINGS_SCHEMA` entries gain a section, and the switches join it as booleans; `settings_base.html` plus one template per section; `_active_profiles()` gates the profile UI on the switch. Per-section saving also makes 3.16's per-field feedback simpler.
 
 ---
 
