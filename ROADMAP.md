@@ -438,10 +438,12 @@ Active, Paused, and Start screens redesigned to read like the WalkingPad's own o
 ### 3.10 Heart Rate Display
 - **Status:** Planned
 - **Priority:** Low
-- **Problem:** Some WalkingPad models have hand-held heart rate sensors, but the data is not exposed in the UI.
-- **Solution:** If `ph4-walkingpad` provides heart rate data in status packets, display it as an additional item in the instrument strip during active sessions.
-- **Dependency:** Verify heart rate data availability via `ph4-walkingpad` library and device firmware support. If the pad doesn't expose it, a watch or chest strap via the standard BLE Heart Rate Service (0x180D / 0x2A37) is the alternative source.
-- **Storage:** `samples.hr_bpm` already exists (2.9, always NULL today), so recording heart rate needs no schema change.
+- **Problem:** Heart rate isn't shown during a walk, and calories are a flat `kcal_per_mile` that ignores the walker, their pace, and their effort.
+- **Pad as a source:** Ruled out. `ph4-walkingpad`'s status packet (`WalkingPadCurStatus`) carries no heart rate field.
+- **Solution:** Connect any device that speaks the standard BLE Heart Rate Service (0x180D / 0x2A37) alongside the pad: chest straps, watches with an HR broadcast mode (Garmin, Polar, Coros), WHOOP broadcast, or an Apple Watch through a bridge app such as HeartCast. Show bpm in the instrument strip and record it to `samples.hr_bpm` (2.9, always NULL today, so no schema change). Heart rate comes in through a source seam, so non-standard devices can be added as adapters.
+- **Calorie model:** Ludlow & Weyand 2016 (*J Appl Physiol* 120:481) level-walking equation, `VO2 = 7.15 + 5.97·V²/Ht` mL/kg/min, integrated over per-second belt speed with the walker's height and weight (from 4.5, which ships first); active energy drops the 3.3 resting term. Falls back to `kcal_per_mile` when height or weight is missing. Heart rate isn't used for calories: Keytel 2005, the standard HR equation, was calibrated on running and cycling in fit adults and its error exceeds slow walking's whole burn, while ACSM's walking equation underpredicts level walking (Ludlow & Weyand). The pad sends no calorie value.
+- **Soundcore Liberty 4 (later):** The earbuds' HR sensor is proprietary (Soundcore's app must be open; no HRS broadcast) and speaks Soundcore's protocol over Classic Bluetooth RFCOMM, which `bleak` can't reach. Planned as a separate reverse-engineering spike using the decompiled-app plus hardware-capture approach behind OpenSCQ30's Liberty 4 support, then an adapter for the source seam, natively or through OpenSCQ30.
+- **Order:** 4.5 profiles and body stats, then the BLE HR source, then the calorie model, then the Liberty 4 adapter.
 
 ---
 
@@ -571,8 +573,9 @@ Added the missing viewport meta, so phones get a real phone layout instead of a 
 - **Status:** Planned
 - **Priority:** Low
 - **Problem:** WalkingDad is built for a household to share, but history mixes everyone's sessions together. History, records (4.2), and goals (4.3) can't be attributed to a person.
-- **Solution:** A lightweight profile selector (name only, no accounts/auth) that tags each session with a profile; history, CSV export, personal records (4.2), and goals (4.3) all filter by the active profile.
-- **Implementation:** The storage side exists since 2.9: `sessions.profile` (every existing row is `'default'`), an `(profile, start_time)` index, and `profile=` filters on `storage.create_session()`, `list_sessions()`, and `clear_history()`. Remaining: a profile switcher in the header or start screen, passing the active profile through those calls, and filtering 4.2/4.3's aggregates the same way.
+- **Solution:** Profiles (no accounts/auth) with optional height and weight for 3.10's calorie model. The walker is picked on the start screen at every Start; nothing is preselected with 2+ profiles, the only profile is preselected with 1, and with 0 Start works as today. History gets a Walker column and a filter that CSV export and Clear respect; 4.2/4.3 filter the same way. The Apple Health banner names the walker.
+- **Existing history:** Sessions stay `'default'` (Unassigned). Creating a profile while Unassigned sessions exist asks whether to assign them to it, and asks again on later creations until they're claimed. Deleting a profile moves its sessions back to Unassigned rather than deleting them.
+- **Implementation:** A `profiles` table (schema version 3) and profile CRUD in `storage.py`; `sessions.profile` holds the profile id. The 2.9 groundwork already covers the rest of the storage side: the `(profile, start_time)` index and `profile=` on `create_session()`, `list_sessions()`, and `clear_history()`. Profiles are managed in a Settings section.
 
 ---
 
