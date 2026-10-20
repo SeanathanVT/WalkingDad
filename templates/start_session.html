@@ -120,16 +120,16 @@
         <div class="mt-2">
             <form method="post" action="{{ url_for('start_session') }}" id="start-form" style="display:inline-block">
                 {% if profiles %}
-                <fieldset class="mb-3">
-                    <legend class="console-hero-label" style="float:none;font-size:inherit;">Who's walking?</legend>
-                    {% if walker_error %}<p class="text-danger mb-2" role="alert">Choose who's walking, then press Start.</p>{% endif %}
-                    <div class="d-flex flex-wrap justify-content-center gap-2">
+                <div class="mb-3">
+                    <label for="walker-select" class="console-hero-label d-block mb-2">Who's walking?</label>
+                    {% if walker_error %}<p class="text-danger mb-2" role="alert" id="walker-error">Choose who's walking, then press Start.</p>{% endif %}
+                    <select id="walker-select" name="profile_id" class="form-select settings-input mx-auto" style="max-width:16rem;" required{% if walker_error %} aria-describedby="walker-error"{% endif %}>
+                        {% if profiles|length > 1 %}<option value="" selected disabled>Choose a walker</option>{% endif %}
                         {% for p in profiles %}
-                        <input type="radio" class="btn-check" name="profile_id" id="walker-{{ loop.index }}" value="{{ p.id }}" required{{ ' checked' if profiles|length == 1 }}>
-                        <label class="btn btn-preset" for="walker-{{ loop.index }}">{{ p.name }}</label>
+                        <option value="{{ p.id }}"{{ ' selected' if profiles|length == 1 }}>{{ p.name }}</option>
                         {% endfor %}
-                    </div>
-                </fieldset>
+                    </select>
+                </div>
                 {% endif %}
                 <button type="submit" class="console-engage-btn" id="btn-start">
                     <i class="bi bi-play-fill"></i>
@@ -161,11 +161,15 @@
         </div>
     </div>
     {% if profiles %}
-    <nav aria-label="Filter sessions by walker" class="d-flex flex-wrap gap-2 mb-3">
-        {% for value, label in walker_options %}
-        <a href="{{ url_for('root', walker=value) }}#history" class="btn btn-sm btn-preset"{% if value == walker %} aria-current="page"{% endif %}>{{ label }}</a>
-        {% endfor %}
-    </nav>
+    <form method="get" action="{{ url_for('root') }}#history" class="d-flex align-items-center gap-2 mb-3" aria-label="Filter sessions by walker">
+        <label for="walker-filter" class="mb-0 fw-medium">Walker</label>
+        <select id="walker-filter" name="walker" class="form-select form-select-sm settings-input" style="width:auto;">
+            {% for value, label in walker_options %}
+            <option value="{{ value }}"{{ ' selected' if value == walker }}>{{ label }}</option>
+            {% endfor %}
+        </select>
+        <button type="submit" class="btn btn-sm btn-preset">Show</button>
+    </form>
     {% endif %}
     <div class="table-responsive" style="border-radius:0.5rem;overflow:hidden;">
         <table class="history-table">
