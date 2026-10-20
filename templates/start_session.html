@@ -119,22 +119,25 @@
         <span class="console-hero-label">Ready</span>
         <div class="mt-2">
             <form method="post" action="{{ url_for('start_session') }}" id="start-form" style="display:inline-block">
-                {% if profiles %}
-                <div class="mb-3">
-                    <label for="walker-select" class="console-hero-label d-block mb-2">Who's walking?</label>
-                    {% if walker_error %}<p class="text-danger mb-2" role="alert" id="walker-error">Choose who's walking, then press Start.</p>{% endif %}
-                    <select id="walker-select" name="profile_id" class="form-select settings-input mx-auto" style="max-width:16rem;" required{% if walker_error %} aria-describedby="walker-error"{% endif %}>
-                        {% if profiles|length > 1 %}<option value="" selected disabled>Choose a walker</option>{% endif %}
-                        {% for p in profiles %}
-                        <option value="{{ p.id }}"{{ ' selected' if profiles|length == 1 }}>{{ p.name }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                {% endif %}
                 <button type="submit" class="console-engage-btn" id="btn-start">
                     <i class="bi bi-play-fill"></i>
                     Start
                 </button>
+                {% if profiles %}
+                <div class="walker-as">
+                    <span aria-hidden="true">as</span>
+                    <label for="walker-select" class="visually-hidden">Walker</label>
+                    <span class="walker-select-wrap">
+                        <select id="walker-select" name="profile_id" class="walker-inline" required{% if walker_error %} aria-describedby="walker-error"{% endif %}>
+                            {% if not default_walker %}<option value="" selected disabled>choose a walker</option>{% endif %}
+                            {% for p in profiles %}
+                            <option value="{{ p.id }}"{{ ' selected' if p.id == default_walker }}>{{ p.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </span>
+                </div>
+                {% if walker_error %}<p class="text-danger mt-2 mb-0" role="alert" id="walker-error">Choose who's walking, then press Start.</p>{% endif %}
+                {% endif %}
             </form>
         </div>
         <p id="transitioning-hint" class="text-muted mt-3 mb-0" style="display:none;font-size:0.85rem;">

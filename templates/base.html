@@ -814,6 +814,57 @@
             outline-offset: 2px;
         }
 
+        /* "Start as <walker>": a native select styled as an inline link, so
+           keyboard, validation, and phone pickers stay native. */
+        .walker-as {
+            margin-top: 0.75rem;
+            font-size: 0.95rem;
+            color: var(--muted-color);
+        }
+        .walker-select-wrap {
+            position: relative;
+            display: inline-block;
+        }
+        .walker-select-wrap::after {
+            content: "";
+            position: absolute;
+            right: 0.25rem;
+            top: 50%;
+            width: 0.4rem;
+            height: 0.4rem;
+            border-right: 2px solid var(--muted-color);
+            border-bottom: 2px solid var(--muted-color);
+            transform: translateY(-70%) rotate(45deg);
+            pointer-events: none;
+        }
+        .walker-inline {
+            appearance: none;
+            border: none;
+            background: transparent;
+            font: inherit;
+            font-weight: 600;
+            color: var(--text-color);
+            text-decoration: underline;
+            text-underline-offset: 3px;
+            padding: 0.25rem 1.1rem 0.25rem 0.1rem;
+            max-width: 14rem;
+            text-overflow: ellipsis;
+            cursor: pointer;
+        }
+        .walker-inline:hover {
+            text-decoration-thickness: 2px;
+        }
+        .walker-inline:focus-visible {
+            outline: 2px solid var(--text-color);
+            outline-offset: 2px;
+            border-radius: 4px;
+        }
+        .walker-inline option {
+            color: initial;
+            background: initial;
+            text-decoration: none;
+        }
+
         .console-engage-btn {
             width: 8rem;
             height: 8rem;

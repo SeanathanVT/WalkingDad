@@ -1595,6 +1595,11 @@ def root():
             and most_recent_session[0]["health_status"] == storage.HEALTH_PENDING
         )
         health_walker = profile_names.get(most_recent_session[0]["profile"]) if pending_health_export else None
+        last_walker = most_recent_session[0]["profile"] if most_recent_session else None
+        if last_walker in profile_names:
+            default_walker = last_walker
+        else:
+            default_walker = profiles[0]["id"] if len(profiles) == 1 else None
         if APPLE_HEALTH_EXPORT_ENABLED:
             base_url = _phone_reachable_base_url()
             for record in history:
@@ -1617,6 +1622,7 @@ def root():
             health_session_id=most_recent_session[0]["id"] if pending_health_export else None,
             health_export_enabled=APPLE_HEALTH_EXPORT_ENABLED,
             profiles=profiles, walker_error=bool(request.args.get("walker_error")), health_walker=health_walker,
+            default_walker=default_walker,
             walker=walker, walker_options=walker_options, clear_confirm=_clear_confirm(walker_profile, profile_names),
         )
 

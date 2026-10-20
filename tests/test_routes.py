@@ -923,17 +923,31 @@ def test_start_when_profiles_unreadable_is_unassigned(client, app_state, monkeyp
 
 
 def test_start_screen_walker_picker(client):
-    assert "Who's walking?" not in client.get("/").get_data(as_text=True)
+    assert 'id="walker-select"' not in client.get("/").get_data(as_text=True)
     pid = storage.create_profile("Sean")
     html = client.get("/").get_data(as_text=True)
+    assert '<label for="walker-select" class="visually-hidden">Walker</label>' in html
     assert f'<option value="{pid}" selected>' in html
-    assert "Choose a walker" not in html
+    assert "choose a walker" not in html
+
+
+def test_start_screen_needs_choice_without_previous_walker(client):
+    pid = storage.create_profile("Sean")
     storage.create_profile("Kim")
     html = client.get("/").get_data(as_text=True)
-    assert "Who's walking?" in html
-    assert '<select id="walker-select" name="profile_id"' in html and " required" in html
-    assert '<option value="" selected disabled>Choose a walker</option>' in html
+    assert '<select id="walker-select" name="profile_id" class="walker-inline" required' in html
+    assert '<option value="" selected disabled>choose a walker</option>' in html
     assert f'<option value="{pid}">' in html
+
+
+def test_start_screen_defaults_to_last_sessions_walker(client):
+    storage.create_profile("Sean")
+    kim = storage.create_profile("Kim")
+    completed_session(datetime.now() - timedelta(hours=1))
+    storage.assign_unassigned(kim)
+    html = client.get("/").get_data(as_text=True)
+    assert f'<option value="{kim}" selected>' in html
+    assert "choose a walker" not in html
 
 
 def test_start_screen_shows_walker_error(client):
