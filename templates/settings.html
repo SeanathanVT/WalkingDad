@@ -47,11 +47,22 @@
                     data-confirm="Delete {{ p.name }}? Their sessions stay in history as Unassigned.">Delete</button>
         </form>
         {% endfor %}
-        <form method="post" action="{{ url_for('profile_create') }}" aria-label="Add profile">
-            {{ profile_fields(profile_form, 'new') }}
-            <button type="submit" class="btn btn-custom-primary btn-sm">Add Profile</button>
-        </form>
+        {% set adding = profile_form | length > 0 %}
+        <button type="button" class="btn btn-custom-primary btn-sm" data-bs-toggle="collapse" data-bs-target="#add-profile"
+                aria-controls="add-profile" aria-expanded="{{ 'true' if adding else 'false' }}">
+            <i class="bi bi-plus-lg" aria-hidden="true"></i> Add Profile
+        </button>
+        <div class="collapse{% if adding %} show{% endif %}" id="add-profile">
+            <form method="post" action="{{ url_for('profile_create') }}" aria-label="Add profile" class="mt-3">
+                {{ profile_fields(profile_form, 'new') }}
+                <button type="submit" class="btn btn-custom-primary btn-sm">Save Profile</button>
+                <button type="button" class="btn btn-sm btn-preset" data-bs-toggle="collapse" data-bs-target="#add-profile">Cancel</button>
+            </form>
+        </div>
         <script>
+        document.getElementById('add-profile').addEventListener('shown.bs.collapse', function() {
+            document.getElementById('name-new').focus();
+        });
         document.querySelectorAll('[data-confirm]').forEach(function(btn) {
             btn.addEventListener('click', function(e) { if (!confirm(btn.dataset.confirm)) e.preventDefault(); });
         });

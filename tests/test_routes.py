@@ -1059,3 +1059,15 @@ def test_export_csv_has_no_walker_column_without_profiles(client):
     completed_session(datetime.now() - timedelta(days=1))
     header = client.get("/export_csv").get_data(as_text=True).splitlines()[0]
     assert header == "date,start_time,end_time,duration_seconds,distance_km,distance_mi,steps,calories,avg_speed_kmh,avg_speed_mph,id,has_samples"
+
+
+def test_add_profile_form_hidden_behind_button(client):
+    html = client.get("/settings").get_data(as_text=True)
+    assert 'aria-controls="add-profile" aria-expanded="false"' in html
+    assert 'class="collapse" id="add-profile"' in html
+
+
+def test_add_profile_form_open_after_create_error(client):
+    html = client.post("/profiles", data=profile_form(lb="49")).get_data(as_text=True)
+    assert 'aria-controls="add-profile" aria-expanded="true"' in html
+    assert 'class="collapse show" id="add-profile"' in html
