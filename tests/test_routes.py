@@ -1053,3 +1053,9 @@ def test_clear_history_when_profiles_unreadable_clears_nothing(client, walkers, 
     monkeypatch.setattr(storage, "list_profiles", boom)
     assert client.post("/clear_history", data={"walker": walkers[0]}).status_code == 409
     assert len(storage.list_sessions()) == 3
+
+
+def test_export_csv_has_no_walker_column_without_profiles(client):
+    completed_session(datetime.now() - timedelta(days=1))
+    header = client.get("/export_csv").get_data(as_text=True).splitlines()[0]
+    assert header == "date,start_time,end_time,duration_seconds,distance_km,distance_mi,steps,calories,avg_speed_kmh,avg_speed_mph,id,has_samples"

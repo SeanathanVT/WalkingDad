@@ -581,8 +581,8 @@ WalkingDad is shared by a household, but history mixed everyone's sessions toget
 | **Storage** | A `profiles` table (schema version 3) and profile CRUD in `storage.py`; `sessions.profile` holds the profile id, `'default'` meaning Unassigned. Builds on 2.9's `(profile, start_time)` index and `profile=` filters |
 | **Settings** | A Profiles section to add, rename, set height (ft/in) and weight (lb), and delete. Stored in m and kg |
 | **Picking the walker** | A "Who's walking?" radio group on the start screen. 0 profiles: no picker, Start works as before. 1: preselected. 2+: nothing preselected, and the radios are `required`, so Start without a choice shows the browser's validation message. Not a disabled Start button: base.html re-enables Start on every SSE tick, and a disabled button can't be focused or explain itself. `/start` rejects a missing or unknown walker server-side |
-| **History** | Walker column and an All / name / Unassigned filter (`?walker=`). CSV export (with a trailing `walker` column) and Clear follow the filter. 4.2/4.3 should filter the same way when built |
-| **Existing history** | Creating a profile while Unassigned sessions exist asks whether to assign them, and asks again on later creations until they're claimed. Deleting a profile moves its sessions back to Unassigned |
+| **History** | Walker column and an All / name / Unassigned filter (`?walker=`). CSV export (with a trailing `walker` column once profiles exist) and Clear follow the filter. 4.2/4.3 should filter the same way when built |
+| **Existing history** | Creating a profile while completed Unassigned sessions exist asks whether to assign them, and asks again on later creations until they're claimed. Deleting a profile moves its sessions back to Unassigned |
 | **Elsewhere** | The active and paused screens show the walker; the Apple Health banner names them |
 
 ---

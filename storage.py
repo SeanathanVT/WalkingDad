@@ -322,7 +322,7 @@ def delete_profile(profile_id):
 def count_unassigned():
     conn = _connect(_db_path)
     try:
-        return conn.execute("SELECT COUNT(*) FROM sessions WHERE profile = ?", (UNASSIGNED,)).fetchone()[0]
+        return conn.execute("SELECT COUNT(*) FROM sessions WHERE profile = ? AND status = 'completed'", (UNASSIGNED,)).fetchone()[0]
     finally:
         conn.close()
 
@@ -332,7 +332,10 @@ def assign_unassigned(profile_id):
         conn = _connect(_db_path)
         try:
             with conn:
-                cur = conn.execute("UPDATE sessions SET profile = ? WHERE profile = ?", (profile_id, UNASSIGNED))
+                cur = conn.execute(
+                    "UPDATE sessions SET profile = ? WHERE profile = ? AND status = 'completed'",
+                    (profile_id, UNASSIGNED),
+                )
         finally:
             conn.close()
     return cur.rowcount

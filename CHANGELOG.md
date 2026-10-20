@@ -6,7 +6,7 @@ All notable changes to WalkingDad will be documented in this file.
 
 ### Added
 
-- **Profiles: history per walker** (ROADMAP 4.5). Add each person on the Settings page, with optional height and weight for upcoming calorie estimates. Pick who's walking when you press Start (the only profile is preselected). History shows a Walker column and filters by walker, and Export CSV and Clear follow the filter. Your first profile can take over existing history; deleting a profile keeps its sessions as Unassigned. With no profiles, nothing changes.
+- **Profiles: history per walker** (ROADMAP 4.5). Add each person on the Settings page, with optional height and weight for upcoming calorie estimates. Pick who's walking when you press Start (the only profile is preselected). History shows a Walker column and filters by walker, and Export CSV and Clear follow the filter. Creating a profile offers to assign sessions recorded before profiles existed; deleting a profile keeps its sessions as Unassigned. With no profiles, nothing changes.
 - **Keyboard shortcuts** (ROADMAP 3.3). `Space` pauses or resumes; `↑`/`W` and `↓`/`S` change speed; `L`, `K`, and `M` pick the Slow, Moderate, and Max presets. Press `?` for the list, or hover a button to see its key. Start and End Session have no shortcut. Turn them off with the **Enable keyboard shortcuts** switch on the Settings page (`keyboard_shortcuts_enabled`).
 - **The browser tab shows your speed and distance while walking** (ROADMAP 3.13), e.g. `3.2 mph · 1.40 mi - WalkingDad`.
 

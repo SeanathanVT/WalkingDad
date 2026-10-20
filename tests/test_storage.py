@@ -374,10 +374,20 @@ def test_delete_profile_unassigns_its_sessions(db):
 def test_count_and_assign_unassigned(db):
     pid = storage.create_profile("Sean")
     other = storage.create_profile("Kim")
-    storage.create_session("2026-01-01T08:00:00", None, None)
-    storage.create_session("2026-01-02T08:00:00", None, None)
+    for start in ("2026-01-01T08:00:00", "2026-01-02T08:00:00"):
+        storage.complete_session(storage.create_session(start, None, None), {"end_time": start})
     kims = storage.create_session("2026-01-03T08:00:00", None, None, profile=other)
     assert storage.count_unassigned() == 2
     assert storage.assign_unassigned(pid) == 2
     assert storage.count_unassigned() == 0
     assert storage.get_session(kims)["profile"] == other
+
+
+def test_unassigned_counts_and_claims_only_completed_sessions(db):
+    pid = storage.create_profile("Sean")
+    done = storage.create_session("2026-01-01T08:00:00", None, None)
+    storage.complete_session(done, {"end_time": "2026-01-01T08:10:00"})
+    interrupted = storage.create_session("2026-01-02T08:00:00", None, None)
+    assert storage.count_unassigned() == 1
+    assert storage.assign_unassigned(pid) == 1
+    assert storage.get_session(interrupted)["profile"] == storage.UNASSIGNED

@@ -1776,9 +1776,11 @@ def export_csv():
     columns = ["date", "start_time", "end_time", "duration_seconds",
                "distance_km", "distance_mi", "steps", "calories",
                "avg_speed_kmh", "avg_speed_mph", "id", "has_samples"]
-    writer.writerow(columns + ["walker"])
+    walker_column = ["walker"] if profile_names else []
+    writer.writerow(columns + walker_column)
     for row in history:
-        writer.writerow([row[c] for c in columns] + [profile_names.get(row["profile"], "Unassigned")])
+        walker = [profile_names.get(row["profile"], "Unassigned")] if profile_names else []
+        writer.writerow([row[c] for c in columns] + walker)
 
     resp = make_response(si.getvalue())
     resp.headers["Content-Disposition"] = "attachment; filename=walkingdad_history.csv"
