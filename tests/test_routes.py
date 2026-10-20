@@ -100,6 +100,20 @@ def test_root_paused(client, paused):
     assert b"Session Paused" in client.get("/").data
 
 
+@pytest.mark.parametrize("connecting", [True, False])
+def test_root_paused_disconnected(client, paused, monkeypatch, connecting):
+    # The pad turns itself off after sitting paused; the session must stay
+    # reachable (End Session, Reconnect) rather than hide behind CONNECTING.
+    monkeypatch.setattr(app, "connected", False)
+    monkeypatch.setattr(app, "connecting", connecting)
+    monkeypatch.setattr(app, "connection_failed", not connecting)
+    html = client.get("/").get_data(as_text=True)
+    assert "Session Paused" in html
+    assert 'id="btn-end"' in html
+    assert 'id="btn-resume"' not in html
+    assert ('id="btn-reconnect"' in html) is not connecting
+
+
 def test_phone_viewport_and_manifest(client):
     html = client.get("/").get_data(as_text=True)
     assert 'name="viewport" content="width=device-width' in html
@@ -221,6 +235,13 @@ def test_resume(client, app_state, path):
 
 
 def test_resume_no_session(client, app_state):
+    assert redirects_root(client.post("/resume"))
+    assert not app.belt_running
+    assert app_state == []
+
+
+def test_resume_not_connected(client, app_state, paused, monkeypatch):
+    monkeypatch.setattr(app, "connected", False)
     assert redirects_root(client.post("/resume"))
     assert not app.belt_running
     assert app_state == []

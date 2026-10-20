@@ -1480,7 +1480,9 @@ def _block_cross_site_posts():
 # ── Flask routes ────────────────────────────────────────────────────────
 @app.route("/")
 def root():
-    if not connected:
+    # A session survives a drop (the pad powers itself off after sitting
+    # paused), so it stays on the paused screen where End Session still works.
+    if not connected and not session_active:
         return render_template("connecting.html")
 
     time_active_display = "0:00:00"  # Default for start/paused if not running
@@ -2061,6 +2063,10 @@ def resume_session():
     with _session_state_lock:
         if not session_active:
             logging.warning("Resume called but no active session.")
+            return redirect(url_for("root"))
+
+        if not connected:
+            logging.warning("Resume called but the WalkingPad is not connected.")
             return redirect(url_for("root"))
 
         if belt_running:
