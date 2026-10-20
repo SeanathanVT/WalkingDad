@@ -27,4 +27,5 @@ def legacy_record(row: dict) -> dict:
         "health_logged": row["health_logged"] == 1,
         "health_status": row["health_logged"],
         "has_samples": row["has_samples"],
+        "profile": row["profile"],
     }

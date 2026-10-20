@@ -569,13 +569,21 @@ Added the missing viewport meta, so phones get a real phone layout instead of a 
 
 ---
 
-### 4.5 Per-User Profiles
-- **Status:** Planned
-- **Priority:** Low
-- **Problem:** WalkingDad is built for a household to share, but history mixes everyone's sessions together. History, records (4.2), and goals (4.3) can't be attributed to a person.
-- **Solution:** Profiles (no accounts/auth) with optional height and weight for 3.10's calorie model. The walker is picked on the start screen at every Start; nothing is preselected with 2+ profiles, the only profile is preselected with 1, and with 0 Start works as today. History gets a Walker column and a filter that CSV export and Clear respect; 4.2/4.3 filter the same way. The Apple Health banner names the walker.
-- **Existing history:** Sessions stay `'default'` (Unassigned). Creating a profile while Unassigned sessions exist asks whether to assign them to it, and asks again on later creations until they're claimed. Deleting a profile moves its sessions back to Unassigned rather than deleting them.
-- **Implementation:** A `profiles` table (schema version 3) and profile CRUD in `storage.py`; `sessions.profile` holds the profile id. The 2.9 groundwork already covers the rest of the storage side: the `(profile, start_time)` index and `profile=` on `create_session()`, `list_sessions()`, and `clear_history()`. Profiles are managed in a Settings section.
+### ✅ 4.5 Per-User Profiles
+**Status:** ✅ Complete
+**Priority:** Low
+**Files Modified:** `storage.py`, `app.py`, `units.py`, `templates/settings.html`, `templates/start_session.html`, `templates/active_session.html`, `templates/paused_session.html`, `templates/base.html`, `tests/`
+
+WalkingDad is shared by a household, but history mixed everyone's sessions together. Profiles (no accounts/auth) attribute each session to a person and hold optional height and weight for 3.10's calorie model.
+
+| Feature | Description |
+|---|---|
+| **Storage** | A `profiles` table (schema version 3) and profile CRUD in `storage.py`; `sessions.profile` holds the profile id, `'default'` meaning Unassigned. Builds on 2.9's `(profile, start_time)` index and `profile=` filters |
+| **Settings** | A Profiles section to add, rename, set height (ft/in) and weight (lb), and delete. Stored in m and kg |
+| **Picking the walker** | A "Who's walking?" radio group on the start screen. 0 profiles: no picker, Start works as before. 1: preselected. 2+: nothing preselected, and the radios are `required`, so Start without a choice shows the browser's validation message. Not a disabled Start button: base.html re-enables Start on every SSE tick, and a disabled button can't be focused or explain itself. `/start` rejects a missing or unknown walker server-side |
+| **History** | Walker column and an All / name / Unassigned filter (`?walker=`). CSV export (with a trailing `walker` column) and Clear follow the filter. 4.2/4.3 should filter the same way when built |
+| **Existing history** | Creating a profile while Unassigned sessions exist asks whether to assign them, and asks again on later creations until they're claimed. Deleting a profile moves its sessions back to Unassigned |
+| **Elsewhere** | The active and paused screens show the walker; the Apple Health banner names them |
 
 ---
 

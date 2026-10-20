@@ -1,4 +1,24 @@
 {% extends "base.html" %}
+{% macro profile_fields(v, key) %}
+<div class="d-flex flex-wrap gap-2 align-items-end mb-2">
+    <div>
+        <label class="form-label fw-medium" for="name-{{ key }}">Name</label>
+        <input type="text" id="name-{{ key }}" name="name" value="{{ v.name or '' }}" maxlength="40" required class="form-control settings-input">
+    </div>
+    <div>
+        <label class="form-label fw-medium" for="height-ft-{{ key }}">Height (ft)</label>
+        <input type="number" id="height-ft-{{ key }}" name="height_ft" value="{{ v.height_ft or '' }}" min="3" max="8" step="1" class="form-control settings-input">
+    </div>
+    <div>
+        <label class="form-label fw-medium" for="height-in-{{ key }}">Height (in)</label>
+        <input type="number" id="height-in-{{ key }}" name="height_in" value="{{ v.height_in or '' }}" min="0" max="11" step="1" class="form-control settings-input">
+    </div>
+    <div>
+        <label class="form-label fw-medium" for="weight-{{ key }}">Weight (lb)</label>
+        <input type="number" id="weight-{{ key }}" name="weight_lb" value="{{ v.weight_lb or '' }}" min="50" max="700" step="any" class="form-control settings-input">
+    </div>
+</div>
+{% endmacro %}
 {% block content %}
 <div style="max-width:600px;margin:0 auto;">
     <h1 class="content-title mb-4">Settings</h1>
@@ -142,6 +162,41 @@
         </div>
 
     </form>
+
+    <div class="stat-card mb-4" id="profiles">
+        <h2 class="settings-section-title">Profiles</h2>
+        <p class="text-muted settings-hint">Pick who's walking at Start. Height and weight are optional and only used for calorie estimates.</p>
+        {% if profile_error %}
+        <div id="profile-error" class="alert alert-danger" role="alert" tabindex="-1">{{ profile_error }}</div>
+        <script>document.getElementById('profile-error').focus();</script>
+        {% endif %}
+        {% if claim %}
+        <div class="mb-3" role="status">
+            <p class="mb-2">Assign {{ claim.count }} existing session{{ '' if claim.count == 1 else 's' }} to {{ claim.name }}?</p>
+            <form method="post" action="{{ url_for('profile_claim', profile_id=claim.id) }}" class="d-inline">
+                <button type="submit" class="btn btn-custom-primary btn-sm">Assign to {{ claim.name }}</button>
+            </form>
+            <a href="{{ url_for('settings_page', _anchor='profiles') }}" class="btn btn-sm btn-preset">Not now</a>
+        </div>
+        {% endif %}
+        {% for p in profiles %}
+        <form method="post" action="{{ url_for('profile_update', profile_id=p.id) }}" class="mb-3" aria-label="Profile {{ p.name }}">
+            {{ profile_fields(p, loop.index) }}
+            <button type="submit" class="btn btn-sm btn-preset">Save</button>
+            <button type="submit" class="btn btn-sm btn-preset" formaction="{{ url_for('profile_delete', profile_id=p.id) }}" formnovalidate
+                    data-confirm="Delete {{ p.name }}? Their sessions stay in history as Unassigned.">Delete</button>
+        </form>
+        {% endfor %}
+        <form method="post" action="{{ url_for('profile_create') }}" aria-label="Add profile">
+            {{ profile_fields(profile_form, 'new') }}
+            <button type="submit" class="btn btn-custom-primary btn-sm">Add Profile</button>
+        </form>
+        <script>
+        document.querySelectorAll('[data-confirm]').forEach(function(btn) {
+            btn.addEventListener('click', function(e) { if (!confirm(btn.dataset.confirm)) e.preventDefault(); });
+        });
+        </script>
+    </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <script>

@@ -20,6 +20,7 @@ The official WalkingPad experience is a bloated mobile app that wants your email
 - **Live tab title**: While walking, the browser tab shows speed and distance
 - **Console-style interface**: Active, Paused, and Start screens read like the WalkingPad's own onboard display, with one large tabular-digit reading up top and secondary stats in a compact readout strip below
 - **Session history**: Sessions saved to a local SQLite database (`data/walkingdad.db`) with full stats, pauses, and per-second speed/distance/steps samples; last 10 shown on the start screen. Includes CSV export, history clearing, and an **Edit** mode for deleting individual sessions. An existing `session_history.json` from an older version is imported automatically on first launch (the original is kept as `data/backups/session_history.json.bak-<timestamp>`).
+- **Profiles**: Each household member gets a profile (Settings); pick who's walking at Start and filter history, CSV export, and Clear by walker. Optional height and weight
 - **Crash recovery**: If the server crashes or restarts mid-session, your stats aren't lost. The start screen offers to restore the interrupted session (paused, ready to resume) or discard it.
 - **Settings page**: Gear icon in the header lets you change settings (device name, speed limits, port, and more) from the browser without editing files
 - **Dark mode**: Three-state toggle (Light → Dark → System) with localStorage persistence

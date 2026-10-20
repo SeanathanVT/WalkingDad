@@ -35,7 +35,7 @@ def test_new_session_record_matches_old_builder():
     row = {
         "id": "x", "start_time": "2026-07-15T12:07:04-04:00", "end_time": "2026-07-15T12:34:26-04:00",
         "moving_s": 1356, "distance_m": 1850.0, "steps": 2562, "calories_kcal": 109.4,
-        "health_logged": 0, "has_samples": 0,
+        "health_logged": 0, "has_samples": 0, "profile": "default",
     }
 
     rec = legacy_record(row)
@@ -57,7 +57,7 @@ def test_dismissed_is_not_logged():
     row = {
         "id": "x", "start_time": "2026-07-15T12:00:00-04:00", "end_time": None,
         "moving_s": 0, "distance_m": 0.0, "steps": 0, "calories_kcal": 0.0,
-        "health_logged": 2, "has_samples": 0,
+        "health_logged": 2, "has_samples": 0, "profile": "default",
     }
     rec = legacy_record(row)
     assert rec["health_logged"] is False
@@ -68,7 +68,7 @@ def test_zero_moving_time_does_not_divide_by_zero():
     row = {
         "id": "x", "start_time": "2026-07-15T12:00:00-04:00", "end_time": None,
         "moving_s": 0, "distance_m": 0.0, "steps": 0, "calories_kcal": 0.0,
-        "health_logged": 0, "has_samples": 0,
+        "health_logged": 0, "has_samples": 0, "profile": "default",
     }
 
     rec = legacy_record(row)

@@ -9,6 +9,7 @@ import os
 import queue
 import signal
 import socket
+import sqlite3
 import threading
 import time
 import urllib.parse
@@ -260,7 +261,7 @@ def _now_iso() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
 
 
-def _begin_db_session(existing_id: str | None = None):
+def _begin_db_session(existing_id: str | None = None, profile: str = storage.UNASSIGNED):
     """Attach the in-progress session to a DB row: reuse existing_id if it still
     exists (crash restore), else create one. Measures the sample clock from
     _session_start_time, so restored sessions keep counting from the real start."""
@@ -275,6 +276,7 @@ def _begin_db_session(existing_id: str | None = None):
         else:
             _session_id = storage.create_session(
                 _session_start_time.astimezone().isoformat(timespec="seconds"), BLE_DEVICE_NAME, None,
+                profile=profile,
             )
     except Exception:
         _session_id = None
@@ -360,6 +362,7 @@ def _save_session():
 
     try:
         if _session_id is None:
+            # shortcut: a row recreated here is Unassigned; carry the walker in a global if Start-time DB failures turn out to happen.
             _begin_db_session()  # row creation failed at Start; try once more
         if _session_id is None:
             logging.error("Session not saved: no database row")
@@ -385,21 +388,102 @@ def _save_session():
         _session_id = None
 
 
-def _load_session_history(limit: int | None = None) -> list:
-    """Completed sessions, most recent first, in the legacy record shape. Pass limit=None for all."""
+def _load_session_history(limit: int | None = None, profile: str | None = None) -> list:
+    """Completed sessions, most recent first, in the legacy record shape. Pass limit=None for all, profile=None for every walker."""
     try:
-        return [legacy_record(row) for row in storage.list_sessions(limit=limit)]
+        return [legacy_record(row) for row in storage.list_sessions(limit=limit, profile=profile)]
     except Exception:
         logging.exception("Failed to load session history")
         return []
 
 
-def _clear_session_history():
+def _clear_session_history(profile: str | None = None):
     try:
-        storage.clear_history()
+        storage.clear_history(profile=profile)
         logging.info("Session history cleared")
     except Exception:
         logging.exception("Failed to clear session history")
+
+
+_M_PER_IN = 0.0254
+_KG_PER_LB = 0.45359237
+
+
+def _load_profiles() -> list:
+    try:
+        return storage.list_profiles()
+    except Exception:
+        logging.exception("Failed to load profiles")
+        return []
+
+
+def _walker_profile(walker: str | None, profile_names: dict) -> str | None:
+    """?walker= value -> storage profile filter; None means every walker."""
+    if walker == "unassigned":
+        return storage.UNASSIGNED
+    return walker if walker in profile_names else None
+
+
+def _clear_confirm(profile: str | None, profile_names: dict) -> str:
+    if profile is None:
+        return "Are you sure you want to clear all session history? This cannot be undone."
+    if profile == storage.UNASSIGNED:
+        return "Clear all Unassigned sessions? This cannot be undone."
+    return f"Clear all of {profile_names[profile]}'s sessions? This cannot be undone."
+
+
+def _session_walker_name() -> str | None:
+    if _session_id is None:
+        return None
+    try:
+        row = storage.get_session(_session_id)
+        profile = storage.get_profile(row["profile"]) if row else None
+    except Exception:
+        logging.exception("Failed to load the session's walker")
+        return None
+    return profile["name"] if profile else None
+
+
+def _parse_profile_form(form) -> tuple:
+    """(fields in SI units, None), or (None, error message)."""
+    name = form.get("name", "").strip()
+    if not name:
+        return None, "Name is required."
+    if len(name) > 40:
+        return None, "Name must be 40 characters or fewer."
+    height_m = None
+    ft, inch = form.get("height_ft", "").strip(), form.get("height_in", "").strip()
+    if ft or inch:
+        try:
+            ft_v, inch_v = int(ft or 0), int(inch or 0)
+        except ValueError:
+            return None, "Height must be whole feet and inches."
+        if not 0 <= inch_v < 12:
+            return None, "Inches must be from 0 to under 12."
+        total_in = ft_v * 12 + inch_v
+        if not 36 <= total_in <= 96:
+            return None, "Height must be between 3 ft 0 in and 8 ft 0 in."
+        height_m = total_in * _M_PER_IN
+    weight_kg = None
+    weight = form.get("weight_lb", "").strip()
+    if weight:
+        try:
+            lb = float(weight)
+        except ValueError:
+            return None, "Weight must be a number."
+        if not 50 <= lb <= 700:
+            return None, "Weight must be between 50 and 700 lb."
+        weight_kg = lb * _KG_PER_LB
+    return {"name": name, "height_m": height_m, "weight_kg": weight_kg}, None
+
+
+def _profile_view(profile: dict) -> dict:
+    view = dict(profile, height_ft="", height_in="", weight_lb="")
+    if profile["height_m"] is not None:
+        view["height_ft"], view["height_in"] = divmod(round(profile["height_m"] / _M_PER_IN), 12)
+    if profile["weight_kg"] is not None:
+        view["weight_lb"] = round(profile["weight_kg"] / _KG_PER_LB, 2)
+    return view
 
 
 # {"id", "status"} of the last Apple Health status change, pushed over SSE so other open
@@ -1490,8 +1574,15 @@ def root():
         time_active_display = format_seconds_to_hms(current_session_active_seconds)
 
     if not session_active:
+        profiles = _load_profiles()
+        profile_names = {p["id"]: p["name"] for p in profiles}
         # For start_session, show history (last N sessions)
-        history = _load_session_history(limit=HISTORY_DISPLAY_LIMIT)
+        walker_profile = _walker_profile(request.args.get("walker"), profile_names)
+        walker = "unassigned" if walker_profile == storage.UNASSIGNED else (walker_profile or "all")
+        history = _load_session_history(limit=HISTORY_DISPLAY_LIMIT, profile=walker_profile)
+        for record in history:
+            record["walker"] = profile_names.get(record["profile"], "Unassigned")
+        walker_options = [("all", "All"), *profile_names.items(), ("unassigned", "Unassigned")]
         # Deliberately a separate query rather than reusing history[0]: with
         # history_display_limit set to 0, history is [] and would silently
         # (and wrongly) disable the Apple Health prompt too, an unrelated
@@ -1503,6 +1594,7 @@ def root():
             and bool(most_recent_session)
             and most_recent_session[0]["health_status"] == storage.HEALTH_PENDING
         )
+        health_walker = profile_names.get(most_recent_session[0]["profile"]) if pending_health_export else None
         if APPLE_HEALTH_EXPORT_ENABLED:
             base_url = _phone_reachable_base_url()
             for record in history:
@@ -1524,6 +1616,8 @@ def root():
             pending_health_export=pending_health_export, log_shortcut_url=log_shortcut_url,
             health_session_id=most_recent_session[0]["id"] if pending_health_export else None,
             health_export_enabled=APPLE_HEALTH_EXPORT_ENABLED,
+            profiles=profiles, walker_error=bool(request.args.get("walker_error")), health_walker=health_walker,
+            walker=walker, walker_options=walker_options, clear_confirm=_clear_confirm(walker_profile, profile_names),
         )
 
     template = "active_session.html" if belt_running else "paused_session.html"
@@ -1535,6 +1629,7 @@ def root():
         steps=current_steps,
         calories=current_calories,
         time_active=time_active_display,
+        walker_name=_session_walker_name(),
     )
 
 
@@ -1673,16 +1768,17 @@ def _end_session_if_stale_pause():
 @app.route("/export_csv")
 def export_csv():
     """Export full session history as a CSV download."""
-    history = _load_session_history()
+    profile_names = {p["id"]: p["name"] for p in _load_profiles()}
+    history = _load_session_history(profile=_walker_profile(request.args.get("walker"), profile_names))
     si = io.StringIO()
     writer = csv.writer(si)
     # Legacy columns first, in their original order, so existing spreadsheets keep working.
     columns = ["date", "start_time", "end_time", "duration_seconds",
                "distance_km", "distance_mi", "steps", "calories",
                "avg_speed_kmh", "avg_speed_mph", "id", "has_samples"]
-    writer.writerow(columns)
+    writer.writerow(columns + ["walker"])
     for row in history:
-        writer.writerow([row[c] for c in columns])
+        writer.writerow([row[c] for c in columns] + [profile_names.get(row["profile"], "Unassigned")])
 
     resp = make_response(si.getvalue())
     resp.headers["Content-Disposition"] = "attachment; filename=walkingdad_history.csv"
@@ -1693,8 +1789,14 @@ def export_csv():
 # ── Clear History ──────────────────────────────────────────────────────
 @app.route("/clear_history", methods=["POST"])
 def clear_history():
-    """Clear all session history."""
-    _clear_session_history()
+    """Clear session history, for one walker when the form names one."""
+    walker = request.form.get("walker")
+    profile_names = {p["id"]: p["name"] for p in _load_profiles()}
+    profile = _walker_profile(walker, profile_names)
+    # A walker deleted in another tab (or unreadable profiles) must not widen a scoped Clear to everything.
+    if profile is None and walker not in (None, "", "all"):
+        return jsonify({"status": "stale"}), 409
+    _clear_session_history(profile)
     return jsonify({"status": "cleared"})
 
 
@@ -1794,6 +1896,29 @@ _SETTINGS_SCHEMA = [
 ]
 
 
+def _render_settings(profile_error=None, profile_form=None, status=200):
+    profiles = _load_profiles()
+    claim = None
+    claimed = next((p for p in profiles if p["id"] == request.args.get("claim")), None)
+    if claimed:
+        try:
+            count = storage.count_unassigned()
+        except Exception:
+            logging.exception("Failed to count unassigned sessions")
+            count = 0
+        if count:
+            claim = {"id": claimed["id"], "name": claimed["name"], "count": count}
+    return render_template(
+        "settings.html",
+        apple_health_export_enabled=APPLE_HEALTH_EXPORT_ENABLED,
+        profiles=[_profile_view(p) for p in profiles],
+        claim=claim,
+        profile_error=profile_error,
+        profile_form=profile_form or {},
+        **{form_key: getattr(config, const_name) for form_key, const_name, _, _ in _SETTINGS_SCHEMA},
+    ), status
+
+
 @app.route("/settings", methods=["GET", "POST"])
 def settings_page():
     global APPLE_HEALTH_EXPORT_ENABLED
@@ -1844,11 +1969,68 @@ def settings_page():
 
         return redirect(url_for("root", saved=1))
 
-    return render_template(
-        "settings.html",
-        apple_health_export_enabled=APPLE_HEALTH_EXPORT_ENABLED,
-        **{form_key: getattr(config, const_name) for form_key, const_name, _, _ in _SETTINGS_SCHEMA},
-    )
+    return _render_settings()
+
+
+@app.route("/profiles", methods=["POST"])
+def profile_create():
+    fields, error = _parse_profile_form(request.form)
+    if error:
+        return _render_settings(profile_error=error, profile_form=request.form, status=400)
+    try:
+        profile_id = storage.create_profile(**fields)
+    except sqlite3.IntegrityError:
+        return _render_settings(
+            profile_error=f'A profile named "{fields["name"]}" already exists.', profile_form=request.form, status=400
+        )
+    except Exception:
+        logging.exception("Failed to create profile")
+        return _render_settings(profile_error="Couldn't save the profile.", profile_form=request.form, status=500)
+    try:
+        unassigned = storage.count_unassigned()
+    except Exception:
+        logging.exception("Failed to count unassigned sessions")
+        unassigned = 0
+    if unassigned:
+        return redirect(url_for("settings_page", claim=profile_id, _anchor="profiles"))
+    return redirect(url_for("settings_page", _anchor="profiles"))
+
+
+@app.route("/profiles/<profile_id>", methods=["POST"])
+def profile_update(profile_id):
+    fields, error = _parse_profile_form(request.form)
+    if error:
+        return _render_settings(profile_error=error, status=400)
+    try:
+        found = storage.update_profile(profile_id, **fields)
+    except sqlite3.IntegrityError:
+        return _render_settings(profile_error=f'A profile named "{fields["name"]}" already exists.', status=400)
+    except Exception:
+        logging.exception("Failed to update profile")
+        return _render_settings(profile_error="Couldn't save the profile.", status=500)
+    if not found:
+        return _render_settings(profile_error="That profile no longer exists.", status=404)
+    return redirect(url_for("settings_page", _anchor="profiles"))
+
+
+@app.route("/profiles/<profile_id>/delete", methods=["POST"])
+def profile_delete(profile_id):
+    try:
+        storage.delete_profile(profile_id)
+    except Exception:
+        logging.exception("Failed to delete profile")
+        return _render_settings(profile_error="Couldn't delete the profile.", status=500)
+    return redirect(url_for("settings_page", _anchor="profiles"))
+
+
+@app.route("/profiles/<profile_id>/claim", methods=["POST"])
+def profile_claim(profile_id):
+    try:
+        if storage.get_profile(profile_id):
+            storage.assign_unassigned(profile_id)
+    except Exception:
+        logging.exception("Failed to assign unassigned sessions")
+    return redirect(url_for("settings_page", _anchor="profiles"))
 
 
 @app.route("/reconnect", methods=["POST"])
@@ -1930,6 +2112,11 @@ def start_session():
     if not connected:
         return redirect(url_for("root"))
 
+    profiles = _load_profiles()
+    profile_id = request.form.get("profile_id")
+    if profiles and profile_id not in {p["id"] for p in profiles}:
+        return redirect(url_for("root", walker_error=1))
+
     with _session_state_lock:
         if session_active:
             return redirect(url_for("root"))
@@ -1943,7 +2130,7 @@ def start_session():
         speed_history.clear()
         _session_start_time = datetime.now()
         _resume_grace_deadline = time.time() + RESUME_GRACE_PERIOD_SECONDS
-        _begin_db_session()
+        _begin_db_session(profile=profile_id if profiles else storage.UNASSIGNED)
 
         session_active = True
         belt_running = True

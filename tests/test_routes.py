@@ -1,3 +1,5 @@
+import csv
+import io
 import json
 import os
 import re
@@ -755,3 +757,299 @@ def test_shutdown_loop_stop_edge_cases(client, monkeypatch, loop_cls, stop_reque
     monkeypatch.setattr(app, "ble_loop", loop)
     assert client.post("/shutdown").get_json() == {"status": "shutting_down"}
     assert loop.calls == ([loop.stop] if stop_requested else [])
+
+
+# ── profiles ──
+
+def profile_form(name="Sean", ft="5", inch="10", lb="180"):
+    return {"name": name, "height_ft": ft, "height_in": inch, "weight_lb": lb}
+
+
+def test_create_profile_stores_si_units(client):
+    resp = client.post("/profiles", data=profile_form())
+    assert resp.status_code == 302 and resp.headers["Location"].endswith("/settings#profiles")
+    (p,) = storage.list_profiles()
+    assert p["name"] == "Sean"
+    assert p["height_m"] == pytest.approx(70 * 0.0254)
+    assert p["weight_kg"] == pytest.approx(180 * 0.45359237)
+
+
+def test_create_profile_blank_stats(client):
+    client.post("/profiles", data=profile_form(ft="", inch="", lb=""))
+    (p,) = storage.list_profiles()
+    assert p["height_m"] is None and p["weight_kg"] is None
+
+
+@pytest.mark.parametrize("fields, message", [
+    ({"name": "  "}, "Name is required."),
+    ({"name": "x" * 41}, "Name must be 40 characters or fewer."),
+    ({"ft": "2", "inch": "11"}, "Height must be between 3 ft 0 in and 8 ft 0 in."),
+    ({"ft": "8", "inch": "1"}, "Height must be between 3 ft 0 in and 8 ft 0 in."),
+    ({"inch": "12"}, "Inches must be from 0 to under 12."),
+    ({"inch": "-1"}, "Inches must be from 0 to under 12."),
+    ({"ft": "tall"}, "Height must be whole feet and inches."),
+    ({"inch": "10.5"}, "Height must be whole feet and inches."),
+    ({"ft": "2.5", "inch": "6"}, "Height must be whole feet and inches."),
+    ({"lb": "49"}, "Weight must be between 50 and 700 lb."),
+    ({"lb": "nan"}, "Weight must be between 50 and 700 lb."),
+    ({"lb": "heavy"}, "Weight must be a number."),
+])
+def test_create_profile_rejects_invalid(client, fields, message):
+    resp = client.post("/profiles", data=profile_form(**fields))
+    assert resp.status_code == 400
+    assert message in resp.get_data(as_text=True)
+    assert storage.list_profiles() == []
+
+
+def test_create_profile_keeps_entered_values_on_error(client):
+    html = client.post("/profiles", data=profile_form(lb="49")).get_data(as_text=True)
+    assert 'name="name" value="Sean"' in html
+
+
+def test_create_profile_duplicate_name(client):
+    storage.create_profile("Sean")
+    resp = client.post("/profiles", data=profile_form(name="sean"))
+    assert resp.status_code == 400
+    assert "already exists" in resp.get_data(as_text=True)
+
+
+def test_create_profile_offers_unassigned_sessions(client):
+    completed_session(datetime.now() - timedelta(days=1))
+    resp = client.post("/profiles", data=profile_form())
+    (p,) = storage.list_profiles()
+    assert f"claim={p['id']}" in resp.headers["Location"]
+    html = client.get(resp.headers["Location"]).get_data(as_text=True)
+    assert "Assign 1 existing session to Sean?" in html
+
+
+def test_create_profile_no_offer_without_unassigned(client):
+    resp = client.post("/profiles", data=profile_form())
+    assert "claim=" not in resp.headers["Location"]
+
+
+def test_claim_assigns_unassigned_sessions(client):
+    sid = completed_session(datetime.now() - timedelta(days=1))
+    pid = storage.create_profile("Sean")
+    assert client.post(f"/profiles/{pid}/claim").status_code == 302
+    assert storage.get_session(sid)["profile"] == pid
+
+
+def test_claim_unknown_profile_assigns_nothing(client):
+    sid = completed_session(datetime.now() - timedelta(days=1))
+    client.post("/profiles/nope/claim")
+    assert storage.get_session(sid)["profile"] == storage.UNASSIGNED
+
+
+def test_update_profile(client):
+    pid = storage.create_profile("Sean")
+    assert client.post(f"/profiles/{pid}", data=profile_form(name="Sean H", lb="175")).status_code == 302
+    p = storage.get_profile(pid)
+    assert p["name"] == "Sean H"
+    assert p["weight_kg"] == pytest.approx(175 * 0.45359237)
+
+
+def test_update_profile_errors(client):
+    storage.create_profile("Kim")
+    pid = storage.create_profile("Sean")
+    assert client.post(f"/profiles/{pid}", data=profile_form(name="kim")).status_code == 400
+    assert client.post(f"/profiles/{pid}", data=profile_form(lb="1")).status_code == 400
+    assert client.post("/profiles/nope", data=profile_form(name="New")).status_code == 404
+    assert storage.get_profile(pid)["name"] == "Sean"
+
+
+def test_delete_profile_keeps_sessions(client):
+    pid = storage.create_profile("Sean")
+    sid = completed_session(datetime.now() - timedelta(days=1))
+    storage.assign_unassigned(pid)
+    assert client.post(f"/profiles/{pid}/delete").status_code == 302
+    assert storage.list_profiles() == []
+    assert storage.get_session(sid)["profile"] == storage.UNASSIGNED
+
+
+def test_profile_round_trip_does_not_drift(client):
+    client.post("/profiles", data=profile_form())
+    (p,) = storage.list_profiles()
+    html = client.get("/settings").get_data(as_text=True)
+    assert f'action="/profiles/{p["id"]}"' in html
+    assert 'name="height_ft" value="5"' in html
+    assert 'name="height_in" value="10"' in html
+    assert 'name="weight_lb" value="180.0"' in html
+    client.post(f"/profiles/{p['id']}", data=profile_form(lb="180.0"))
+    saved = storage.get_profile(p["id"])
+    assert saved["height_m"] == pytest.approx(p["height_m"])
+    assert saved["weight_kg"] == pytest.approx(p["weight_kg"])
+
+
+# ── walker at Start ──
+
+def test_start_requires_walker_when_profiles_exist(client, app_state):
+    storage.create_profile("Sean")
+    storage.create_profile("Kim")
+    resp = client.post("/start")
+    assert resp.status_code == 302 and "walker_error=1" in resp.headers["Location"]
+    assert not app.session_active
+    assert app_state == []
+
+
+def test_start_rejects_unknown_walker(client, app_state):
+    storage.create_profile("Sean")
+    resp = client.post("/start", data={"profile_id": "deleted-in-another-tab"})
+    assert "walker_error=1" in resp.headers["Location"]
+    assert not app.session_active
+
+
+def test_start_tags_session_with_walker(client, app_state):
+    pid = storage.create_profile("Sean")
+    storage.create_profile("Kim")
+    client.post("/start", data={"profile_id": pid})
+    assert storage.get_session(app._session_id)["profile"] == pid
+
+
+def test_start_without_profiles_is_unassigned(client, app_state):
+    client.post("/start", data={"profile_id": "ignored"})
+    assert storage.get_session(app._session_id)["profile"] == storage.UNASSIGNED
+
+
+def test_start_when_profiles_unreadable_is_unassigned(client, app_state, monkeypatch):
+    storage.create_profile("Sean")
+
+    def boom():
+        raise sqlite3.OperationalError("disk I/O error")
+
+    monkeypatch.setattr(storage, "list_profiles", boom)
+    client.post("/start")
+    assert app.session_active
+    assert storage.get_session(app._session_id)["profile"] == storage.UNASSIGNED
+
+
+def test_start_screen_walker_picker(client):
+    assert "Who's walking?" not in client.get("/").get_data(as_text=True)
+    pid = storage.create_profile("Sean")
+    assert f'value="{pid}" required checked>' in client.get("/").get_data(as_text=True)
+    storage.create_profile("Kim")
+    html = client.get("/").get_data(as_text=True)
+    assert "Who's walking?" in html
+    assert f'value="{pid}" required>' in html
+
+
+def test_start_screen_shows_walker_error(client):
+    storage.create_profile("Sean")
+    storage.create_profile("Kim")
+    assert "Choose who's walking, then press Start." in client.get("/?walker_error=1").get_data(as_text=True)
+
+
+def test_session_screen_shows_walker(client, app_state):
+    pid = storage.create_profile("Sean")
+    client.post("/start", data={"profile_id": pid})
+    html = client.get("/").get_data(as_text=True)
+    assert 'id="walker-name"' in html and "Sean" in html
+
+
+def test_health_banner_names_walker_escaped(client, monkeypatch):
+    monkeypatch.setattr(app, "APPLE_HEALTH_EXPORT_ENABLED", True)
+    pid = storage.create_profile("<b>Sean</b>")
+    completed_session(datetime.now() - timedelta(hours=1))
+    storage.assign_unassigned(pid)
+    html = client.get("/").get_data(as_text=True)
+    assert "&lt;b&gt;Sean&lt;/b&gt;&#39;s session complete." in html
+
+
+# ── history by walker ──
+
+@pytest.fixture
+def walkers(app_state, monkeypatch):
+    monkeypatch.setattr(app, "HISTORY_DISPLAY_LIMIT", 10)
+    sean, kim = storage.create_profile("Sean"), storage.create_profile("Kim")
+    s1 = completed_session(datetime.now() - timedelta(days=3))
+    storage.assign_unassigned(sean)
+    s2 = completed_session(datetime.now() - timedelta(days=2))
+    storage.assign_unassigned(kim)
+    s3 = completed_session(datetime.now() - timedelta(days=1))
+    return sean, kim, (s1, s2, s3)
+
+
+def history_ids(html):
+    return re.findall(r'<tr data-session-id="([^"]+)"', html)
+
+
+def test_history_filters_by_walker(client, walkers):
+    sean, _kim, (s1, s2, s3) = walkers
+    assert history_ids(client.get("/").get_data(as_text=True)) == [s3, s2, s1]
+    assert history_ids(client.get(f"/?walker={sean}").get_data(as_text=True)) == [s1]
+    assert history_ids(client.get("/?walker=unassigned").get_data(as_text=True)) == [s3]
+    assert history_ids(client.get("/?walker=nope").get_data(as_text=True)) == [s3, s2, s1]
+
+
+def test_history_walker_column(client, walkers):
+    html = client.get("/").get_data(as_text=True)
+    assert '<td data-label="Walker" class="text-start">Unassigned</td>' in html
+    assert '<td data-label="Walker" class="text-start">Sean</td>' in html
+
+
+def test_history_no_walker_column_without_profiles(client, monkeypatch):
+    monkeypatch.setattr(app, "HISTORY_DISPLAY_LIMIT", 10)
+    completed_session(datetime.now() - timedelta(days=1))
+    html = client.get("/").get_data(as_text=True)
+    assert 'data-label="Walker"' not in html
+    assert 'aria-label="Filter sessions by walker"' not in html
+
+
+def test_history_empty_filter_keeps_filter_visible(client, monkeypatch):
+    monkeypatch.setattr(app, "HISTORY_DISPLAY_LIMIT", 10)
+    pid = storage.create_profile("Sean")
+    completed_session(datetime.now() - timedelta(days=1))
+    html = client.get(f"/?walker={pid}").get_data(as_text=True)
+    assert "No sessions for this walker yet." in html
+    assert 'aria-label="Filter sessions by walker"' in html
+    assert 'aria-current="page"' in html
+
+
+def test_export_csv_filters_and_names_walker(client, walkers):
+    _sean, kim, (_s1, s2, _s3) = walkers
+    rows = list(csv.reader(io.StringIO(client.get(f"/export_csv?walker={kim}").get_data(as_text=True))))
+    assert rows[0][-1] == "walker"
+    assert [(r[10], r[-1]) for r in rows[1:]] == [(s2, "Kim")]
+
+
+def test_clear_history_scoped_to_walker(client, walkers):
+    sean, _kim, (_s1, s2, s3) = walkers
+    client.post("/clear_history", data={"walker": sean})
+    assert [s["id"] for s in storage.list_sessions()] == [s3, s2]
+    client.post("/clear_history", data={"walker": "unassigned"})
+    assert [s["id"] for s in storage.list_sessions()] == [s2]
+
+
+def test_clear_confirm_names_walker_safely(client, walkers):
+    sean = walkers[0]
+    storage.update_profile(sean, "O'Brien", None, None)
+    html = client.get(f"/?walker={sean}").get_data(as_text=True)
+    assert "Clear all of O\\u0027Brien\\u0027s sessions? This cannot be undone." in html
+
+
+def test_profile_weight_round_trip_keeps_hundredths(client):
+    client.post("/profiles", data=profile_form(lb="180.25"))
+    assert 'name="weight_lb" value="180.25"' in client.get("/settings").get_data(as_text=True)
+
+
+def test_profile_error_takes_focus(client):
+    storage.create_profile("Sean")
+    html = client.post("/profiles", data=profile_form(name="sean")).get_data(as_text=True)
+    assert 'id="profile-error" class="alert alert-danger" role="alert" tabindex="-1"' in html
+    assert "getElementById('profile-error').focus()" in html
+
+
+def test_clear_history_with_stale_walker_clears_nothing(client, walkers):
+    sean = walkers[0]
+    storage.delete_profile(sean)
+    resp = client.post("/clear_history", data={"walker": sean})
+    assert resp.status_code == 409
+    assert len(storage.list_sessions()) == 3
+
+
+def test_clear_history_when_profiles_unreadable_clears_nothing(client, walkers, monkeypatch):
+    def boom():
+        raise sqlite3.OperationalError("disk I/O error")
+
+    monkeypatch.setattr(storage, "list_profiles", boom)
+    assert client.post("/clear_history", data={"walker": walkers[0]}).status_code == 409
+    assert len(storage.list_sessions()) == 3
