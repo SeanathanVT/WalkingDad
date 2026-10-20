@@ -1506,7 +1506,10 @@
     // showShutdownOverlay below) to have executed first.
     var shutdownShown = false;
     var statsTickSeen = false;
-    function startStatsStream(onMessage) {
+    // renderedDisconnected: the page was rendered without a connection (a
+    // paused session after a drop), so it reloads when the link comes back
+    // instead of on every disconnected tick.
+    function startStatsStream(onMessage, renderedDisconnected) {
         var es = new EventSource("{{ url_for('stats_stream') }}");
         es.onmessage = function(event) {
             statsTickSeen = true;
@@ -1522,7 +1525,7 @@
                 es.close();
                 return;
             }
-            if (data.is_connected === false) {
+            if (data.is_connected === (renderedDisconnected === true)) {
                 window.location.reload();
                 return;
             }

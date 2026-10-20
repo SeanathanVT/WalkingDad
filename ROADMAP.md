@@ -90,7 +90,7 @@ An unexpected Bluetooth drop no longer goes straight to the manual "Try Again" s
 |---|---|
 | **Bounded Retry** | `_auto_reconnect()` retries `_connect_to_pad()` up to 8 times (`_MAX_RECONNECT_ATTEMPTS`): first attempt immediately, then waits of 5, 10, 20, then 30 s (capped). With each attempt's own scan, about 7-8 minutes in total before falling back to **Connection Failed / Try Again**. Bounded because a powered-off pad and one temporarily out of range look identical |
 | **Same Event Loop** | Runs on the existing `ble_loop`, which `_ble_thread()` leaves idling after a disconnect; no new thread, loop, or lock |
-| **UI State** | Reuses the existing `connecting` flag, so the console shows the connecting state during retries; no new template state |
+| **UI State** | Reuses the existing `connecting` flag, so the console shows the connecting state during retries. With a session open, the paused screen stays up instead (End Session still works), showing a reconnecting note and, once retries give up, a Reconnect button |
 | **Session Survives** | The drop pauses a walking session (recorded as an `auto` pause, see 2.9); after reconnecting, Resume continues it |
 | **Race Safety** | In-flight belt sequences, speed changes, and reconnect attempts are cancelled before shutdown or before a new connection replaces `controller`, so a stale coroutine can't send commands to the wrong client |
 
