@@ -432,6 +432,34 @@ def _clear_confirm(profile: str | None, profile_names: dict) -> str:
     return f"Clear all of {profile_names[profile]}'s sessions? This cannot be undone."
 
 
+def _history_view(walker: str | None, profiles: list) -> dict:
+    """Template context for the history table. walker: a profile id, "unassigned", or anything else for everyone."""
+    profile_names = {p["id"]: p["name"] for p in profiles}
+    profile = _walker_profile(walker, profile_names)
+    history = _load_session_history(limit=HISTORY_DISPLAY_LIMIT, profile=profile)
+    base_url = _phone_reachable_base_url() if APPLE_HEALTH_EXPORT_ENABLED else None
+    for record in history:
+        record["walker"] = profile_names.get(record["profile"], "Unassigned")
+        if base_url and record["health_status"] != storage.HEALTH_LOGGED:
+            record["log_shortcut_url"] = _health_log_url(record, base_url)
+    if profile == storage.UNASSIGNED:
+        walker, heading = "unassigned", "Unassigned Sessions"
+    elif profile:
+        walker, heading = profile, f"{profile_names[profile]}'s Sessions"
+    else:
+        walker, heading = "all", "Recent Sessions"
+    return {
+        "history": history,
+        "profiles": profiles,
+        "walker": walker,
+        "history_heading": heading,
+        "show_walker_column": bool(profiles) and walker == "all",
+        "walker_options": [("all", "All"), *profile_names.items(), ("unassigned", "Unassigned")],
+        "clear_confirm": _clear_confirm(profile, profile_names),
+        "health_export_enabled": APPLE_HEALTH_EXPORT_ENABLED,
+    }
+
+
 def _session_walker_name() -> str | None:
     if _session_id is None:
         return None
@@ -1576,13 +1604,6 @@ def root():
     if not session_active:
         profiles = _load_profiles()
         profile_names = {p["id"]: p["name"] for p in profiles}
-        # For start_session, show history (last N sessions)
-        walker_profile = _walker_profile(request.args.get("walker"), profile_names)
-        walker = "unassigned" if walker_profile == storage.UNASSIGNED else (walker_profile or "all")
-        history = _load_session_history(limit=HISTORY_DISPLAY_LIMIT, profile=walker_profile)
-        for record in history:
-            record["walker"] = profile_names.get(record["profile"], "Unassigned")
-        walker_options = [("all", "All"), *profile_names.items(), ("unassigned", "Unassigned")]
         # Deliberately a separate query rather than reusing history[0]: with
         # history_display_limit set to 0, history is [] and would silently
         # (and wrongly) disable the Apple Health prompt too, an unrelated
@@ -1600,11 +1621,9 @@ def root():
             default_walker = last_walker
         else:
             default_walker = profiles[0]["id"] if len(profiles) == 1 else None
+        history_view = _history_view(request.args.get("walker") or default_walker, profiles)
         if APPLE_HEALTH_EXPORT_ENABLED:
             base_url = _phone_reachable_base_url()
-            for record in history:
-                if record["health_status"] != storage.HEALTH_LOGGED:
-                    record["log_shortcut_url"] = _health_log_url(record, base_url)
         log_shortcut_url = _health_log_url(most_recent_session[0], base_url) if pending_health_export else None
 
         pending_restore = None
@@ -1617,13 +1636,11 @@ def root():
             }
 
         return render_template(
-            "start_session.html", time_active="0:00:00", history=history, pending_restore=pending_restore,
+            "start_session.html", time_active="0:00:00", pending_restore=pending_restore, **history_view,
             pending_health_export=pending_health_export, log_shortcut_url=log_shortcut_url,
             health_session_id=most_recent_session[0]["id"] if pending_health_export else None,
-            health_export_enabled=APPLE_HEALTH_EXPORT_ENABLED,
-            profiles=profiles, walker_error=bool(request.args.get("walker_error")), health_walker=health_walker,
+            walker_error=bool(request.args.get("walker_error")), health_walker=health_walker,
             default_walker=default_walker,
-            walker=walker, walker_options=walker_options, clear_confirm=_clear_confirm(walker_profile, profile_names),
         )
 
     template = "active_session.html" if belt_running else "paused_session.html"
@@ -1830,6 +1847,27 @@ def delete_session(session_id):
         logging.exception("Failed to delete session")
         return jsonify({"status": "error"}), 500
     return jsonify({"status": "deleted"})
+
+
+@app.route("/history")
+def history_fragment():
+    """The history table alone, for swapping in when the walker or Edit scope changes."""
+    return render_template("_history_table.html", **_history_view(request.args.get("walker"), _load_profiles()))
+
+
+@app.route("/session/<session_id>/walker", methods=["POST"])
+def set_session_walker(session_id):
+    profile_names = {p["id"]: p["name"] for p in _load_profiles()}
+    profile = _walker_profile(request.form.get("walker"), profile_names)
+    if profile is None:
+        return jsonify({"status": "unknown_walker"}), 400
+    try:
+        if not storage.set_session_profile(session_id, profile):
+            return jsonify({"status": "not_found"}), 404
+    except Exception:
+        logging.exception("Failed to change the session's walker")
+        return jsonify({"status": "error"}), 500
+    return jsonify({"status": "ok", "walker": profile_names.get(profile, "Unassigned")})
 
 
 @app.route("/health_logged/<session_id>")

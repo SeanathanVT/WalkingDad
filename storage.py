@@ -341,6 +341,20 @@ def assign_unassigned(profile_id):
     return cur.rowcount
 
 
+def set_session_profile(session_id, profile):
+    """False unless session_id is a completed session."""
+    with _write_lock:
+        conn = _connect(_db_path)
+        try:
+            with conn:
+                cur = conn.execute(
+                    "UPDATE sessions SET profile = ? WHERE id = ? AND status = 'completed'", (profile, session_id)
+                )
+        finally:
+            conn.close()
+    return cur.rowcount == 1
+
+
 def clear_history(profile=None):
     query = "DELETE FROM sessions WHERE status = 'completed'"
     params = []

@@ -150,80 +150,33 @@
 {% if history or profiles %}
 <div class="mt-5" id="history">
     <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-        <h2 class="content-title" style="font-size:1.5rem;">Recent Sessions</h2>
-        <div class="d-flex gap-2">
-            <a href="{{ url_for('export_csv', walker=walker) }}" class="btn btn-sm text-nowrap" style="background-color:var(--card-color);color:var(--text-color);border:none;font-weight:500;padding:0.25rem 0.75rem;" title="Export all sessions as CSV">
+        <h2 id="history-heading" class="content-title" style="font-size:1.5rem;">{{ history_heading }}</h2>
+        <div class="d-flex gap-2 align-items-center">
+            {% if profiles %}
+            <span class="history-scope">
+                <label for="history-scope" class="visually-hidden">Show sessions for</label>
+                <span class="walker-select-wrap">
+                    <select id="history-scope" class="walker-inline">
+                        {% for value, label in walker_options %}
+                        <option value="{{ value }}"{{ ' selected' if value == walker }}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </span>
+            </span>
+            {% endif %}
+            <a id="export-csv-link" href="{{ url_for('export_csv', walker=walker) }}" class="btn btn-sm text-nowrap" style="background-color:var(--card-color);color:var(--text-color);border:none;font-weight:500;padding:0.25rem 0.75rem;" title="Export these sessions as CSV">
                 <i class="bi bi-download"></i> Export CSV
             </a>
-            <button id="clear-history-btn" class="btn btn-sm text-nowrap" style="background-color:var(--card-color);color:var(--text-color);border:none;font-weight:500;padding:0.25rem 0.75rem;" title="Clear all session history">
+            <button id="clear-history-btn" class="btn btn-sm text-nowrap" style="background-color:var(--card-color);color:var(--text-color);border:none;font-weight:500;padding:0.25rem 0.75rem;" title="Clear these sessions">
                 <i class="bi bi-trash"></i> Clear
             </button>
-            <button id="edit-history-btn" type="button" class="btn btn-sm text-nowrap" aria-pressed="false" style="background-color:var(--card-color);color:var(--text-color);border:none;font-weight:500;padding:0.25rem 0.75rem;" title="Log or delete individual sessions">
+            <button id="edit-history-btn" type="button" class="btn btn-sm text-nowrap" aria-pressed="false" style="background-color:var(--card-color);color:var(--text-color);border:none;font-weight:500;padding:0.25rem 0.75rem;" title="Log, reassign, or delete individual sessions">
                 <i class="bi bi-pencil"></i> Edit
             </button>
         </div>
     </div>
-    {% if profiles %}
-    <form method="get" action="{{ url_for('root') }}#history" class="d-flex align-items-center gap-2 mb-3" aria-label="Filter sessions by walker">
-        <label for="walker-filter" class="mb-0 fw-medium">Walker</label>
-        <select id="walker-filter" name="walker" class="form-select form-select-sm settings-input" style="width:auto;">
-            {% for value, label in walker_options %}
-            <option value="{{ value }}"{{ ' selected' if value == walker }}>{{ label }}</option>
-            {% endfor %}
-        </select>
-        <button type="submit" class="btn btn-sm btn-preset">Show</button>
-    </form>
-    {% endif %}
-    <div class="table-responsive" style="border-radius:0.5rem;overflow:hidden;">
-        <table class="history-table">
-            <thead>
-                <tr>
-                    <th class="text-start">Date</th>
-                    {% if profiles %}<th class="text-start">Walker</th>{% endif %}
-                    <th>Time</th>
-                    <th class="text-end">Duration</th>
-                    <th class="text-end">Distance</th>
-                    <th class="text-end">Steps</th>
-                    <th class="text-end">Calories</th>
-                    <th class="text-end">Avg Speed</th>
-                    <th class="history-actions"><span class="visually-hidden">Actions</span></th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for s in history %}
-                <tr data-session-id="{{ s.id }}">
-                    <td class="text-start">{{ s.date }}
-                        {%- if health_export_enabled %}
-                        {%- set health_hint = 'Logged to Apple Health' if s.health_logged else 'Not logged to Apple Health. Use Edit, then Log, to log it.' %}
-                        <i class="bi {{ 'bi-heart-fill' if s.health_logged else 'bi-heart' }} health-icon" role="img" tabindex="0"
-                           data-bs-toggle="tooltip" title="{{ health_hint }}" aria-label="{{ health_hint }}"></i>
-                        {%- endif %}</td>
-                    {% if profiles %}<td data-label="Walker" class="text-start">{{ s.walker }}</td>{% endif %}
-                    <td class="mono-num">{{ s.start_time }}</td>
-                    <td data-label="Duration" class="mono-num text-end">{{ s.duration_seconds // 60 }}m {{ s.duration_seconds % 60 }}s</td>
-                    <td data-label="Distance" class="mono-num text-end">{{ "%.2f"|format(s.distance_mi) }} mi</td>
-                    <td data-label="Steps" class="mono-num text-end">{{ "{:,}".format(s.steps|int) }}</td>
-                    <td data-label="Calories" class="mono-num text-end">{{ s.calories|round(0)|int }}</td>
-                    <td data-label="Avg Speed" class="mono-num text-end">{{ s.avg_speed_mph }} mph</td>
-                    <td class="history-actions">
-                        {% if s.log_shortcut_url %}
-                        <button type="button" class="btn btn-sm btn-preset not-ios" data-log data-bs-toggle="modal" data-bs-target="#health-export-modal"
-                                data-log-url="{{ s.log_shortcut_url }}" data-session-id="{{ s.id }}">
-                            <i class="bi bi-heart-pulse"></i> Log
-                        </button>
-                        <a href="{{ s.log_shortcut_url }}" class="btn btn-sm btn-preset ios-only" data-log><i class="bi bi-heart-pulse"></i> Log</a>
-                        {% endif %}
-                        <button type="button" class="btn btn-sm btn-preset" data-delete-url="{{ url_for('delete_session', session_id=s.id) }}" aria-label="Delete session" title="Delete session">
-                            <i class="bi bi-trash text-danger"></i>
-                        </button>
-                    </td>
-                </tr>
-                {% else %}
-                <tr><td colspan="9" class="text-center text-muted">No sessions for this walker yet.</td></tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
+    <p id="history-status" class="visually-hidden" aria-live="polite"></p>
+    {% include "_history_table.html" %}
 </div>
 {% endif %}
 
@@ -274,18 +227,59 @@
     document.querySelectorAll('.health-icon').forEach(function(el) { new bootstrap.Tooltip(el); });
   });
 
-  // Edit mode reveals each row's Log/Delete buttons.
+  var historyEl = document.getElementById('history');
+  var walkerSelect = document.getElementById('walker-select');
+  var scopeSelect = document.getElementById('history-scope');
+
+  function historyBody() { return document.getElementById('history-body'); }
+
+  function initTooltips(root) {
+    if (!window.bootstrap) return;
+    root.querySelectorAll('.health-icon').forEach(function(el) { new bootstrap.Tooltip(el); });
+  }
+
+  // Swaps the table in place (no navigation), so changing a select stays a content change (WCAG 3.2.2).
+  function loadHistory(walker) {
+    return fetch("{{ url_for('history_fragment') }}?" + new URLSearchParams({ walker: walker }))
+      .then(function(resp) { return resp.ok ? resp.text() : Promise.reject(resp); })
+      .then(function(html) {
+        historyBody().outerHTML = html;
+        var body = historyBody();
+        document.getElementById('history-heading').textContent = body.dataset.heading;
+        document.getElementById('history-status').textContent = 'Showing ' + body.dataset.heading;
+        document.getElementById('export-csv-link').href = body.dataset.exportUrl;
+        if (scopeSelect) scopeSelect.value = body.dataset.walker;
+        initTooltips(body);
+      });
+  }
+
+  function walkerForStart() {
+    return walkerSelect && walkerSelect.value ? walkerSelect.value : 'all';
+  }
+
+  if (walkerSelect && historyEl) {
+    walkerSelect.addEventListener('change', function() { loadHistory(walkerSelect.value); });
+  }
+  if (scopeSelect) {
+    scopeSelect.addEventListener('change', function() { loadHistory(scopeSelect.value); });
+  }
+
+  // Edit mode reveals each row's Log/Walker/Delete controls and the Show scope; Done returns to the walker's sessions.
   var editBtn = document.getElementById('edit-history-btn');
   if (editBtn) {
     editBtn.addEventListener('click', function() {
-      var on = document.getElementById('history').classList.toggle('history-editing');
+      var on = historyEl.classList.toggle('history-editing');
       editBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
       editBtn.innerHTML = on ? '<i class="bi bi-check-lg"></i> Done' : '<i class="bi bi-pencil"></i> Edit';
+      if (!on && historyBody().dataset.walker !== walkerForStart()) loadHistory(walkerForStart());
     });
   }
 
-  document.querySelectorAll('[data-delete-url]').forEach(function(btn) {
-    btn.addEventListener('click', function() {
+  if (historyEl) {
+    // Delegated, so rows swapped in by loadHistory() work too.
+    historyEl.addEventListener('click', function(e) {
+      var btn = e.target.closest('[data-delete-url]');
+      if (!btn) return;
       if (!confirm('Delete this session? This cannot be undone.')) return;
       fetch(btn.dataset.deleteUrl, { method: 'POST' }).then(function(resp) {
         if (!resp.ok) return;
@@ -295,14 +289,36 @@
         row.remove();
       });
     });
-  });
 
-  // Clear history button
+    historyEl.addEventListener('change', function(e) {
+      var select = e.target.closest('.history-walker');
+      if (!select) return;
+      fetch('/session/' + encodeURIComponent(select.dataset.sessionId) + '/walker', {
+        method: 'POST', body: new URLSearchParams({ walker: select.value })
+      }).then(function(resp) { return resp.ok ? resp.json() : Promise.reject(resp); })
+        .then(function(data) {
+          var row = select.closest('tr');
+          var shown = historyBody().dataset.walker;
+          var status = document.getElementById('history-status');
+          if (shown !== 'all' && shown !== select.value) {
+            row.remove();
+            status.textContent = 'Moved to ' + data.walker;
+          } else {
+            var cell = row.querySelector('[data-walker-cell]');
+            if (cell) cell.textContent = data.walker;
+            status.textContent = 'Walker changed to ' + data.walker;
+          }
+        })
+        .catch(function() { loadHistory(historyBody().dataset.walker); });
+    });
+  }
+
   var clearBtn = document.getElementById('clear-history-btn');
   if (clearBtn) {
       clearBtn.addEventListener('click', function() {
-          if (confirm({{ clear_confirm|tojson }})) {
-              fetch("{{ url_for('clear_history') }}", { method: 'POST', body: new URLSearchParams({ walker: {{ walker|tojson }} }) })
+          var body = historyBody();
+          if (confirm(body.dataset.clearConfirm)) {
+              fetch("{{ url_for('clear_history') }}", { method: 'POST', body: new URLSearchParams({ walker: body.dataset.walker }) })
                   .then(function(resp) {
                       if (resp.status === 409) alert('That walker no longer exists, so nothing was cleared.');
                       window.location.reload();

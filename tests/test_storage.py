@@ -391,3 +391,15 @@ def test_unassigned_counts_and_claims_only_completed_sessions(db):
     assert storage.count_unassigned() == 1
     assert storage.assign_unassigned(pid) == 1
     assert storage.get_session(interrupted)["profile"] == storage.UNASSIGNED
+
+
+
+def test_set_session_profile_only_completed(db):
+    pid = storage.create_profile("Sean")
+    done = storage.create_session("2026-01-01T08:00:00", None, None)
+    storage.complete_session(done, {"end_time": "2026-01-01T08:10:00"})
+    active = storage.create_session("2026-01-02T08:00:00", None, None)
+    assert storage.set_session_profile(done, pid) is True
+    assert storage.get_session(done)["profile"] == pid
+    assert storage.set_session_profile(active, pid) is False
+    assert storage.set_session_profile("nope", pid) is False

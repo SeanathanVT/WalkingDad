@@ -859,10 +859,66 @@
             outline-offset: 2px;
             border-radius: 4px;
         }
-        .walker-inline option {
-            color: initial;
-            background: initial;
-            text-decoration: none;
+        /* Native dropdown popups (and the fallback where base-select is unsupported, e.g. Firefox) follow light/dark. */
+        :root { color-scheme: light; }
+        [data-theme="dark"] { color-scheme: dark; }
+
+        /* Edit mode only: which sessions to show, and each row's walker. */
+        .history-scope {
+            display: none;
+        }
+        .history-editing .history-scope {
+            display: inline-flex;
+            align-items: center;
+            margin-right: 0.25rem;
+        }
+        .history-walker {
+            font: inherit;
+            font-size: 0.85rem;
+            color: var(--text-color);
+            background-color: var(--background-color);
+            border: 1px solid var(--border-color);
+            border-radius: 0.375rem;
+            padding: 0.2rem 0.4rem;
+            margin-right: 0.25rem;
+            max-width: 9rem;
+        }
+
+        /* Themed open lists where the browser supports customizable selects
+           (Chrome/Edge 135+, Safari 27); others keep the native list. Colors are
+           the theme variables, so every color theme and light/dark apply. */
+        @supports (appearance: base-select) {
+            .walker-inline, .walker-inline::picker(select),
+            .history-walker, .history-walker::picker(select) {
+                appearance: base-select;
+            }
+            .walker-inline::picker-icon {
+                display: none; /* .walker-select-wrap draws the chevron */
+            }
+            .walker-inline::picker(select), .history-walker::picker(select) {
+                background-color: var(--card-color);
+                color: var(--text-color);
+                border: 1px solid var(--border-color);
+                border-radius: 0.5rem;
+                box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+                padding: 0.25rem;
+                font-family: var(--font-body);
+                font-weight: 500;
+            }
+            .walker-inline option, .history-walker option {
+                color: inherit;
+                background: transparent;
+                border-radius: 0.375rem;
+                padding: 0.35rem 0.75rem;
+                text-decoration: none;
+            }
+            .walker-inline option:hover, .history-walker option:hover,
+            .walker-inline option:focus-visible, .history-walker option:focus-visible {
+                background-color: var(--button-hover-bg);
+            }
+            .walker-inline option:checked, .history-walker option:checked {
+                font-weight: 700;
+            }
         }
 
         .console-engage-btn {

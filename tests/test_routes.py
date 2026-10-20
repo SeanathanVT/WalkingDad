@@ -1000,8 +1000,8 @@ def test_history_filters_by_walker(client, walkers):
 
 def test_history_walker_column(client, walkers):
     html = client.get("/").get_data(as_text=True)
-    assert '<td data-label="Walker" class="text-start">Unassigned</td>' in html
-    assert '<td data-label="Walker" class="text-start">Sean</td>' in html
+    assert '<td data-label="Walker" class="text-start" data-walker-cell>Unassigned</td>' in html
+    assert '<td data-label="Walker" class="text-start" data-walker-cell>Sean</td>' in html
 
 
 def test_history_no_walker_column_without_profiles(client, monkeypatch):
@@ -1009,7 +1009,8 @@ def test_history_no_walker_column_without_profiles(client, monkeypatch):
     completed_session(datetime.now() - timedelta(days=1))
     html = client.get("/").get_data(as_text=True)
     assert 'data-label="Walker"' not in html
-    assert 'aria-label="Filter sessions by walker"' not in html
+    assert 'id="history-scope"' not in html
+    assert '<h2 id="history-heading" class="content-title" style="font-size:1.5rem;">Recent Sessions</h2>' in html
 
 
 def test_history_empty_filter_keeps_filter_visible(client, monkeypatch):
@@ -1018,7 +1019,7 @@ def test_history_empty_filter_keeps_filter_visible(client, monkeypatch):
     completed_session(datetime.now() - timedelta(days=1))
     html = client.get(f"/?walker={pid}").get_data(as_text=True)
     assert "No sessions for this walker yet." in html
-    assert 'aria-label="Filter sessions by walker"' in html
+    assert 'id="history-scope"' in html
     assert f'<option value="{pid}" selected>Sean</option>' in html
 
 
@@ -1041,7 +1042,7 @@ def test_clear_confirm_names_walker_safely(client, walkers):
     sean = walkers[0]
     storage.update_profile(sean, "O'Brien", None, None)
     html = client.get(f"/?walker={sean}").get_data(as_text=True)
-    assert "Clear all of O\\u0027Brien\\u0027s sessions? This cannot be undone." in html
+    assert 'data-clear-confirm="Clear all of O&#39;Brien&#39;s sessions? This cannot be undone."' in html
 
 
 def test_profile_weight_round_trip_keeps_hundredths(client):
@@ -1089,3 +1090,63 @@ def test_add_profile_form_open_after_create_error(client):
     html = client.post("/profiles", data=profile_form(lb="49")).get_data(as_text=True)
     assert 'aria-controls="add-profile" aria-expanded="true"' in html
     assert 'class="collapse show" id="add-profile"' in html
+
+
+
+# ── history follows the walker; reassigning in Edit ──
+
+def test_history_fragment_for_walker(client, walkers):
+    sean, _kim, (s1, _s2, _s3) = walkers
+    html = client.get(f"/history?walker={sean}").get_data(as_text=True)
+    assert history_ids(html) == [s1]
+    assert 'data-heading="Sean&#39;s Sessions"' in html
+    assert f'data-walker="{sean}"' in html
+    assert 'data-label="Walker"' not in html
+    assert "<html" not in html
+
+
+def test_history_fragment_scopes(client, walkers):
+    _sean, _kim, (s1, s2, s3) = walkers
+    unassigned = client.get("/history?walker=unassigned").get_data(as_text=True)
+    assert history_ids(unassigned) == [s3]
+    assert 'data-heading="Unassigned Sessions"' in unassigned
+    everyone = client.get("/history?walker=all").get_data(as_text=True)
+    assert history_ids(everyone) == [s3, s2, s1]
+    assert 'data-label="Walker"' in everyone
+    assert history_ids(client.get("/history?walker=nope").get_data(as_text=True)) == [s3, s2, s1]
+
+
+def test_start_screen_history_follows_last_walker(client, walkers, monkeypatch):
+    _sean, _kim, (_s1, s2, s3) = walkers
+    storage.delete_session(s3)  # Kim's s2 is now the most recent session
+    html = client.get("/").get_data(as_text=True)
+    assert history_ids(html) == [s2]
+    assert "Kim&#39;s Sessions" in html
+
+
+def test_history_rows_offer_walker_reassignment(client, walkers):
+    sean, _kim, (s1, _s2, _s3) = walkers
+    html = client.get("/history?walker=all").get_data(as_text=True)
+    assert f'<select id="walker-{s1}" class="history-walker" data-session-id="{s1}">' in html
+    assert f'<option value="{sean}" selected>Sean</option>' in html
+    assert '<option value="unassigned" selected>Unassigned</option>' in html
+
+
+def test_set_session_walker(client, walkers):
+    _sean, kim, (_s1, _s2, s3) = walkers
+    resp = client.post(f"/session/{s3}/walker", data={"walker": kim})
+    assert resp.get_json() == {"status": "ok", "walker": "Kim"}
+    assert storage.get_session(s3)["profile"] == kim
+    resp = client.post(f"/session/{s3}/walker", data={"walker": "unassigned"})
+    assert resp.get_json() == {"status": "ok", "walker": "Unassigned"}
+    assert storage.get_session(s3)["profile"] == storage.UNASSIGNED
+
+
+def test_set_session_walker_rejects_bad_input(client, walkers, app_state):
+    sean, kim, (s1, _s2, _s3) = walkers
+    assert client.post(f"/session/{s1}/walker", data={"walker": "nope"}).status_code == 400
+    assert client.post(f"/session/{s1}/walker", data={"walker": "all"}).status_code == 400
+    assert client.post("/session/nope/walker", data={"walker": kim}).status_code == 404
+    active = storage.create_session("2026-01-01T08:00:00", None, None)
+    assert client.post(f"/session/{active}/walker", data={"walker": kim}).status_code == 404
+    assert storage.get_session(s1)["profile"] == sean
