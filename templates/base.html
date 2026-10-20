@@ -859,6 +859,12 @@
             outline-offset: 2px;
             border-radius: 4px;
         }
+        /* A select keeps focus after a mouse pick and browsers then match :focus-visible;
+           hide the ring only when the last input was a pointer (keyboard users keep it). */
+        [data-intent="pointer"] .walker-inline:focus-visible,
+        [data-intent="pointer"] .history-walker:focus-visible {
+            outline: none;
+        }
         /* Native dropdown popups (and the fallback where base-select is unsupported, e.g. Firefox) follow light/dark. */
         :root { color-scheme: light; }
         [data-theme="dark"] { color-scheme: dark; }
@@ -2165,8 +2171,12 @@
         // intent is set in the capture phase, ahead of handlers that move focus.
         // Starts true: Tabbing in from the address bar sends no keydown here.
         var keyboardIntent = true, keyboardFocused = null;
-        document.addEventListener('pointerdown', function() { keyboardIntent = false; keyboardFocused = null; }, true);
-        document.addEventListener('keydown', function() { keyboardIntent = true; }, true);
+        document.addEventListener('pointerdown', function() {
+            keyboardIntent = false; keyboardFocused = null; document.documentElement.dataset.intent = 'pointer';
+        }, true);
+        document.addEventListener('keydown', function() {
+            keyboardIntent = true; document.documentElement.dataset.intent = 'keyboard';
+        }, true);
         document.addEventListener('focusin', function(e) { keyboardFocused = keyboardIntent ? e.target : null; });
         var menuToggle = document.getElementById('header-menu-toggle');
 
