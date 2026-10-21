@@ -85,24 +85,94 @@ def _connect(path):
     return conn
 
 
-def init_db(path):
+_MIGRATIONS = {
+    3: """
+CREATE TABLE IF NOT EXISTS profiles (
+  id          TEXT PRIMARY KEY,
+  name        TEXT NOT NULL COLLATE NOCASE UNIQUE,
+  height_m    REAL,
+  weight_kg   REAL,
+  created_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sessions_profile_start ON sessions(profile, start_time);
+""",
+}
+
+
+class DataVersionError(Exception):
+    """A stored file is newer than this code understands, or upgrading it failed."""
+
+
+def _stored_version(conn, path):
+    if not conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'meta'").fetchone():
+        return None
+    row = conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()
+    if row is None:
+        return None
+    try:
+        found = int(row[0])
+    except ValueError:
+        found = None
+    # Below the oldest version any release wrote, so no migration path exists from it.
+    if found is None or found < min(_MIGRATIONS) - 1:
+        raise DataVersionError(f"Can't start: {path} has an unreadable schema version {row[0]!r}.")
+    return found
+
+
+def init_db(path, backup_dir=None):
+    """Create the DB, or upgrade an older one in place (after a backup into backup_dir,
+    default: alongside). Raises DataVersionError if it is newer than SCHEMA_VERSION."""
     global _db_path
     _db_path = path
     with _write_lock:
         conn = _connect(path)
         try:
+            found = _stored_version(conn, path)
+            if found is not None and found > SCHEMA_VERSION:
+                raise DataVersionError(
+                    f"Can't start: {path} was written by schema v{found}; this version of WalkingDad understands "
+                    f"up to v{SCHEMA_VERSION}. Run a newer WalkingDad, or restore the pre-upgrade copy from data/backups/."
+                )
             conn.execute("PRAGMA journal_mode = WAL")
-            conn.executescript(_SCHEMA_SQL)
-            conn.execute(
-                "INSERT OR IGNORE INTO meta(key, value) VALUES ('schema_version', ?)", (str(SCHEMA_VERSION),)
-            )
-            conn.execute(
-                "UPDATE meta SET value = ? WHERE key = 'schema_version' AND CAST(value AS INTEGER) < ?",
-                (str(SCHEMA_VERSION), SCHEMA_VERSION),
-            )
-            conn.commit()
+            if found is None:
+                conn.executescript(_SCHEMA_SQL)
+                conn.execute("INSERT INTO meta(key, value) VALUES ('schema_version', ?)", (str(SCHEMA_VERSION),))
+                conn.commit()
+            elif found < SCHEMA_VERSION:
+                _upgrade(conn, path, found, backup_dir or os.path.dirname(path))
         finally:
             conn.close()
+
+
+def _upgrade(conn, path, found, backup_dir):
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    backup = os.path.join(backup_dir, f"{os.path.basename(path)}.v{found}-{stamp}")
+    try:
+        os.makedirs(backup_dir, exist_ok=True)
+        dest = sqlite3.connect(backup)
+        try:
+            conn.backup(dest)
+            dest.execute("PRAGMA journal_mode = DELETE")  # So opening the copy doesn't create -wal/-shm beside it.
+        finally:
+            dest.close()
+    except (OSError, sqlite3.Error) as exc:
+        if os.path.isfile(backup):
+            os.remove(backup)
+        raise DataVersionError(f"Can't start: backing up {path} failed ({exc}), so it was not upgraded.") from exc
+    for version in range(found + 1, SCHEMA_VERSION + 1):
+        try:
+            # executescript commits first, so the step carries its own transaction.
+            conn.executescript(
+                f"BEGIN; {_MIGRATIONS[version]}; "
+                f"UPDATE meta SET value = '{version}' WHERE key = 'schema_version'; COMMIT;"
+            )
+        except sqlite3.Error as exc:
+            conn.rollback()
+            raise DataVersionError(
+                f"Can't start: upgrading {path} to schema v{version} failed ({exc}). "
+                f"It is unchanged at v{version - 1}; a copy from before the upgrade is at {backup}."
+            ) from exc
+        logging.info(f"Upgraded {path} to schema v{version} (backup: {backup})")
 
 
 def create_session(start_time, device_model, app_version, profile=UNASSIGNED):
@@ -113,9 +183,9 @@ def create_session(start_time, device_model, app_version, profile=UNASSIGNED):
             with conn:
                 conn.execute(
                     """INSERT INTO sessions
-                       (id, status, profile, start_time, device_model, app_version)
-                       VALUES (?, 'active', ?, ?, ?, ?)""",
-                    (session_id, profile, start_time, device_model, app_version),
+                       (id, schema_version, status, profile, start_time, device_model, app_version)
+                       VALUES (?, ?, 'active', ?, ?, ?, ?)""",
+                    (session_id, SCHEMA_VERSION, profile, start_time, device_model, app_version),
                 )
         finally:
             conn.close()
@@ -453,11 +523,11 @@ def migrate_json(json_path, backup_dir=None):
         try:
             with conn:
                 conn.executemany(
-                    """INSERT INTO sessions
+                    f"""INSERT INTO sessions
                        (id, start_time, end_time, elapsed_s, moving_s, distance_m, steps,
                         calories_kcal, avg_speed_mps, health_logged,
-                        status, source, tz_assumed)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', 'migrated_json', 1)""",
+                        status, source, tz_assumed, schema_version)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', 'migrated_json', 1, {SCHEMA_VERSION})""",
                     rows,
                 )
                 conn.execute(

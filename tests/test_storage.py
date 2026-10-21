@@ -1,5 +1,6 @@
 """Tests query sqlite3 directly in places storage.py has no read API for (e.g. raw pause rows);
 that's a test-code exception to the "no SQL outside storage.py" rule, which governs app code."""
+import os
 import sqlite3
 import threading
 
@@ -310,17 +311,98 @@ def test_concurrent_writes(db):
     assert total_samples == 5 * 20
 
 
-def test_init_db_upgrades_schema_version(db):
-    conn = sqlite3.connect(db)
-    with conn:
-        conn.execute("UPDATE meta SET value = '2' WHERE key = 'schema_version'")
-    conn.close()
-    storage.init_db(db)
-    conn = sqlite3.connect(db)
+def _q(path, sql, *args):
+    conn = sqlite3.connect(path)
     try:
-        assert conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()[0] == "3"
+        with conn:
+            return conn.execute(sql, args).fetchall()
     finally:
         conn.close()
+
+
+def _meta_version(path):
+    return _q(path, "SELECT value FROM meta WHERE key = 'schema_version'")[0][0]
+
+
+def _set_meta_version(path, value):
+    _q(path, "UPDATE meta SET value = ? WHERE key = 'schema_version'", value)
+
+
+def _tables(path):
+    return {r[0] for r in _q(path, "SELECT name FROM sqlite_master WHERE type = 'table'")}
+
+
+def _v2_db(path):
+    storage.init_db(path)
+    _q(path, "DROP INDEX idx_sessions_profile_start")
+    _q(path, "DROP TABLE profiles")
+    _set_meta_version(path, "2")
+
+
+def test_init_db_upgrades_v2_with_backup(tmp_path):
+    path, backups = str(tmp_path / "w.db"), tmp_path / "backups"
+    _v2_db(path)
+    sid = storage.create_session("2026-01-01T08:00:00", "KS-BLC2", "1.0")
+    storage.init_db(path, str(backups))
+    assert _meta_version(path) == "3"
+    assert "profiles" in _tables(path)
+    [backup] = backups.iterdir()
+    assert backup.name.startswith("w.db.v2-")
+    assert _meta_version(str(backup)) == "2"
+    assert "profiles" not in _tables(str(backup))
+    assert _q(str(backup), "SELECT id FROM sessions") == [(sid,)]
+
+
+def test_init_db_failed_step_rolls_back(tmp_path, monkeypatch):
+    path = str(tmp_path / "w.db")
+    _v2_db(path)
+    monkeypatch.setitem(storage._MIGRATIONS, 3, "CREATE TABLE profiles(x); SELECT * FROM no_such_table")
+    with pytest.raises(storage.DataVersionError, match=r"schema v3 failed.*unchanged at v2.*w\.db\.v2-"):
+        storage.init_db(path, str(tmp_path / "b"))
+    assert _meta_version(path) == "2"
+    assert "profiles" not in _tables(path)
+
+
+def test_init_db_fresh_takes_no_backup(tmp_path):
+    storage.init_db(str(tmp_path / "w.db"), str(tmp_path / "b"))
+    assert not (tmp_path / "b").exists()
+
+
+def test_init_db_current_takes_no_backup(db, tmp_path):
+    storage.init_db(db, str(tmp_path / "b"))
+    assert not (tmp_path / "b").exists()
+
+
+def test_init_db_refuses_newer(tmp_path):
+    path = tmp_path / "w.db"
+    storage.init_db(str(path))
+    _set_meta_version(str(path), "99")
+    before = path.read_bytes()
+    with pytest.raises(storage.DataVersionError,
+                       match=r"written by schema v99; this version of WalkingDad understands up to v3\. Run a newer"):
+        storage.init_db(str(path))
+    assert path.read_bytes() == before
+
+
+def test_init_db_rejects_non_integer_version(tmp_path):
+    path = str(tmp_path / "w.db")
+    storage.init_db(path)
+    _set_meta_version(path, "abc")
+    with pytest.raises(storage.DataVersionError, match="abc"):
+        storage.init_db(path)
+
+
+def test_init_db_backup_dir_independent_of_db_location(tmp_path):
+    (tmp_path / "elsewhere").mkdir()
+    path = str(tmp_path / "elsewhere" / "w.db")
+    _v2_db(path)
+    storage.init_db(path, str(tmp_path / "data" / "backups"))
+    assert len(list((tmp_path / "data" / "backups").iterdir())) == 1
+
+
+def test_create_session_records_schema_version(db):
+    sid = storage.create_session("2026-01-01T08:00:00", "KS-BLC2", "1.0")
+    assert _q(db, "SELECT schema_version FROM sessions WHERE id = ?", sid) == [(storage.SCHEMA_VERSION,)]
 
 
 def test_create_and_get_profile(db):
@@ -403,3 +485,59 @@ def test_set_session_profile_only_completed(db):
     assert storage.get_session(done)["profile"] == pid
     assert storage.set_session_profile(active, pid) is False
     assert storage.set_session_profile("nope", pid) is False
+
+
+def test_init_db_backup_failure_is_a_clean_error(tmp_path):
+    path = str(tmp_path / "w.db")
+    _v2_db(path)
+    blocker = tmp_path / "backups"
+    blocker.write_text("not a directory")
+    with pytest.raises(storage.DataVersionError, match=r"backing up .*w\.db failed"):
+        storage.init_db(path, str(blocker))
+    assert _meta_version(path) == "2"
+
+
+@pytest.mark.parametrize("value", ["1", "0", "-3"])
+def test_init_db_rejects_version_below_oldest_shipped(tmp_path, value):
+    path = str(tmp_path / "w.db")
+    storage.init_db(path)
+    _set_meta_version(path, value)
+    with pytest.raises(storage.DataVersionError, match=f"unreadable schema version '{value}'"):
+        storage.init_db(path, str(tmp_path / "b"))
+    assert not (tmp_path / "b").exists()
+
+
+def test_upgraded_schema_matches_fresh(tmp_path):
+    fresh, upgraded = str(tmp_path / "fresh.db"), str(tmp_path / "up.db")
+    storage.init_db(fresh)
+    _v2_db(upgraded)
+    storage.init_db(upgraded, str(tmp_path / "b"))
+    schema = "SELECT type, name, sql FROM sqlite_master ORDER BY type, name"
+    assert _q(upgraded, schema) == _q(fresh, schema)
+
+
+
+def test_init_db_backup_includes_uncheckpointed_wal(tmp_path):
+    path, backups = str(tmp_path / "w.db"), tmp_path / "backups"
+    _v2_db(path)
+    # An open connection with autocheckpoint off keeps the row in -wal only.
+    holder = sqlite3.connect(path)
+    try:
+        holder.execute("PRAGMA wal_autocheckpoint = 0")
+        with holder:
+            holder.execute("INSERT INTO sessions(id, status, start_time) VALUES ('wal-only', 'completed', 'x')")
+        assert os.path.getsize(path + "-wal") > 0
+        storage.init_db(path, str(backups))
+    finally:
+        holder.close()
+    [backup] = backups.iterdir()
+    assert _q(str(backup), "SELECT id FROM sessions") == [("wal-only",)]
+
+
+def test_init_db_backup_is_not_wal(tmp_path):
+    path, backups = str(tmp_path / "w.db"), tmp_path / "backups"
+    _v2_db(path)
+    storage.init_db(path, str(backups))
+    [backup] = backups.iterdir()
+    assert _q(str(backup), "PRAGMA journal_mode") == [("delete",)]
+    assert sorted(p.name for p in backups.iterdir()) == [backup.name]

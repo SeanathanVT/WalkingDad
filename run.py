@@ -1,4 +1,5 @@
 import errno
+import logging
 import os
 import socket
 import subprocess
@@ -7,6 +8,8 @@ import time
 import urllib.request
 import webbrowser
 
+import config
+import storage
 from config import HOST, PORT, WAITRESS_THREADS
 
 SHUTDOWN_URL = f"http://127.0.0.1:{PORT}/shutdown"
@@ -87,7 +90,13 @@ def http_shutdown():
 
 
 def main():
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
     check_port()
+    # After check_port, so a newer copy can't upgrade the DB under one that's still running.
+    try:
+        config.prepare_data()
+    except storage.DataVersionError as exc:
+        sys.exit(str(exc))
     print("Starting production server with Waitress...")
 
     # Start the Waitress server as a subprocess in its own process group
