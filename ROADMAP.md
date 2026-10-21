@@ -373,6 +373,7 @@ Shipping this surfaced a real gap it needed to close first: a dead BLE connectio
     - Frontend toggles display based on user preference
     - Add toggle button next to the theme toggle in the header
     - Cover the live tab title (3.13) too, which shows mph like the page
+    - Cover the Settings speed fields too, which are entered in km/h while the rest of the UI shows mph (left as-is by 3.20)
 
 ---
 
@@ -438,10 +439,12 @@ Active, Paused, and Start screens redesigned to read like the WalkingPad's own o
 ### 3.10 Heart Rate Display
 - **Status:** Planned
 - **Priority:** Low
-- **Problem:** Some WalkingPad models have hand-held heart rate sensors, but the data is not exposed in the UI.
-- **Solution:** If `ph4-walkingpad` provides heart rate data in status packets, display it as an additional item in the instrument strip during active sessions.
-- **Dependency:** Verify heart rate data availability via `ph4-walkingpad` library and device firmware support. If the pad doesn't expose it, a watch or chest strap via the standard BLE Heart Rate Service (0x180D / 0x2A37) is the alternative source.
-- **Storage:** `samples.hr_bpm` already exists (2.9, always NULL today), so recording heart rate needs no schema change.
+- **Problem:** Heart rate isn't shown during a walk, and calories are a flat `kcal_per_mile` that ignores the walker, their pace, and their effort.
+- **Pad as a source:** Ruled out. `ph4-walkingpad`'s status packet (`WalkingPadCurStatus`) carries no heart rate field.
+- **Solution:** Connect any device that speaks the standard BLE Heart Rate Service (0x180D / 0x2A37) alongside the pad: chest straps, watches with an HR broadcast mode (Garmin, Polar, Coros), WHOOP broadcast, or an Apple Watch through a bridge app such as HeartCast. Show bpm in the instrument strip and record it to `samples.hr_bpm` (2.9, always NULL today, so no schema change). Heart rate comes in through a source seam, so non-standard devices can be added as adapters.
+- **Calorie model:** Ludlow & Weyand 2016 (*J Appl Physiol* 120:481) level-walking equation, `VO2 = 7.15 + 5.97·V²/Ht` mL/kg/min, integrated over per-second belt speed with the walker's height and weight (from 4.5, which ships first); active energy drops the 3.3 resting term. Falls back to `kcal_per_mile` when height or weight is missing. Heart rate isn't used for calories: Keytel 2005, the standard HR equation, was calibrated on running and cycling in fit adults and its error exceeds slow walking's whole burn, while ACSM's walking equation underpredicts level walking (Ludlow & Weyand). The pad sends no calorie value.
+- **Soundcore Liberty 4 (later):** The earbuds' HR sensor is proprietary (Soundcore's app must be open; no HRS broadcast) and speaks Soundcore's protocol over Classic Bluetooth RFCOMM, which `bleak` can't reach. Planned as a separate reverse-engineering spike using the decompiled-app plus hardware-capture approach behind OpenSCQ30's Liberty 4 support, then an adapter for the source seam, natively or through OpenSCQ30.
+- **Order:** 4.5 profiles and body stats, then the BLE HR source, then the calorie model, then the Liberty 4 adapter.
 
 ---
 
@@ -529,6 +532,15 @@ Added the missing viewport meta, so phones get a real phone layout instead of a 
 
 ---
 
+### 3.20 Settings Sub-Pages
+- **Status:** Planned
+- **Priority:** Medium
+- **Problem:** Settings is one long page whose sections are in the order features shipped (Device first, Server mid-page). Profiles (4.5) sits below Save with its own save model. Labels aren't associated with their inputs (WCAG 1.3.1, 4.1.2), and hints show raw `config.json` keys.
+- **Solution:** GitLab/GitHub-style sub-pages with a left nav, in conventional order: Walking, Profiles, Calories, History, Keyboard, Apple Health (setup QR at the end of its page), Advanced (Bluetooth name, host/port/threads). Each page has its own Save, which changes only that page's settings. Profiles become opt-in via a `profiles_enabled` switch, off by default; turning it off hides the picker, walker names, and history column/filter/CSV column but keeps profiles and session tags.
+- **Implementation:** `/settings/<section>` routes (`/settings` redirects to Walking); `_SETTINGS_SCHEMA` entries gain a section, and the switches join it as booleans; `settings_base.html` plus one template per section; `_active_profiles()` gates the profile UI on the switch. Per-section saving also makes 3.16's per-field feedback simpler.
+
+---
+
 ## Stats & Motivation
 
 ### 4.1 Estimated Time to Distance Goal
@@ -567,12 +579,21 @@ Added the missing viewport meta, so phones get a real phone layout instead of a 
 
 ---
 
-### 4.5 Per-User Profiles
-- **Status:** Planned
-- **Priority:** Low
-- **Problem:** WalkingDad is built for a household to share, but history mixes everyone's sessions together. History, records (4.2), and goals (4.3) can't be attributed to a person.
-- **Solution:** A lightweight profile selector (name only, no accounts/auth) that tags each session with a profile; history, CSV export, personal records (4.2), and goals (4.3) all filter by the active profile.
-- **Implementation:** The storage side exists since 2.9: `sessions.profile` (every existing row is `'default'`), an `(profile, start_time)` index, and `profile=` filters on `storage.create_session()`, `list_sessions()`, and `clear_history()`. Remaining: a profile switcher in the header or start screen, passing the active profile through those calls, and filtering 4.2/4.3's aggregates the same way.
+### ✅ 4.5 Per-User Profiles
+**Status:** ✅ Complete
+**Priority:** Low
+**Files Modified:** `storage.py`, `app.py`, `units.py`, `templates/settings.html`, `templates/start_session.html`, `templates/active_session.html`, `templates/paused_session.html`, `templates/base.html`, `tests/`
+
+WalkingDad is shared by a household, but history mixed everyone's sessions together. Profiles (no accounts/auth) attribute each session to a person and hold optional height and weight for 3.10's calorie model.
+
+| Feature | Description |
+|---|---|
+| **Storage** | A `profiles` table (schema version 3) and profile CRUD in `storage.py`; `sessions.profile` holds the profile id, `'default'` meaning Unassigned. Builds on 2.9's `(profile, start_time)` index and `profile=` filters |
+| **Settings** | A Profiles section to add, rename, set height (ft/in) and weight (lb), and delete. Stored in m and kg |
+| **Picking the walker** | "Start as Sean ⌄" under the Start button: a native dropdown styled as an inline link, so it scales to many names and keeps keyboard, screen-reader, and phone pickers native. Defaults to the most recent session's walker (or the only profile); with 2+ profiles and no such walker it reads "choose a walker" and is `required`, so Start without a choice shows the browser's validation message. Not a disabled Start button: base.html re-enables Start on every SSE tick, and a disabled button can't be focused or explain itself. `/start` rejects a missing or unknown walker server-side |
+| **History** | Follows the walker picked for Start ("Sean's Sessions"); switching walker swaps the table in place via `GET /history?walker=` (no reload, announced to screen readers). Edit mode adds a Show scope (walker / All / Unassigned / names; Walker column only for All) and a per-row Walker dropdown that reassigns the session immediately (`POST /session/<id>/walker`, completed sessions only). CSV export (with a trailing `walker` column once profiles exist) and Clear follow what's shown. Both dropdowns' open lists use the active color theme where customizable selects are supported (Chrome/Edge 135+, Safari 27); elsewhere the native list, dark in dark mode via `color-scheme`. 4.2/4.3 should filter the same way when built |
+| **Existing history** | Creating a profile while completed Unassigned sessions exist asks whether to assign them, and asks again on later creations until they're claimed. Deleting a profile moves its sessions back to Unassigned |
+| **Elsewhere** | The active and paused screens show the walker; the Apple Health banner names them |
 
 ---
 

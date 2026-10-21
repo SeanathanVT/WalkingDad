@@ -814,6 +814,119 @@
             outline-offset: 2px;
         }
 
+        /* "Start as <walker>": a native select styled as an inline link, so
+           keyboard, validation, and phone pickers stay native. */
+        .walker-as {
+            margin-top: 0.75rem;
+            font-size: 0.95rem;
+            color: var(--muted-color);
+        }
+        .walker-select-wrap {
+            position: relative;
+            display: inline-block;
+        }
+        .walker-select-wrap::after {
+            content: "";
+            position: absolute;
+            right: 0.25rem;
+            top: 50%;
+            width: 0.4rem;
+            height: 0.4rem;
+            border-right: 2px solid var(--muted-color);
+            border-bottom: 2px solid var(--muted-color);
+            transform: translateY(-70%) rotate(45deg);
+            pointer-events: none;
+        }
+        .walker-inline {
+            appearance: none;
+            border: none;
+            background: transparent;
+            font: inherit;
+            font-weight: 600;
+            color: var(--text-color);
+            text-decoration: underline;
+            text-underline-offset: 3px;
+            padding: 0.25rem 1.1rem 0.25rem 0.1rem;
+            max-width: 14rem;
+            text-overflow: ellipsis;
+            cursor: pointer;
+        }
+        .walker-inline:hover {
+            text-decoration-thickness: 2px;
+        }
+        .walker-inline:focus-visible {
+            outline: 2px solid var(--text-color);
+            outline-offset: 2px;
+            border-radius: 4px;
+        }
+        /* A select keeps focus after a mouse pick and browsers then match :focus-visible;
+           hide the ring only when the last input was a pointer (keyboard users keep it). */
+        [data-intent="pointer"] .walker-inline:focus-visible,
+        [data-intent="pointer"] .history-walker:focus-visible {
+            outline: none;
+        }
+        /* Native dropdown popups (and the fallback where base-select is unsupported, e.g. Firefox) follow light/dark. */
+        :root { color-scheme: light; }
+        [data-theme="dark"] { color-scheme: dark; }
+
+        /* Edit mode only: which sessions to show, and each row's walker. */
+        .history-scope {
+            display: none;
+        }
+        .history-editing .history-scope {
+            display: inline-flex;
+            align-items: center;
+            margin-right: 0.25rem;
+        }
+        .history-walker {
+            font: inherit;
+            font-size: 0.85rem;
+            color: var(--text-color);
+            background-color: var(--background-color);
+            border: 1px solid var(--border-color);
+            border-radius: 0.375rem;
+            padding: 0.2rem 0.4rem;
+            margin-right: 0.25rem;
+            max-width: 9rem;
+        }
+
+        /* Themed open lists where the browser supports customizable selects
+           (Chrome/Edge 135+, Safari 27); others keep the native list. Colors are
+           the theme variables, so every color theme and light/dark apply. */
+        @supports (appearance: base-select) {
+            .walker-inline, .walker-inline::picker(select),
+            .history-walker, .history-walker::picker(select) {
+                appearance: base-select;
+            }
+            .walker-inline::picker-icon {
+                display: none; /* .walker-select-wrap draws the chevron */
+            }
+            .walker-inline::picker(select), .history-walker::picker(select) {
+                background-color: var(--card-color);
+                color: var(--text-color);
+                border: 1px solid var(--border-color);
+                border-radius: 0.5rem;
+                box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+                padding: 0.25rem;
+                font-family: var(--font-body);
+                font-weight: 500;
+            }
+            .walker-inline option, .history-walker option {
+                color: inherit;
+                background: transparent;
+                border-radius: 0.375rem;
+                padding: 0.35rem 0.75rem;
+                text-decoration: none;
+            }
+            .walker-inline option:hover, .history-walker option:hover,
+            .walker-inline option:focus-visible, .history-walker option:focus-visible {
+                background-color: var(--button-hover-bg);
+            }
+            .walker-inline option:checked, .history-walker option:checked {
+                font-weight: 700;
+            }
+        }
+
         .console-engage-btn {
             width: 8rem;
             height: 8rem;
@@ -2058,8 +2171,12 @@
         // intent is set in the capture phase, ahead of handlers that move focus.
         // Starts true: Tabbing in from the address bar sends no keydown here.
         var keyboardIntent = true, keyboardFocused = null;
-        document.addEventListener('pointerdown', function() { keyboardIntent = false; keyboardFocused = null; }, true);
-        document.addEventListener('keydown', function() { keyboardIntent = true; }, true);
+        document.addEventListener('pointerdown', function() {
+            keyboardIntent = false; keyboardFocused = null; document.documentElement.dataset.intent = 'pointer';
+        }, true);
+        document.addEventListener('keydown', function() {
+            keyboardIntent = true; document.documentElement.dataset.intent = 'keyboard';
+        }, true);
         document.addEventListener('focusin', function(e) { keyboardFocused = keyboardIntent ? e.target : null; });
         var menuToggle = document.getElementById('header-menu-toggle');
 

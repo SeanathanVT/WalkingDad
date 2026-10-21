@@ -11,6 +11,9 @@ from datetime import datetime, timedelta
 _write_lock = threading.Lock()
 _db_path = None
 
+SCHEMA_VERSION = 3
+UNASSIGNED = "default"
+
 _SCHEMA_SQL = """
 PRAGMA foreign_keys = ON;
 
@@ -62,6 +65,14 @@ CREATE TABLE IF NOT EXISTS samples (
   PRIMARY KEY (session_id, t_ms)
 );
 
+CREATE TABLE IF NOT EXISTS profiles (
+  id          TEXT PRIMARY KEY,
+  name        TEXT NOT NULL COLLATE NOCASE UNIQUE,
+  height_m    REAL,
+  weight_kg   REAL,
+  created_at  TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_sessions_start ON sessions(start_time);
 CREATE INDEX IF NOT EXISTS idx_sessions_profile_start ON sessions(profile, start_time);
 """
@@ -83,14 +94,18 @@ def init_db(path):
             conn.execute("PRAGMA journal_mode = WAL")
             conn.executescript(_SCHEMA_SQL)
             conn.execute(
-                "INSERT OR IGNORE INTO meta(key, value) VALUES ('schema_version', '2')"
+                "INSERT OR IGNORE INTO meta(key, value) VALUES ('schema_version', ?)", (str(SCHEMA_VERSION),)
+            )
+            conn.execute(
+                "UPDATE meta SET value = ? WHERE key = 'schema_version' AND CAST(value AS INTEGER) < ?",
+                (str(SCHEMA_VERSION), SCHEMA_VERSION),
             )
             conn.commit()
         finally:
             conn.close()
 
 
-def create_session(start_time, device_model, app_version, profile="default"):
+def create_session(start_time, device_model, app_version, profile=UNASSIGNED):
     session_id = str(uuid.uuid4())
     with _write_lock:
         conn = _connect(_db_path)
@@ -241,6 +256,103 @@ def get_samples(session_id):
     finally:
         conn.close()
     return [dict(row) for row in rows]
+
+
+def list_profiles():
+    conn = _connect(_db_path)
+    try:
+        rows = conn.execute("SELECT * FROM profiles ORDER BY name").fetchall()
+    finally:
+        conn.close()
+    return [dict(row) for row in rows]
+
+
+def get_profile(profile_id):
+    conn = _connect(_db_path)
+    try:
+        row = conn.execute("SELECT * FROM profiles WHERE id = ?", (profile_id,)).fetchone()
+    finally:
+        conn.close()
+    return dict(row) if row else None
+
+
+def create_profile(name, height_m=None, weight_kg=None):
+    """Raises sqlite3.IntegrityError if the name is taken (case-insensitive)."""
+    profile_id = str(uuid.uuid4())
+    with _write_lock:
+        conn = _connect(_db_path)
+        try:
+            with conn:
+                conn.execute(
+                    "INSERT INTO profiles(id, name, height_m, weight_kg, created_at) VALUES (?, ?, ?, ?, ?)",
+                    (profile_id, name, height_m, weight_kg, datetime.now().astimezone().isoformat(timespec="seconds")),
+                )
+        finally:
+            conn.close()
+    return profile_id
+
+
+def update_profile(profile_id, name, height_m, weight_kg):
+    """False if there's no such profile. Raises sqlite3.IntegrityError if the name is taken."""
+    with _write_lock:
+        conn = _connect(_db_path)
+        try:
+            with conn:
+                cur = conn.execute(
+                    "UPDATE profiles SET name = ?, height_m = ?, weight_kg = ? WHERE id = ?",
+                    (name, height_m, weight_kg, profile_id),
+                )
+        finally:
+            conn.close()
+    return cur.rowcount == 1
+
+
+def delete_profile(profile_id):
+    """Its sessions become Unassigned rather than being deleted."""
+    with _write_lock:
+        conn = _connect(_db_path)
+        try:
+            with conn:
+                conn.execute("UPDATE sessions SET profile = ? WHERE profile = ?", (UNASSIGNED, profile_id))
+                conn.execute("DELETE FROM profiles WHERE id = ?", (profile_id,))
+        finally:
+            conn.close()
+
+
+def count_unassigned():
+    conn = _connect(_db_path)
+    try:
+        return conn.execute("SELECT COUNT(*) FROM sessions WHERE profile = ? AND status = 'completed'", (UNASSIGNED,)).fetchone()[0]
+    finally:
+        conn.close()
+
+
+def assign_unassigned(profile_id):
+    with _write_lock:
+        conn = _connect(_db_path)
+        try:
+            with conn:
+                cur = conn.execute(
+                    "UPDATE sessions SET profile = ? WHERE profile = ? AND status = 'completed'",
+                    (profile_id, UNASSIGNED),
+                )
+        finally:
+            conn.close()
+    return cur.rowcount
+
+
+def set_session_profile(session_id, profile):
+    """False unless session_id is a completed session."""
+    with _write_lock:
+        conn = _connect(_db_path)
+        try:
+            with conn:
+                cur = conn.execute(
+                    "UPDATE sessions SET profile = ? WHERE id = ? AND status = 'completed'", (profile, session_id)
+                )
+        finally:
+            conn.close()
+    return cur.rowcount == 1
 
 
 def clear_history(profile=None):
