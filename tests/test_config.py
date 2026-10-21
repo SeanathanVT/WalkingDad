@@ -3,6 +3,7 @@ import json
 import pytest
 
 import config
+import storage
 
 
 @pytest.fixture
@@ -74,3 +75,58 @@ def test_load_overrides_falls_back_to_legacy(tmp_path):
     legacy.write_text(json.dumps({"port": 6000}))
     assert config._load_overrides(str(tmp_path / "data" / "config.json"), str(legacy)) == {"port": 6000}
     assert config._load_overrides(str(tmp_path / "missing.json")) == {}
+
+
+def test_prepare_data_refuses_newer_config(dirs, monkeypatch):
+    monkeypatch.setattr(config, "_overrides", {"schema_version": 2})
+    with pytest.raises(storage.DataVersionError,
+                       match=r"settings format v2; this version understands up to v1\. .*delete .*config\.json"):
+        config.prepare_data()
+    assert not (dirs[1] / "walkingdad.db").exists()
+
+
+def test_prepare_data_rejects_string_config_version(dirs, monkeypatch):
+    monkeypatch.setattr(config, "_overrides", {"schema_version": "2"})
+    with pytest.raises(storage.DataVersionError):
+        config.prepare_data()
+
+
+def test_prepare_data_refuses_newer_session_state(dirs, monkeypatch):
+    monkeypatch.setattr(config, "_overrides", {})
+    dirs[1].mkdir()
+    (dirs[1] / "session_state.json").write_text('{"schema_version": 2, "session_active": true}')
+    with pytest.raises(storage.DataVersionError,
+                       match=r"\(an interrupted walk\) was written by format v2.*recorded samples"):
+        config.prepare_data()
+    assert not (dirs[1] / "walkingdad.db").exists()
+
+
+def test_prepare_data_ignores_corrupt_session_state(dirs, monkeypatch):
+    monkeypatch.setattr(config, "_overrides", {})
+    dirs[1].mkdir()
+    (dirs[1] / "session_state.json").write_text("{not json")
+    config.prepare_data()
+    assert (dirs[1] / "walkingdad.db").exists()
+
+
+def test_prepare_data_unversioned_files_are_v1(dirs, monkeypatch):
+    monkeypatch.setattr(config, "_overrides", {"port": 5001})
+    dirs[1].mkdir()
+    (dirs[1] / "session_state.json").write_text('{"session_active": true}')
+    config.prepare_data()
+    assert (dirs[1] / "walkingdad.db").exists()
+
+
+def test_prepare_data_relocates_before_checking(dirs, monkeypatch):
+    app_dir, _ = dirs
+    monkeypatch.setattr(config, "_overrides", {})
+    (app_dir / "session_state.json").write_text('{"schema_version": 2}')
+    with pytest.raises(storage.DataVersionError):
+        config.prepare_data()
+
+
+def test_prepare_data_warns_unknown_keys(dirs, monkeypatch, caplog):
+    monkeypatch.setattr(config, "_overrides", {"schema_version": 1, "port": 5001, "max_speed_kph": 9})
+    config.prepare_data()
+    assert "max_speed_kph" in caplog.text
+    assert "schema_version" not in caplog.text and "port" not in caplog.text

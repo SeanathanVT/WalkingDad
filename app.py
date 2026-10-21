@@ -103,7 +103,7 @@ HISTORY_FILE = os.path.join(config.DATA_DIR, "session_history.json")  # legacy; 
 _CONFIG_FILE = config.CONFIG_FILE
 
 _session_state_file_lock = threading.Lock()  # Protect session_state.json reads/writes
-SESSION_STATE_FILE = os.path.join(config.DATA_DIR, "session_state.json")
+SESSION_STATE_FILE = config.SESSION_STATE_FILE
 _SESSION_STATE_SAVE_INTERVAL_SECONDS = 5
 # ask_stats() only sends a request. The ph4_walkingpad library never returns the reply
 # synchronously; the real data always lands via the on_cur_status_received notification
@@ -556,6 +556,7 @@ def _dismiss_health_export(session_id=None):
 def _build_session_state_snapshot() -> dict:
     """Build a dict of the in-progress session's live state for crash recovery."""
     return {
+        "schema_version": config.SESSION_STATE_SCHEMA_VERSION,
         "session_active": session_active,
         "session_id": _session_id,
         "session_start_time": _session_start_time.isoformat() if _session_start_time else None,
@@ -587,6 +588,9 @@ def _save_session_state():
             logging.error(f"Failed to write session state: {exc}")
 
 
+_SESSION_STATE_MIGRATIONS = {}
+
+
 def _load_session_state() -> dict | None:
     """Load a saved in-progress session, if any (thread-safe). Returns None if absent/invalid."""
     with _session_state_file_lock:
@@ -597,7 +601,7 @@ def _load_session_state() -> dict | None:
                 state = json.load(f)
             if not isinstance(state, dict) or not state.get("session_active"):
                 return None
-            return state
+            return config.migrate(state, _SESSION_STATE_MIGRATIONS, config.SESSION_STATE_SCHEMA_VERSION)
         except (OSError, ValueError) as exc:
             logging.warning(f"Failed to read session state, ignoring: {exc}")
             return None
@@ -619,7 +623,9 @@ def _write_config(updates: dict) -> None:
     if os.path.isfile(_CONFIG_FILE):
         with open(_CONFIG_FILE) as f:
             existing = json.load(f)
+    existing = config.migrate(existing, config._CONFIG_MIGRATIONS, config.CONFIG_SCHEMA_VERSION)
     existing.update(updates)
+    existing["schema_version"] = config.CONFIG_SCHEMA_VERSION
     with open(_CONFIG_FILE, "w") as f:
         json.dump(existing, f, indent=2)
 
@@ -628,8 +634,7 @@ def _write_config(updates: dict) -> None:
 _STARTUP_ENABLED = os.environ.get("WALKINGDAD_NO_STARTUP") != "1"
 
 if _STARTUP_ENABLED:
-    config.relocate_legacy_files()
-    storage.init_db(os.path.join(config.DATA_DIR, config.DATABASE_PATH))
+    config.prepare_data()
     storage.migrate_json(HISTORY_FILE, config.BACKUP_DIR)
 
     _pending_restore = _load_session_state()  # Check for an interrupted session at startup

@@ -287,12 +287,22 @@ Session data lives in a local SQLite database (`walkingdad.db`, configurable via
 
 ---
 
-### 2.10 Config / History Schema Versioning
-- **Status:** Planned
-- **Priority:** Medium
-- **Problem:** `config.json` has no format version. Every past field addition has been handled ad hoc via `.get(key, default)`, which works but leaves no clean way to detect "this file predates feature X" versus "this field is just legitimately absent." (Session history already has one: 2.9's `meta.schema_version`.)
-- **Solution:** Add a `schema_version` field to `config.json`, bumped whenever its shape changes, checked on load so a future migration has a clear branch point instead of guessing from field presence.
-- **Implementation:** A `_CONFIG_SCHEMA_VERSION` constant written on save; on load, a missing/older version is treated as version 1 (today's implicit shape) and upgraded in place if a migration exists. The database side needs a migration runner only once `schema_version` 3 exists.
+### ✅ 2.10 Stored Data Schema Versioning
+**Status:** ✅ Complete
+**Priority:** Medium
+**Files Modified:** `storage.py`, `config.py`, `app.py`, `run.py`, `config.json.example`, `README.md`, `tests/test_storage.py`, `tests/test_config.py`, `tests/test_app_helpers.py`, `tests/test_run.py`
+
+The database, `config.json`, and `session_state.json` each carry a `schema_version`. At startup (`config.prepare_data()`, run by `run.py` after the port check and again by `app.py`):
+
+| Store | Older | Newer than the code |
+|---|---|---|
+| `walkingdad.db` (`meta.schema_version`) | Backed up to `data/backups/walkingdad.db.v<old>-<timestamp>`, then upgraded one step at a time (`storage._MIGRATIONS`), each in its own transaction | Refuses to start |
+| `config.json` | Missing = 1; upgraded in memory (`config._CONFIG_MIGRATIONS`), saved by the next Settings save | Refuses to start |
+| `session_state.json` | Missing = 1; upgraded in memory on restore (`app._SESSION_STATE_MIGRATIONS`) | Refuses to start |
+
+Every past `config.json` and `session_state.json` change was additive, so all existing files are version 1. Unknown `config.json` keys log a warning. `sessions.schema_version` records the version a row was created under and never drives migrations.
+
+Read-only mode for an older checkout pointed at newer data was considered and deferred: it's only safe for additive changes, which older code can't detect, and it would mean gating every write path.
 
 ---
 

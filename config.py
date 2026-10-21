@@ -2,6 +2,11 @@ import json
 import logging
 import os
 
+import storage
+
+CONFIG_SCHEMA_VERSION = 1
+SESSION_STATE_SCHEMA_VERSION = 1
+
 _DEFAULTS = {
     "ble_device_name": "KS-BLC2",
     "max_speed_kmh": 6.0,
@@ -25,6 +30,7 @@ APP_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(APP_DIR, "data")
 BACKUP_DIR = os.path.join(DATA_DIR, "backups")
 CONFIG_FILE = os.path.join(DATA_DIR, "config.json")
+SESSION_STATE_FILE = os.path.join(DATA_DIR, "session_state.json")
 # Where versions before data/ kept it. Read until relocate_legacy_files() moves it at startup.
 _LEGACY_CONFIG_FILE = os.path.join(APP_DIR, "config.json")
 
@@ -37,7 +43,17 @@ def _load_overrides(*paths):
     return {}
 
 
-_overrides = _load_overrides(CONFIG_FILE, _LEGACY_CONFIG_FILE)
+def migrate(data, migrations, current):
+    """Apply migrations[v] for each version after data's (missing = 1) up to current, in memory."""
+    found = data.get("schema_version", 1)
+    if type(found) is int:
+        for version in range(found + 1, current + 1):
+            data = migrations[version](data)
+    return data
+
+
+_CONFIG_MIGRATIONS = {}
+_overrides = migrate(_load_overrides(CONFIG_FILE, _LEGACY_CONFIG_FILE), _CONFIG_MIGRATIONS, CONFIG_SCHEMA_VERSION)
 
 
 def _get(key):
@@ -84,3 +100,41 @@ def relocate_legacy_files():
             os.makedirs(os.path.dirname(dest), exist_ok=True)
             os.replace(src, dest)
             logging.info(f"Moved {src} to {dest}")
+
+
+def _check_version(path, data, current, too_new):
+    found = data.get("schema_version", 1)
+    if type(found) is not int:
+        raise storage.DataVersionError(f"Can't start: {path} has an unreadable schema_version {found!r}.")
+    if found > current:
+        raise storage.DataVersionError(too_new(found))
+
+
+def prepare_data():
+    """Startup data step, run before anything else touches data/: relocate legacy files, refuse
+    files newer than this code, then create or upgrade the database. Raises storage.DataVersionError."""
+    relocate_legacy_files()
+    config_path = os.path.join(DATA_DIR, "config.json")
+    _check_version(config_path, _overrides, CONFIG_SCHEMA_VERSION, lambda found: (
+        f"Can't start: {config_path} was written by settings format v{found}; this version understands "
+        f"up to v{CONFIG_SCHEMA_VERSION}. Run a newer WalkingDad, or delete {config_path} to start over "
+        "with default settings (your settings will be lost)."))
+
+    state_path = os.path.join(DATA_DIR, "session_state.json")
+    try:
+        with open(state_path) as f:
+            state = json.load(f)
+    except (OSError, ValueError):
+        state = None  # Missing or corrupt: app's restore already ignores it.
+    if isinstance(state, dict):
+        _check_version(state_path, state, SESSION_STATE_SCHEMA_VERSION, lambda found: (
+            f"Can't start: {state_path} (an interrupted walk) was written by format v{found}; this version "
+            f"understands up to v{SESSION_STATE_SCHEMA_VERSION}. Run a newer WalkingDad to recover that walk. "
+            "Deleting the file discards it; the walk's history row will be closed from its recorded samples "
+            "(or removed if none were recorded)."))
+
+    unknown = sorted(set(_overrides) - set(_DEFAULTS) - {"schema_version"})
+    if unknown:
+        logging.warning(f"Ignoring unknown settings in {config_path}: {', '.join(unknown)}")
+
+    storage.init_db(os.path.join(DATA_DIR, DATABASE_PATH), BACKUP_DIR)

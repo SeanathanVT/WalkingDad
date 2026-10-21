@@ -225,7 +225,7 @@ def test_build_session_state_snapshot(app_state, monkeypatch):
     }.items():
         monkeypatch.setattr(app, name, value)
     assert app._build_session_state_snapshot() == {
-        "session_active": True, "session_id": "sid", "session_start_time": "2026-01-02T08:30:00",
+        "schema_version": 1, "session_active": True, "session_id": "sid", "session_start_time": "2026-01-02T08:30:00",
         "current_distance_km": 1.5, "current_steps": 2000, "current_calories": 75.0,
         "current_session_active_seconds": 900, "resume_speed_kmh": 3.5,
         "last_dev_dist": 150, "last_dev_steps": 2000,
@@ -293,7 +293,7 @@ def test_clear_session_state(app_state, tmp_path):
 def test_write_config_creates_new_file(app_state):
     app._write_config({"PORT": 5001})
     with open(app._CONFIG_FILE) as f:
-        assert json.load(f) == {"PORT": 5001}
+        assert json.load(f) == {"PORT": 5001, "schema_version": 1}
 
 
 def test_write_config_merges_into_existing(app_state):
@@ -301,7 +301,7 @@ def test_write_config_merges_into_existing(app_state):
         json.dump({"HOST": "h", "PORT": 1}, f)
     app._write_config({"PORT": 2, "SPEED_STEP": 0.5})
     with open(app._CONFIG_FILE) as f:
-        assert json.load(f) == {"HOST": "h", "PORT": 2, "SPEED_STEP": 0.5}
+        assert json.load(f) == {"HOST": "h", "PORT": 2, "SPEED_STEP": 0.5, "schema_version": 1}
 
 
 def test_begin_db_session_creates_row(app_state, monkeypatch):
@@ -688,3 +688,13 @@ def test_save_session_without_db_row(app_state, monkeypatch, caplog):
     assert "Session not saved: no database row" in caplog.text
     assert storage.list_sessions() == []
     assert storage.list_active_sessions() == []
+
+
+def test_write_config_migrates_before_stamping(app_state, monkeypatch):
+    monkeypatch.setattr(app.config, "CONFIG_SCHEMA_VERSION", 2)
+    monkeypatch.setitem(app.config._CONFIG_MIGRATIONS, 2, lambda d: {"new_name": d.pop("old_name"), **d})
+    with open(app._CONFIG_FILE, "w") as f:
+        json.dump({"old_name": 1}, f)
+    app._write_config({"PORT": 2})
+    with open(app._CONFIG_FILE) as f:
+        assert json.load(f) == {"new_name": 1, "PORT": 2, "schema_version": 2}

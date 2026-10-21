@@ -145,6 +145,10 @@ Every setting except `database_path` can be changed from the **Settings page** (
 
 Changes to most settings take effect immediately via the Settings page. `host`, `port`, `waitress_threads`, and `database_path` require restarting the app.
 
+### Data format versions
+
+The database, `config.json`, and the crash-recovery file `session_state.json` each record a format version. When a new WalkingDad changes the database format, it first saves a copy as `data/backups/walkingdad.db.v<old>-<timestamp>`. An older WalkingDad won't start on data a newer one has written; the message names the file. To go back to the older version anyway: stop WalkingDad, replace `data/walkingdad.db` with the backup, and delete any `walkingdad.db-wal` / `walkingdad.db-shm` next to it (sessions recorded since the upgrade are lost). The CSV export and the Apple Health Shortcut input are not versioned.
+
 ## Troubleshooting
 
 - **Won't connect:** Make sure your WalkingPad is powered on and not paired to another device (like your phone). Check the console for log details.
