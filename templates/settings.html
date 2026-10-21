@@ -1,223 +1,250 @@
 {% extends "base.html" %}
 {% macro profile_fields(v, key) %}
-<div class="d-flex flex-wrap gap-2 align-items-end mb-2">
-    <div>
-        <label class="form-label fw-medium" for="name-{{ key }}">Name</label>
-        <input type="text" id="name-{{ key }}" name="name" value="{{ v.name or '' }}" maxlength="40" required class="form-control settings-input">
+<div class="wd-profile-fields">
+    <div class="wd-field">
+        <label for="name-{{ key }}">Name</label>
+        <input type="text" id="name-{{ key }}" name="name" value="{{ v.name or '' }}" maxlength="40" required class="wd-input">
     </div>
-    <div>
-        <label class="form-label fw-medium" for="height-ft-{{ key }}">Height (ft)</label>
-        <input type="number" id="height-ft-{{ key }}" name="height_ft" value="{{ v.height_ft or '' }}" min="3" max="8" step="1" class="form-control settings-input">
+    <div class="wd-field">
+        <label for="height-ft-{{ key }}">Height (ft)</label>
+        <input type="number" id="height-ft-{{ key }}" name="height_ft" value="{{ v.height_ft or '' }}" min="3" max="8" step="1" class="wd-input">
     </div>
-    <div>
-        <label class="form-label fw-medium" for="height-in-{{ key }}">Height (in)</label>
-        <input type="number" id="height-in-{{ key }}" name="height_in" value="{{ v.height_in or '' }}" min="0" max="11" step="1" class="form-control settings-input">
+    <div class="wd-field">
+        <label for="height-in-{{ key }}">Height (in)</label>
+        <input type="number" id="height-in-{{ key }}" name="height_in" value="{{ v.height_in or '' }}" min="0" max="11" step="1" class="wd-input">
     </div>
-    <div>
-        <label class="form-label fw-medium" for="weight-{{ key }}">Weight (lb)</label>
-        <input type="number" id="weight-{{ key }}" name="weight_lb" value="{{ v.weight_lb or '' }}" min="50" max="700" step="any" class="form-control settings-input">
+    <div class="wd-field">
+        <label for="weight-{{ key }}">Weight (lb)</label>
+        <input type="number" id="weight-{{ key }}" name="weight_lb" value="{{ v.weight_lb or '' }}" min="50" max="700" step="any" class="wd-input">
     </div>
 </div>
 {% endmacro %}
+{% block title %}Settings{% endblock %}
+{% block sub %}<p class="sub">Saved on this computer.</p>{% endblock %}
 {% block content %}
-<div style="max-width:600px;margin:0 auto;">
-    <h1 class="content-title mb-4">Settings</h1>
-
-    <div class="stat-card mb-4" id="profiles">
-        <h2 class="settings-section-title">Profiles</h2>
-        <p class="text-muted settings-hint">Pick who's walking at Start. Height and weight are optional and only used for calorie estimates.</p>
-        {% if profile_error %}
-        <div id="profile-error" class="alert alert-danger" role="alert" tabindex="-1">{{ profile_error }}</div>
-        <script>document.getElementById('profile-error').focus();</script>
-        {% endif %}
-        {% if claim %}
-        <div class="mb-3" role="status">
-            <p class="mb-2">Assign {{ claim.count }} existing session{{ '' if claim.count == 1 else 's' }} to {{ claim.name }}?</p>
-            <form method="post" action="{{ url_for('profile_claim', profile_id=claim.id) }}" class="d-inline">
-                <button type="submit" class="btn btn-custom-primary btn-sm">Assign to {{ claim.name }}</button>
-            </form>
-            <a href="{{ url_for('settings_page', _anchor='profiles') }}" class="btn btn-sm btn-preset">Not now</a>
+<div class="wd-settings">
+    <section class="wd-set-group" id="profiles" aria-labelledby="profiles-heading">
+        <div class="wd-set-head">
+            <h2 id="profiles-heading">Profiles</h2>
+            <p class="wd-set-lede">Pick who's walking at Start. Height and weight are optional and only used for calorie estimates.</p>
+            {% if profiles %}<p class="summary">{{ profiles | length }} profile{{ '' if profiles | length == 1 else 's' }}: {{ profiles | map(attribute='name') | join(', ') }}.</p>{% endif %}
         </div>
-        {% endif %}
-        {% for p in profiles %}
-        <form method="post" action="{{ url_for('profile_update', profile_id=p.id) }}" class="mb-3" aria-label="Profile {{ p.name }}">
-            {{ profile_fields(p, loop.index) }}
-            <button type="submit" class="btn btn-sm btn-preset">Save</button>
-            <button type="submit" class="btn btn-sm btn-preset" formaction="{{ url_for('profile_delete', profile_id=p.id) }}" formnovalidate
-                    data-confirm="Delete {{ p.name }}? Their sessions stay in history as Unassigned.">Delete</button>
-        </form>
-        {% endfor %}
-        {% set adding = profile_form | length > 0 %}
-        <button type="button" class="btn btn-custom-primary btn-sm" data-bs-toggle="collapse" data-bs-target="#add-profile"
-                aria-controls="add-profile" aria-expanded="{{ 'true' if adding else 'false' }}">
-            <i class="bi bi-plus-lg" aria-hidden="true"></i> Add Profile
-        </button>
-        <div class="collapse{% if adding %} show{% endif %}" id="add-profile">
-            <form method="post" action="{{ url_for('profile_create') }}" aria-label="Add profile" class="mt-3">
-                {{ profile_fields(profile_form, 'new') }}
-                <button type="submit" class="btn btn-custom-primary btn-sm">Save Profile</button>
-                <button type="button" class="btn btn-sm btn-preset" data-bs-toggle="collapse" data-bs-target="#add-profile">Cancel</button>
-            </form>
-        </div>
-        <script>
-        document.getElementById('add-profile').addEventListener('shown.bs.collapse', function() {
-            document.getElementById('name-new').focus();
-        });
-        document.querySelectorAll('[data-confirm]').forEach(function(btn) {
-            btn.addEventListener('click', function(e) { if (!confirm(btn.dataset.confirm)) e.preventDefault(); });
-        });
-        </script>
-    </div>
-
-    <form method="post" action="{{ url_for('settings_page') }}">
-
-        <div class="stat-card mb-4">
-            <h2 class="settings-section-title">Device</h2>
-            <div class="mb-3">
-                <label class="form-label fw-medium" style="display:block;margin-bottom:0.25rem;">Bluetooth Device Name</label>
-                <input type="text" name="ble_device_name" value="{{ ble_device_name }}"
-                       class="form-control settings-input">
-                <small class="text-muted settings-hint">ble_device_name</small>
-            </div>
-        </div>
-
-        <div class="stat-card mb-4">
-            <h2 class="settings-section-title">Speed</h2>
-            <div class="mb-3">
-                <label class="form-label fw-medium" style="display:block;margin-bottom:0.25rem;">Max Speed (km/h)</label>
-                <input type="number" name="max_speed_kmh" value="{{ max_speed_kmh }}" step="0.1" min="1"
-                       class="form-control settings-input">
-                <small class="text-muted settings-hint">max_speed_kmh</small>
-            </div>
-            <div class="mb-3">
-                <label class="form-label fw-medium" style="display:block;margin-bottom:0.25rem;">Min Speed / Slow Preset (km/h)</label>
-                <input type="number" name="min_speed_kmh" value="{{ min_speed_kmh }}" step="0.1" min="0.1"
-                       class="form-control settings-input">
-                <small class="text-muted settings-hint">min_speed_kmh</small>
-            </div>
-            <div class="mb-3">
-                <label class="form-label fw-medium" style="display:block;margin-bottom:0.25rem;">Speed Step (km/h)</label>
-                <input type="number" name="speed_step" value="{{ speed_step }}" step="0.1" min="0.1"
-                       class="form-control settings-input">
-                <small class="text-muted settings-hint">speed_step</small>
-            </div>
-            <div class="mb-3">
-                <label class="form-label fw-medium" style="display:block;margin-bottom:0.25rem;">Moderate Preset (km/h)</label>
-                <input type="number" name="slow_walk_speed_kmh" value="{{ slow_walk_speed_kmh }}" step="0.1" min="0.1"
-                       class="form-control settings-input">
-                <small class="text-muted settings-hint">slow_walk_speed_kmh</small>
-            </div>
-        </div>
-
-        <div class="stat-card mb-4">
-            <h2 class="settings-section-title">Session</h2>
-            <div class="mb-3">
-                <label class="form-label fw-medium" style="display:block;margin-bottom:0.25rem;">Calories per Mile</label>
-                <input type="number" name="kcal_per_mile" value="{{ kcal_per_mile }}" step="1" min="1"
-                       class="form-control settings-input">
-                <small class="text-muted settings-hint">kcal_per_mile</small>
-            </div>
-            <div class="mb-3">
-                <label class="form-label fw-medium" style="display:block;margin-bottom:0.25rem;">Auto-Pause Grace Period (seconds)</label>
-                <input type="number" name="resume_grace_period_seconds" value="{{ resume_grace_period_seconds }}" step="1" min="3"
-                       class="form-control settings-input">
-                <small class="text-muted settings-hint">resume_grace_period_seconds</small>
-            </div>
-            <div class="mb-3">
-                <label class="form-label fw-medium" style="display:block;margin-bottom:0.25rem;">Session History Limit</label>
-                <input type="number" name="history_display_limit" value="{{ history_display_limit }}" step="1" min="1"
-                       class="form-control settings-input">
-                <small class="text-muted settings-hint">history_display_limit</small>
-            </div>
-            <div class="mb-3">
-                <label class="form-label fw-medium" style="display:block;margin-bottom:0.25rem;">Auto-End Paused Session After (minutes, 0 = never)</label>
-                <input type="number" name="stale_pause_timeout_minutes" value="{{ stale_pause_timeout_minutes }}" step="1" min="0"
-                       class="form-control settings-input">
-                <small class="text-muted settings-hint">stale_pause_timeout_minutes</small>
-            </div>
-        </div>
-
-        <div class="stat-card mb-4">
-            <h2 class="settings-section-title">Keyboard</h2>
-            <div class="mb-3 form-check form-switch">
-                <input type="checkbox" class="form-check-input" role="switch" name="keyboard_shortcuts_enabled"
-                       id="keyboard_shortcuts_enabled" {% if keyboard_shortcuts_enabled %}checked{% endif %}>
-                <label class="form-check-label fw-medium" for="keyboard_shortcuts_enabled">Enable keyboard shortcuts</label>
-                <div><small class="text-muted settings-hint">keyboard_shortcuts_enabled (press ? on any screen for the list)</small></div>
-            </div>
-        </div>
-
-        <div class="stat-card mb-4">
-            <h2 class="settings-section-title mb-2">Server</h2>
-            <p class="text-muted mb-3" style="font-size:0.875rem;">Changes to Host, Port, and Waitress Threads require restarting the app to take effect.</p>
-            <div class="mb-3">
-                <label class="form-label fw-medium" style="display:block;margin-bottom:0.25rem;">Server Host</label>
-                <input type="text" name="host" value="{{ host }}"
-                       class="form-control settings-input">
-                <small class="text-muted settings-hint">host</small>
-            </div>
-            <div class="mb-3">
-                <label class="form-label fw-medium" style="display:block;margin-bottom:0.25rem;">Server Port</label>
-                <input type="number" name="port" value="{{ port }}" step="1" min="1" max="65535"
-                       class="form-control settings-input">
-                <small class="text-muted settings-hint">port</small>
-            </div>
-            <div class="mb-3">
-                <label class="form-label fw-medium" style="display:block;margin-bottom:0.25rem;">Waitress Threads</label>
-                <input type="number" name="waitress_threads" value="{{ waitress_threads }}" step="1" min="4" max="128"
-                       class="form-control settings-input">
-                <small class="text-muted settings-hint">waitress_threads</small>
-            </div>
-        </div>
-
-        <div class="stat-card mb-4">
-            <h2 class="settings-section-title">Apple Health</h2>
-            <div class="mb-3 form-check form-switch">
-                <input type="checkbox" class="form-check-input" role="switch" name="apple_health_export_enabled"
-                       id="apple_health_export_enabled" data-bs-toggle="collapse" data-bs-target="#apple-health-collapse"
-                       {% if apple_health_export_enabled %}checked{% endif %}>
-                <label class="form-check-label fw-medium" for="apple_health_export_enabled">Enable Apple Health export</label>
-                <div><small class="text-muted settings-hint">apple_health_export_enabled</small></div>
-            </div>
-            {# Live preview only -- toggling this doesn't persist anything until
-               Save Settings, same as every other field on this page. The QR
-               itself is cheap to generate, so it's always rendered here (not
-               gated behind an {% if %}), just visually collapsed/expanded. #}
-            <div class="collapse{% if apple_health_export_enabled %} show{% endif %}" id="apple-health-collapse">
-                <div class="mb-3">
-                    <label class="form-label fw-medium" style="display:block;margin-bottom:0.25rem;">Shortcut Name</label>
-                    <input type="text" name="apple_health_shortcut_name" value="{{ apple_health_shortcut_name }}"
-                           class="form-control settings-input">
-                    <small class="text-muted settings-hint">apple_health_shortcut_name -- must match the name of the Shortcut on your iPhone exactly</small>
-                </div>
-                {# setup_shortcut_url comes from inject_flags() in app.py -- built as a
-                   plain string there, not with Jinja filters (see its docstring). #}
-                <div class="text-center pt-2" style="border-top:1px solid var(--border-color);">
-                    <p class="text-muted mb-3 not-ios" style="font-size:0.875rem;">Scan once with your iPhone's Camera app to install the Shortcut that logs sessions to Apple Health. See the README for what it does and how to rebuild it.</p>
-                    <div id="settings-health-qr-container" class="d-flex justify-content-center not-ios"></div>
-                    <p class="text-muted mb-3 ios-only" style="font-size:0.875rem;">Install once on this device to log sessions to Apple Health. Opens Apple's Get Shortcut page. See the README for what it does and how to rebuild it.</p>
-                    <a href="{{ setup_shortcut_url }}" class="btn btn-custom-primary ios-only">
-                        <i class="bi bi-download"></i> Install Shortcut
-                    </a>
+        <div class="wd-set-body">
+            {% if profile_error %}
+            <div id="profile-error" class="notice" role="alert" tabindex="-1"><p>{{ profile_error }}</p></div>
+            <script>document.getElementById('profile-error').focus();</script>
+            {% endif %}
+            {% if claim %}
+            <div class="wd-callout" role="status">
+                <p>Assign {{ claim.count }} existing session{{ '' if claim.count == 1 else 's' }} to {{ claim.name }}?</p>
+                <div class="wd-btn-row">
+                    <form method="post" action="{{ url_for('profile_claim', profile_id=claim.id) }}" style="display:contents">
+                        <button type="submit" class="wd-btn wd-btn-primary wd-btn-sm">Assign to {{ claim.name }}</button>
+                    </form>
+                    <a href="{{ url_for('settings_page', _anchor='profiles') }}" class="wd-btn wd-btn-sm">Not now</a>
                 </div>
             </div>
+            {% endif %}
+            {% for p in profiles %}
+            <form method="post" action="{{ url_for('profile_update', profile_id=p.id) }}" class="wd-profile" aria-label="Profile {{ p.name }}">
+                {{ profile_fields(p, loop.index) }}
+                <div class="wd-btn-row">
+                    <button type="submit" class="wd-btn wd-btn-sm">Save</button>
+                    <button type="submit" class="wd-btn wd-btn-sm wd-btn-danger-ghost" formaction="{{ url_for('profile_delete', profile_id=p.id) }}" formnovalidate
+                            data-confirm="Delete {{ p.name }}? Their sessions stay in history as Unassigned." data-confirm-label="Delete {{ p.name }}">Delete</button>
+                </div>
+            </form>
+            {% endfor %}
+            {% set adding = profile_form | length > 0 %}
+            <div>
+                <button type="button" class="wd-btn wd-btn-sm" id="add-profile-btn" aria-controls="add-profile" aria-expanded="{{ 'true' if adding else 'false' }}"{% if adding %} hidden{% endif %}>
+                    <i class="bi bi-plus-lg" aria-hidden="true"></i>Add profile
+                </button>
+            </div>
+            <div id="add-profile"{% if not adding %} hidden{% endif %}>
+                <form method="post" action="{{ url_for('profile_create') }}" aria-label="Add profile" class="wd-profile">
+                    {{ profile_fields(profile_form, 'new') }}
+                    <div class="wd-btn-row">
+                        <button type="submit" class="wd-btn wd-btn-primary wd-btn-sm">Save profile</button>
+                        <button type="button" class="wd-btn wd-btn-sm" id="add-profile-cancel">Cancel</button>
+                    </div>
+                </form>
+            </div>
         </div>
+    </section>
 
-        <div class="text-center">
-            <button type="submit" class="btn btn-custom-primary">Save Settings</button>
+    <form method="post" action="{{ url_for('settings_page') }}" class="wd-set-form">
+        <section class="wd-set-group" aria-labelledby="device-heading">
+            <div class="wd-set-head"><h2 id="device-heading">Device</h2><p class="wd-set-lede">The WalkingPad's Bluetooth name. WalkingDad connects to the first device whose name contains it.</p></div>
+            <div class="wd-set-body">
+                <div class="wd-grid">
+                    <div class="wd-field">
+                        <label for="ble_device_name">Bluetooth device name</label>
+                        <input type="text" id="ble_device_name" name="ble_device_name" value="{{ ble_device_name }}" class="wd-input">
+                        <small class="wd-hint">ble_device_name</small>
+                    </div>
+                </div>
+            </div>
+        </section>
+        <section class="wd-set-group" aria-labelledby="speed-heading">
+            <div class="wd-set-head"><h2 id="speed-heading">Speed</h2><p class="wd-set-lede">The belt's range and the Slow, Moderate and Max presets.</p></div>
+            <div class="wd-set-body">
+                <div class="wd-grid">
+                    <div class="wd-field">
+                        <label for="max_speed_kmh">Max speed (km/h)</label>
+                        <input type="number" id="max_speed_kmh" name="max_speed_kmh" value="{{ max_speed_kmh }}" step="0.1" min="1" class="wd-input">
+                        <small class="wd-hint">max_speed_kmh</small>
+                    </div>
+                    <div class="wd-field">
+                        <label for="min_speed_kmh">Min speed, the Slow preset (km/h)</label>
+                        <input type="number" id="min_speed_kmh" name="min_speed_kmh" value="{{ min_speed_kmh }}" step="0.1" min="0.1" class="wd-input">
+                        <small class="wd-hint">min_speed_kmh</small>
+                    </div>
+                    <div class="wd-field">
+                        <label for="speed_step">Speed step (km/h)</label>
+                        <input type="number" id="speed_step" name="speed_step" value="{{ speed_step }}" step="0.1" min="0.1" class="wd-input">
+                        <small class="wd-hint">speed_step</small>
+                    </div>
+                    <div class="wd-field">
+                        <label for="slow_walk_speed_kmh">Moderate preset (km/h)</label>
+                        <input type="number" id="slow_walk_speed_kmh" name="slow_walk_speed_kmh" value="{{ slow_walk_speed_kmh }}" step="0.1" min="0.1" class="wd-input">
+                        <small class="wd-hint">slow_walk_speed_kmh</small>
+                    </div>
+                </div>
+            </div>
+        </section>
+        <section class="wd-set-group" aria-labelledby="session-heading">
+            <div class="wd-set-head"><h2 id="session-heading">Session</h2></div>
+            <div class="wd-set-body">
+                <div class="wd-grid">
+                    <div class="wd-field">
+                        <label for="kcal_per_mile">Calories per mile</label>
+                        <input type="number" id="kcal_per_mile" name="kcal_per_mile" value="{{ kcal_per_mile }}" step="1" min="1" class="wd-input">
+                        <small class="wd-hint">kcal_per_mile</small>
+                    </div>
+                    <div class="wd-field">
+                        <label for="resume_grace_period_seconds">Auto-pause grace period (seconds)</label>
+                        <input type="number" id="resume_grace_period_seconds" name="resume_grace_period_seconds" value="{{ resume_grace_period_seconds }}" step="1" min="3" class="wd-input">
+                        <small class="wd-hint">resume_grace_period_seconds</small>
+                    </div>
+                    <div class="wd-field">
+                        <label for="history_display_limit">Session history limit</label>
+                        <input type="number" id="history_display_limit" name="history_display_limit" value="{{ history_display_limit }}" step="1" min="1" class="wd-input">
+                        <small class="wd-hint">history_display_limit</small>
+                    </div>
+                    <div class="wd-field">
+                        <label for="stale_pause_timeout_minutes">Auto-end a paused session after (minutes, 0 = never)</label>
+                        <input type="number" id="stale_pause_timeout_minutes" name="stale_pause_timeout_minutes" value="{{ stale_pause_timeout_minutes }}" step="1" min="0" class="wd-input">
+                        <small class="wd-hint">stale_pause_timeout_minutes</small>
+                    </div>
+                </div>
+            </div>
+        </section>
+        <section class="wd-set-group" aria-labelledby="keyboard-heading">
+            <div class="wd-set-head"><h2 id="keyboard-heading">Keyboard</h2></div>
+            <div class="wd-set-body">
+                <label class="wd-switch" for="keyboard_shortcuts_enabled">
+                    <input type="checkbox" role="switch" name="keyboard_shortcuts_enabled"
+                           id="keyboard_shortcuts_enabled" {% if keyboard_shortcuts_enabled %}checked{% endif %}>
+                    Enable keyboard shortcuts
+                </label>
+                <small class="wd-hint">keyboard_shortcuts_enabled (press ? on any screen for the list)</small>
+            </div>
+        </section>
+        <section class="wd-set-group" aria-labelledby="server-heading">
+            <div class="wd-set-head"><h2 id="server-heading">Server</h2><p class="wd-set-lede">Changes to host, port and Waitress threads take effect after restarting the app.</p></div>
+            <div class="wd-set-body">
+                <div class="wd-grid">
+                    <div class="wd-field">
+                        <label for="host">Server host</label>
+                        <input type="text" id="host" name="host" value="{{ host }}" class="wd-input">
+                        <small class="wd-hint">host</small>
+                    </div>
+                    <div class="wd-field">
+                        <label for="port">Server port</label>
+                        <input type="number" id="port" name="port" value="{{ port }}" step="1" min="1" max="65535" class="wd-input">
+                        <small class="wd-hint">port</small>
+                    </div>
+                    <div class="wd-field">
+                        <label for="waitress_threads">Waitress threads</label>
+                        <input type="number" id="waitress_threads" name="waitress_threads" value="{{ waitress_threads }}" step="1" min="4" max="128" class="wd-input">
+                        <small class="wd-hint">waitress_threads</small>
+                    </div>
+                </div>
+            </div>
+        </section>
+        <section class="wd-set-group" aria-labelledby="health-heading">
+            <div class="wd-set-head"><h2 id="health-heading">Apple Health</h2><p class="wd-set-lede">Log finished walks to Apple Health with a Shortcut on your iPhone.</p></div>
+            <div class="wd-set-body">
+                <label class="wd-switch" for="apple_health_export_enabled">
+                    <input type="checkbox" role="switch" name="apple_health_export_enabled" id="apple_health_export_enabled"
+                           aria-controls="apple-health-collapse" {% if apple_health_export_enabled %}checked{% endif %}>
+                    Enable Apple Health export
+                </label>
+                <small class="wd-hint">apple_health_export_enabled</small>
+                {# Live preview only: toggling this persists nothing until Save settings, like every other field here. The QR
+                   is cheap to generate, so it's always rendered, just shown or hidden. #}
+                <div id="apple-health-collapse"{% if not apple_health_export_enabled %} hidden{% endif %}>
+                    <div class="wd-grid">
+                        <div class="wd-field">
+                            <label for="apple_health_shortcut_name">Shortcut name</label>
+                            <input type="text" id="apple_health_shortcut_name" name="apple_health_shortcut_name" value="{{ apple_health_shortcut_name }}" class="wd-input">
+                            <small class="wd-hint">apple_health_shortcut_name: must match the Shortcut's name on your iPhone exactly</small>
+                        </div>
+                    </div>
+                    {# setup_shortcut_url comes from inject_flags() in app.py, built as a plain string there, not with Jinja filters (see its docstring). #}
+                    <div class="wd-callout wd-center">
+                        <p class="wd-hint not-ios">Scan once with your iPhone's Camera app to install the Shortcut that logs sessions to Apple Health. See the README for what it does and how to rebuild it.</p>
+                        <div id="settings-health-qr-container" class="wd-qr not-ios"></div>
+                        <p class="wd-hint ios-only">Install once on this device to log sessions to Apple Health. Opens Apple's Get Shortcut page. See the README for what it does and how to rebuild it.</p>
+                        <a href="{{ setup_shortcut_url }}" class="wd-btn wd-btn-primary ios-only"><i class="bi bi-download" aria-hidden="true"></i>Install Shortcut</a>
+                    </div>
+                </div>
+            </div>
+        </section>
+        <div class="wd-set-actions">
+            <button type="submit" class="wd-btn wd-btn-primary">Save settings</button>
         </div>
-
     </form>
-
-
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-    <script>
-    (function() {
-        var container = document.getElementById('settings-health-qr-container');
-        if (container) {
-            new QRCode(container, { text: {{ setup_shortcut_url | tojson }}, width: 200, height: 200, correctLevel: QRCode.CorrectLevel.M });
-        }
-    })();
-    </script>
 </div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script>
+(function() {
+    var container = document.getElementById('settings-health-qr-container');
+    // The QR library is a CDN script; offline, the rest of this page must still work.
+    if (container && window.QRCode) {
+        new QRCode(container, { text: {{ setup_shortcut_url | tojson }}, width: 204, height: 204, correctLevel: QRCode.CorrectLevel.M });
+    }
+
+    var addBtn = document.getElementById('add-profile-btn');
+    var addBox = document.getElementById('add-profile');
+    function setAdding(on) {
+        addBox.hidden = !on;
+        addBtn.hidden = on;
+        addBtn.setAttribute('aria-expanded', on ? 'true' : 'false');
+        (on ? document.getElementById('name-new') : addBtn).focus();
+    }
+    addBtn.addEventListener('click', function() { setAdding(true); });
+    document.getElementById('add-profile-cancel').addEventListener('click', function() { setAdding(false); });
+
+    var healthSwitch = document.getElementById('apple_health_export_enabled');
+    healthSwitch.addEventListener('change', function() {
+        document.getElementById('apple-health-collapse').hidden = !healthSwitch.checked;
+    });
+
+    // A themed confirm before Delete; the confirmed click re-submits through the button so its formaction applies.
+    document.querySelectorAll('[data-confirm]').forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+            if (btn.dataset.confirmed) return;
+            e.preventDefault();
+            confirmDialog('Delete this profile?', btn.dataset.confirm, btn.dataset.confirmLabel).then(function(ok) {
+                if (!ok) return;
+                btn.dataset.confirmed = '1';
+                btn.click();
+            });
+        });
+    });
+})();
+</script>
 {% endblock %}

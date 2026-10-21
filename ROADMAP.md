@@ -379,11 +379,11 @@ Shipping this surfaced a real gap it needed to close first: a dead BLE connectio
 - **Status:** Planned
 - **Priority:** Medium
 - **Problem:** The app always displays imperial units (mph, miles). Users who prefer metric must mentally convert or edit code constants.
-- **Solution:** Add a unit toggle (Imperial ↔ Metric) in the header that switches between mph/miles and km/h/km in real time. Store preference in `localStorage`.
+- **Solution:** Add a unit toggle (Imperial ↔ Metric) in the side rail that switches between mph/miles and km/h/km in real time. Store preference in `localStorage`.
 - **Implementation:**
     - Return both imperial and metric values from `_build_stats_payload()` (shared by `/stats_stream` and `/stats`)
     - Frontend toggles display based on user preference
-    - Add toggle button next to the theme toggle in the header
+    - Add a toggle button next to the appearance toggle in the side rail
     - Cover the live tab title (3.13) too, which shows mph like the page
     - Cover the Settings speed fields too, which are entered in km/h while the rest of the UI shows mph (left as-is by 3.20)
 
@@ -434,7 +434,7 @@ Stores completed sessions and displays a summary table on the start screen. Incl
 **Priority:** Medium
 **Files Modified:** `templates/base.html`
 
-10 standard color themes (Slate default, plus 9 hues run in even 40° spectral steps: Red, Amber, Lime, Forest, Teal, Cyan, Blue, Violet, Pink) and 5 "special" themes (Virginia Tech, Bloom, Tide, Harvest, Frost), selectable independently of the Light/Dark/System toggle via a palette icon in the header. Each theme tints the whole surface (backgrounds, cards, browser chrome) through CSS custom properties, not just accent buttons. Special themes add a two-tone swatch, a heading font (fetched only if selected), and, except Virginia Tech, a non-interactive ambient effect (falling petals/snow/leaves, scuttling crabs, glowing eyes) that respects `prefers-reduced-motion`.
+10 standard color themes (Slate default, plus 9 hues run in even 40° spectral steps: Red, Amber, Lime, Forest, Teal, Cyan, Blue, Violet, Pink) and 5 "special" themes (Virginia Tech, Bloom, Tide, Pumpkin, Holly), selectable independently of the Light/Dark/System toggle via a palette icon in the side rail. Each theme tints the whole surface (backgrounds, cards, browser chrome) through CSS custom properties, not just accent buttons. Special themes add a two-tone swatch, a heading font (fetched only if selected), and, except Virginia Tech, a non-interactive ambient effect (falling petals/snow/leaves, scuttling crabs, glowing eyes) that respects `prefers-reduced-motion`.
 
 ---
 
@@ -497,8 +497,8 @@ While walking, the tab reads `3.2 mph · 1.40 mi - WalkingDad`: live content fir
 
 ---
 
-### 3.15 Replace Native `confirm()` Dialogs with Themed Modals
-- **Status:** Planned
+### ✅ 3.15 Replace Native `confirm()` Dialogs with Themed Modals
+- **Status:** ✅ Complete, delivered by 3.21 (one shared themed `<dialog>` for Shut down, Delete, Clear, and profile Delete)
 - **Priority:** Medium
 - **Problem:** `Close` (`templates/base.html`) and `Clear History` (`templates/start_session.html`) both use the browser's native `confirm()` popup, unlike every other confirmable action in the app (Restore/Discard, Apple Health setup), which uses a styled Bootstrap modal matching dark mode and the active color theme. The native dialog can't be themed and is inconsistent for two fairly consequential actions.
 - **Solution:** Replace both `confirm()` calls with a shared themed confirmation modal (title, message, Confirm/Cancel), matching the existing modal pattern already used elsewhere.
@@ -515,8 +515,8 @@ While walking, the tab reads `3.2 mph · 1.40 mi - WalkingDad`: live content fir
 
 ---
 
-### 3.17 Tablet-Width Responsive Breakpoint
-- **Status:** Planned
+### ✅ 3.17 Tablet-Width Responsive Breakpoint
+- **Status:** ✅ Complete, delivered by 3.21 (panels stack below 900px; the history table reflows by container width)
 - **Priority:** Low
 - **Problem:** `base.html` has exactly one `@media (max-width: 480px)` rule, tuned for phone-width screens. Desktop is the primary use case, but the app's own pitch covers "any browser on your network," and 3.7 (Touch/Swipe Gesture Controls) already anticipates a phone/tablet as a secondary device, so there's nothing tuned for the tablet width range in between.
 - **Solution:** Add an intermediate breakpoint (e.g. `max-width: 900px`) tuned for tablet-class screens (iPad-size), rather than jumping straight from desktop layout to the 480px phone rules.
@@ -550,6 +550,27 @@ Added the missing viewport meta, so phones get a real phone layout instead of a 
 - **Problem:** Settings is one long page whose sections are in the order features shipped (Device first, Server mid-page). Profiles (4.5) sits below Save with its own save model. Labels aren't associated with their inputs (WCAG 1.3.1, 4.1.2), and hints show raw `config.json` keys.
 - **Solution:** GitLab/GitHub-style sub-pages with a left nav, in conventional order: Walking, Profiles, Calories, History, Keyboard, Apple Health (setup QR at the end of its page), Advanced (Bluetooth name, host/port/threads). Each page has its own Save, which changes only that page's settings. Profiles become opt-in via a `profiles_enabled` switch, off by default; turning it off hides the picker, walker names, and history column/filter/CSV column but keeps profiles and session tags.
 - **Implementation:** `/settings/<section>` routes (`/settings` redirects to Walking); `_SETTINGS_SCHEMA` entries gain a section, and the switches join it as booleans; `settings_base.html` plus one template per section; `_active_profiles()` gates the profile UI on the switch. Per-section saving also makes 3.16's per-field feedback simpler.
+
+---
+
+### ✅ 3.21 Ledger Interface Redesign
+- **Status:** ✅ Complete
+- **Changelog:** `[Unreleased]`
+- **Priority:** Medium
+- **Files Modified:** `static/ledger.css`, `static/ledger.js`, `static/themes.css`, `templates/base.html`, `templates/start_session.html`, `templates/_history_table.html`, `templates/active_session.html`, `templates/paused_session.html`, `templates/_belt_ladder.html`, `templates/connecting.html`, `templates/settings.html`, `app.py`, `tests/test_routes.py`, `README.md`, `images/screenshots/`
+- **Problem:** The 3.9 console look is a Bootstrap page with one inline stylesheet in `base.html`; it has no tablet layout (3.17), two unthemed `confirm()` popups (3.15), and modals, toasts, tooltips and collapses that all depend on Bootstrap's JS.
+- **Solution:** Design "Ledger": an icon rail (a labelled bottom bar on phones), one title row per screen with its actions, and quiet panels with tabular numbers. Walking shows a large speed figure with steppers and a belt-ladder slider of the presets; Paused leads with the time and parks the ladder. Every current feature, shortcut and no-JS form POST keeps working. The 15 colour themes keep their current palettes; Virginia Tech follows brand.vt.edu (maroon and burnt orange shaded only, VT neutrals, 2px detail lines, square dots), and the seasonal themes keep their season, font and ambient effect, with Frost renamed Holly and Harvest renamed Pumpkin (saved choices migrate). Delivers 3.15 and 3.17.
+- **Deviation:** The live speed figure is about 128px, far above usual app-figure sizes, because it's read from the treadmill.
+- **Implementation:** Self-hosted `static/ledger.css` and `static/themes.css` replace the inline styles, and Bootstrap's CSS and JS are gone: native `<dialog>` (Esc or a backdrop click closes, focus returns to the opener), the Popover API for the theme menu, and `hidden` for reveals. The Bootstrap Icons font stays. Same routes and form POSTs, so everything still works without JavaScript. The walker picker sits in Start's title row beside **Start walking**. The belt ladder is a slider over the existing speed commands: a click steps one notch toward it, the arrow and Page keys step, Home and End jump to Slow and Max. Dragging to an arbitrary speed would need a new set-speed route, not built. The connection screens show the device and the last walk. Settings labels now name their inputs (part of 3.20). Ambient effects travel relative to their own layer, so they reach the bottom of any page height. Needs Safari 17.5, Chrome 123, or Firefox 125 (the floor for `light-dark()`).
+
+---
+
+### 3.22 Live Speed Chart
+- **Status:** Planned
+- **Priority:** Low
+- **Problem:** Walking and Paused show only the current speed; there's no view of how speed changed over the session.
+- **Solution:** A "Speed this session" line chart on Walking and Paused, with a dashed reference at the walker's usual speed.
+- **Implementation:** `GET /session/speed` returns 30-second means of the current session's walking samples (`storage.get_samples()`) and the walker's usual speed (total miles over total hours); the page polls it every 30 s and draws a small SVG line. SSE stays the source for live figures. Builds on 3.21.
 
 ---
 
@@ -609,6 +630,15 @@ WalkingDad is shared by a household, but history mixed everyone's sessions toget
 
 ---
 
+### 4.6 Week Summary on Start
+- **Status:** Planned
+- **Priority:** Medium
+- **Problem:** The start screen lists sessions but doesn't say how today or this week went, or how the household's walking compares.
+- **Solution:** A KPI strip (today and the last 7 days: miles, sessions, minutes, days walked, average speed) and one lane per profile with a bar per day, the selected walker in ink and today highlighted. Zero states print zeros.
+- **Implementation:** A `week_summary()` helper in `app.py` over completed sessions from `storage.list_sessions()`, summing per-session miles as displayed so the totals match the table. Builds on 3.21; 4.4 can reuse it for period deltas.
+
+---
+
 ## Data Export & Integrations
 
 ### ✅ 5.1 Apple Health Export via Shortcuts
@@ -662,6 +692,15 @@ This also gave 3.6 (QR Code for LAN Access) a proven client-side QR-rendering ap
 - **Problem:** Shortcuts can't log what KS Fit (the WalkingPad's own app) does. As of iOS 27, `Log Workout` takes only type, date, duration, calories and distance: "Walking" has no indoor variant and there's no metadata field, so every session shows as an outdoor walk. `Log Health Sample` has no End Date, so steps are stamped at the session start, and no Shortcuts action (built-in, or third-party such as Actions or Toolbox Pro) can attach samples to a workout.
 - **Solution:** A small iOS app whose only job is one Shortcuts action, "Log Treadmill Walk", that takes the same JSON WalkingDad already sends. The installed Shortcut swaps `Log Workout` + `Log Health Sample` for that one action; WalkingDad and the `x-success` callback don't change.
 - **Implementation:** An App Intent using `HKWorkoutBuilder`: `.walking` with `HKMetadataKeyIndoorWorkout = true`, energy and distance samples, and a step-count sample spanning start to end, added to the builder so they're attached to the workout. HealthKit is available to a free Apple ID (Personal Team in Xcode; Apple's "Supported capabilities" table lists it for free accounts), so no $99 membership is needed. The catch is that free provisioning expires every 7 days and has to be reinstalled from Xcode on a Mac, and it can't be distributed to anyone else. Prototype first: KS Fit's own workouts don't attach steps either, and Fitness may not show workout steps even when attached, so check that the Indoor Walk label and steps actually appear before committing to the 7-day reinstalls.
+
+---
+
+### 5.5 Apple Health Queue on Start
+- **Status:** Planned
+- **Priority:** Low
+- **Problem:** The start-screen banner (5.1) offers only the most recent session; an older unlogged one can only be logged from the history table.
+- **Solution:** An Apple Health card on Start listing the walker's last four sessions, unlogged first, each with Log (opens its QR) or "Logged", and a link to the rest. With export off, it says so and links to Settings.
+- **Implementation:** Built from the history records' existing `log_shortcut_url` and `health_logged`; the SSE `health_status_changed` handler updates it as it does the table. Builds on 3.21.
 
 ---
 

@@ -1,62 +1,63 @@
 {# History table alone: rendered inside start_session.html and by /history when the walker or Edit scope changes. #}
 {% set profile_ids = profiles | map(attribute='id') | list %}
-<div id="history-body" data-walker="{{ walker }}" data-heading="{{ history_heading }}"
+<div id="history-body" class="wd-history-wrap" data-walker="{{ walker }}" data-heading="{{ history_heading }}"
      data-clear-confirm="{{ clear_confirm }}" data-export-url="{{ url_for('export_csv', walker=walker) }}">
-    <div class="table-responsive" style="border-radius:0.5rem;overflow:hidden;">
-        <table class="history-table">
+    <div class="wd-table-wrap">
+        <table class="wd-history">
             <thead>
                 <tr>
-                    <th class="text-start">Date</th>
-                    {% if show_walker_column %}<th class="text-start">Walker</th>{% endif %}
-                    <th>Time</th>
-                    <th class="text-end">Duration</th>
-                    <th class="text-end">Distance</th>
-                    <th class="text-end">Steps</th>
-                    <th class="text-end">Calories</th>
-                    <th class="text-end">Avg Speed</th>
-                    <th class="history-actions"><span class="visually-hidden">Actions</span></th>
+                    <th scope="col">Date</th>
+                    {% if show_walker_column %}<th scope="col">Walker</th>{% endif %}
+                    <th scope="col" class="num">Time</th>
+                    <th scope="col" class="num">Duration</th>
+                    <th scope="col" class="num">Distance</th>
+                    <th scope="col" class="num">Steps</th>
+                    <th scope="col" class="num">Calories</th>
+                    <th scope="col" class="num">Avg speed</th>
+                    <th scope="col" class="history-actions"><span class="wd-vh">Actions</span></th>
                 </tr>
             </thead>
             <tbody>
                 {% for s in history %}
                 <tr data-session-id="{{ s.id }}">
-                    <td class="text-start">{{ s.date }}
+                    <th scope="row" class="wd-date">{{ s.date }}
                         {%- if health_export_enabled %}
                         {%- set health_hint = 'Logged to Apple Health' if s.health_logged else 'Not logged to Apple Health. Use Edit, then Log, to log it.' %}
                         <i class="bi {{ 'bi-heart-fill' if s.health_logged else 'bi-heart' }} health-icon" role="img" tabindex="0"
-                           data-bs-toggle="tooltip" title="{{ health_hint }}" aria-label="{{ health_hint }}"></i>
-                        {%- endif %}</td>
-                    {% if show_walker_column %}<td data-label="Walker" class="text-start" data-walker-cell>{{ s.walker }}</td>{% endif %}
-                    <td class="mono-num">{{ s.start_time }}</td>
-                    <td data-label="Duration" class="mono-num text-end">{{ s.duration_seconds // 60 }}m {{ s.duration_seconds % 60 }}s</td>
-                    <td data-label="Distance" class="mono-num text-end">{{ "%.2f"|format(s.distance_mi) }} mi</td>
-                    <td data-label="Steps" class="mono-num text-end">{{ "{:,}".format(s.steps|int) }}</td>
-                    <td data-label="Calories" class="mono-num text-end">{{ s.calories|round(0)|int }}</td>
-                    <td data-label="Avg Speed" class="mono-num text-end">{{ s.avg_speed_mph }} mph</td>
+                           data-tip="{{ health_hint }}" aria-label="{{ health_hint }}"></i>
+                        {%- endif %}</th>
+                    {% if show_walker_column %}<td data-walker-cell>{{ s.walker }}</td>{% endif %}
+                    <td class="num">{{ s.start_time }}</td>
+                    <td class="num">{{ s.duration_seconds // 60 }}m {{ s.duration_seconds % 60 }}s</td>
+                    <td class="num wd-dist"><span>{{ "%.2f"|format(s.distance_mi) }}</span> mi</td>
+                    <td class="num">{{ "{:,}".format(s.steps|int) }}<span class="ph-unit"> steps</span></td>
+                    <td class="num">{{ s.calories|round(0)|int }}<span class="ph-unit"> cal</span></td>
+                    <td class="num">{{ s.avg_speed_mph }} mph</td>
                     <td class="history-actions">
-                        {% if profiles %}
-                        <label class="visually-hidden" for="walker-{{ s.id }}">Walker for {{ s.date }} {{ s.start_time }}</label>
-                        <select id="walker-{{ s.id }}" class="history-walker" data-session-id="{{ s.id }}">
-                            {% for p in profiles %}
-                            <option value="{{ p.id }}"{{ ' selected' if p.id == s.profile }}>{{ p.name }}</option>
-                            {% endfor %}
-                            <option value="unassigned"{{ ' selected' if s.profile not in profile_ids }}>Unassigned</option>
-                        </select>
-                        {% endif %}
-                        {% if s.log_shortcut_url %}
-                        <button type="button" class="btn btn-sm btn-preset not-ios" data-log data-bs-toggle="modal" data-bs-target="#health-export-modal"
-                                data-log-url="{{ s.log_shortcut_url }}" data-session-id="{{ s.id }}">
-                            <i class="bi bi-heart-pulse"></i> Log
-                        </button>
-                        <a href="{{ s.log_shortcut_url }}" class="btn btn-sm btn-preset ios-only" data-log><i class="bi bi-heart-pulse"></i> Log</a>
-                        {% endif %}
-                        <button type="button" class="btn btn-sm btn-preset" data-delete-url="{{ url_for('delete_session', session_id=s.id) }}" aria-label="Delete session" title="Delete session">
-                            <i class="bi bi-trash text-danger"></i>
-                        </button>
+                        <div class="wd-row-actions">
+                            {% if profiles %}
+                            <label class="wd-vh" for="walker-{{ s.id }}">Walker for {{ s.date }} {{ s.start_time }}</label>
+                            <select id="walker-{{ s.id }}" class="wd-select wd-select-sm history-walker" data-session-id="{{ s.id }}">
+                                {% for p in profiles %}
+                                <option value="{{ p.id }}"{{ ' selected' if p.id == s.profile }}>{{ p.name }}</option>
+                                {% endfor %}
+                                <option value="unassigned"{{ ' selected' if s.profile not in profile_ids }}>Unassigned</option>
+                            </select>
+                            {% endif %}
+                            {% if s.log_shortcut_url %}
+                            <button type="button" class="wd-btn wd-btn-sm not-ios" data-log data-log-url="{{ s.log_shortcut_url }}" data-session-id="{{ s.id }}">
+                                <i class="bi bi-heart-pulse" aria-hidden="true"></i>Log
+                            </button>
+                            <a href="{{ s.log_shortcut_url }}" class="wd-btn wd-btn-sm ios-only" data-log><i class="bi bi-heart-pulse" aria-hidden="true"></i>Log</a>
+                            {% endif %}
+                            <button type="button" class="wd-btn wd-btn-sm wd-btn-icon wd-btn-danger-ghost" data-delete-url="{{ url_for('delete_session', session_id=s.id) }}" aria-label="Delete session" title="Delete session">
+                                <i class="bi bi-trash" aria-hidden="true"></i>
+                            </button>
+                        </div>
                     </td>
                 </tr>
                 {% else %}
-                <tr><td colspan="9" class="text-center text-muted">No sessions for this walker yet.</td></tr>
+                <tr><td colspan="9" class="wd-empty">No sessions for this walker yet.</td></tr>
                 {% endfor %}
             </tbody>
         </table>

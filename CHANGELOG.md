@@ -6,13 +6,17 @@ All notable changes to WalkingDad will be documented in this file.
 
 ### Added
 
-- **Profiles: history per walker** (ROADMAP 4.5). Add each person on the Settings page, with optional height and weight for upcoming calorie estimates. Start shows who's walking ("as Sean"), defaulting to whoever walked last; click the name to switch. History shows the selected walker's sessions; **Edit** can show everyone or Unassigned sessions and reassign a session to a different walker. Export CSV and Clear follow what's shown. Creating a profile offers to assign sessions recorded before profiles existed; deleting a profile keeps its sessions as Unassigned. With no profiles, nothing changes.
+- **Profiles: history per walker** (ROADMAP 4.5). Add each person on the Settings page, with optional height and weight for upcoming calorie estimates. Start shows who's walking, defaulting to whoever walked last; pick another name to switch. History shows the selected walker's sessions; **Edit** can show everyone or Unassigned sessions and reassign a session to a different walker. Export CSV and Clear follow what's shown. Creating a profile offers to assign sessions recorded before profiles existed; deleting a profile keeps its sessions as Unassigned. With no profiles, nothing changes.
 - **Keyboard shortcuts** (ROADMAP 3.3). `Space` pauses or resumes; `↑`/`W` and `↓`/`S` change speed; `L`, `K`, and `M` pick the Slow, Moderate, and Max presets. Press `?` for the list, or hover a button to see its key. Start and End Session have no shortcut. Turn them off with the **Enable keyboard shortcuts** switch on the Settings page (`keyboard_shortcuts_enabled`).
 - **The browser tab shows your speed and distance while walking** (ROADMAP 3.13), e.g. `3.2 mph · 1.40 mi - WalkingDad`.
 - **Stored data is versioned** (ROADMAP 2.10). Before upgrading the database to a new format, WalkingDad saves a copy to `data/backups/`. An older WalkingDad refuses to start on data a newer version has written, instead of risking it; the message says how to recover. `config.json` now records its format version too.
 
 ### Changed
 
+- **A new interface** (ROADMAP 3.21). Every screen is redesigned: a side rail (a bottom bar on phones) holds Walk, Settings, color theme, appearance, shortcuts, and Shut down; each screen has one title row with its actions; stats sit in quiet panels. Walking shows the belt speed large, with the presets as stops on a belt-speed ladder you can click or drive with the arrow keys. Paused leads with the elapsed time. Settings lays each section out beside its description. Layouts now adapt to tablet widths too (3.17). Needs Safari 17.5, Chrome 123, Firefox 125, or newer.
+- **Themed confirmations replace the browser's pop-ups** (ROADMAP 3.15) for Shut down, deleting a session or profile, and clearing history. Shut down now asks first.
+- **Frost is now Holly and Harvest is now Pumpkin**, so no two theme names share a first letter and the Christmas theme says so. A saved choice of either carries over.
+- **Color themes keep their palettes in the new design**, and Virginia Tech follows brand.vt.edu: maroon and burnt orange are never lightened, and the neutrals are VT's own greys.
 - **Unknown keys in `config.json` log a warning at startup**, so a typo like `max_speed_kph` no longer silently falls back to the default.
 - **Dependency versions are bounded** (ROADMAP 2.6). `requirements.txt` now sets a tested minimum and blocks the next major version of each package, so a fresh install can't pull in a breaking release.
 

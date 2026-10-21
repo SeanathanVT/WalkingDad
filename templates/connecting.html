@@ -1,59 +1,48 @@
 {% extends "base.html" %}
+{% block title %}{% if connecting %}Looking for your WalkingPad{% elif connection_failed %}Couldn't find your WalkingPad{% else %}WalkingPad disconnected{% endif %}{% endblock %}
+{% block sub %}<p class="sub">{% if connecting %}Searching for {{ device_name }} over Bluetooth. Make sure it's switched on.{% elif connection_failed %}Check that it's on and within Bluetooth range, then try again.{% else %}It switches itself off after sitting idle.{% endif %}</p>{% endblock %}
+{% block actions %}
+{% if not connecting %}
+<form method="post" action="{{ url_for('reconnect') }}" style="display:contents">
+    <button type="submit" class="wd-btn wd-btn-primary"><i class="bi bi-bluetooth" aria-hidden="true"></i>{% if connection_failed %}Try again{% else %}Connect{% endif %}</button>
+</form>
+{% endif %}
+{% endblock %}
 {% block content %}
-<div class="text-center">
-    <div class="console-hero mx-auto" style="max-width: 26rem;">
-        <span class="console-hero-label">Status</span>
-        {% if connecting %}
-            <h1 class="console-hero-status">
-                <span class="spinner-border spinner-border-sm text-accent me-2" role="status" aria-hidden="true"></span>CONNECTING
-            </h1>
-            <p class="text-muted mt-2 mb-0" style="font-size:0.9rem;">Please ensure your WalkingPad is turned on.</p>
-            <script>
-            // Reload only once something has actually changed (connected, or the
-            // background retry loop has given up), not on a fixed timer, so
-            // ambient theme effects (falling
-            // snow/leaves, etc.) keep running smoothly instead of visibly
-            // resetting every few seconds while nothing's actually changed yet.
-            // Not startStatsStream() from base.html: that helper treats
-            // is_connected===false as "something broke, reload", correct once
-            // a session is underway, wrong here where not-yet-connected is the
-            // expected steady state.
-            (function() {
-                var es = new EventSource("{{ url_for('stats_stream') }}");
-                es.onmessage = function(event) {
-                    var data = JSON.parse(event.data);
-                    if (shutdownShown || data.stopping === true) {
-                        if (!shutdownShown) showShutdownOverlay();
-                        es.close();
-                        return;
-                    }
-                    if (data.is_connected === true || data.connection_failed === true) {
-                        window.location.reload();
-                    }
-                };
-                es.onerror = function() {
-                    console.warn('Stats stream connection error while connecting (browser will auto-retry).');
-                };
-            })();
-            </script>
-            <!-- No-JS fallback: the EventSource-driven reload above needs JavaScript, so this covers clients without it. -->
-            <noscript>
-                <meta http-equiv="refresh" content="3">
-            </noscript>
-        {% elif connection_failed %}
-            <h1 class="console-hero-status text-danger">CONNECTION FAILED</h1>
-            <p class="text-muted mt-2 mb-3" style="font-size:0.9rem;">Could not find the WalkingPad. Please ensure it's on and in range.</p>
-            <form method="post" action="{{ url_for('reconnect') }}" style="display:contents">
-                <button type="submit" class="btn btn-custom-primary">Try Again</button>
-            </form>
-        {% else %}
-            <h1 class="console-hero-status text-danger">DISCONNECTED</h1>
-            <div class="mt-3">
-                <form method="post" action="{{ url_for('reconnect') }}" style="display:contents">
-                    <button type="submit" class="btn btn-custom-primary">Connect</button>
-                </form>
-            </div>
-        {% endif %}
-    </div>
-</div>
+<section class="panel" aria-labelledby="device-heading">
+    <div class="panel-h"><h2 id="device-heading">Treadmill</h2><a class="wd-btn wd-btn-sm" href="{{ url_for('settings_page') }}">Change device</a></div>
+    <dl class="kv">
+        <dt>Device</dt><dd>WalkingPad {{ device_name }}</dd>
+        <dt>Connection</dt><dd>{% if connecting %}Connecting{% elif connection_failed %}Not found{% else %}Disconnected{% endif %}</dd>
+        <dt>Last walk</dt><dd>{{ last_walk or 'None yet' }}</dd>
+    </dl>
+    {% if connecting %}
+    <p class="hint" role="status"><span class="spin" aria-hidden="true"></span>Connecting. This page moves on by itself once the WalkingPad answers.</p>
+    <script>
+    // Reloads only once something changed (connected, or the retry loop gave up), not on a timer, so ambient
+    // theme effects keep running instead of resetting. Not startStatsStream(): that treats is_connected===false
+    // as "something broke, reload", wrong here where not-yet-connected is the expected steady state.
+    (function() {
+        var es = new EventSource("{{ url_for('stats_stream') }}");
+        es.onmessage = function(event) {
+            var data = JSON.parse(event.data);
+            if (shutdownShown || data.stopping === true) {
+                if (!shutdownShown) showShutdownOverlay();
+                es.close();
+                return;
+            }
+            if (data.is_connected === true || data.connection_failed === true) {
+                window.location.reload();
+            }
+        };
+        es.onerror = function() {
+            console.warn('Stats stream connection error while connecting (browser will auto-retry).');
+        };
+    })();
+    </script>
+    <noscript><meta http-equiv="refresh" content="3"></noscript>
+    {% else %}
+    <p class="hint">Your history and settings are still here. Start a walk once the WalkingPad is connected.</p>
+    {% endif %}
+</section>
 {% endblock %}
