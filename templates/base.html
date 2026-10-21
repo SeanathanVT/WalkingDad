@@ -4,12 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <script>
-    // THEME_FONT_URLS is the single source of truth for special-theme fonts,
-    // declared here, outside the IIFE below, so it's a true global that the
-    // fuller color-theme picker logic further down this file can reference
-    // too (its COLOR_THEMES entries set fontsUrl: THEME_FONT_URLS.<id>
-    // instead of repeating the URL), rather than keeping two copies in sync
-    // by convention.
+    // THEME_FONT_URLS and COLOR_THEMES are globals shared by this early-paint script and the theme picker in
+    // static/ledger.js, so each font URL and theme id lives in one place.
     var THEME_FONT_URLS = {
         vt: 'https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;700;900&family=Crimson+Text:wght@400;600;700&display=swap',
         pumpkin: 'https://fonts.googleapis.com/css2?family=Rye&family=Creepster&display=swap',
@@ -17,11 +13,6 @@
         bloom: 'https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&display=swap',
         tide: 'https://fonts.googleapis.com/css2?family=Pacifico&display=swap'
     };
-    // Same reasoning as THEME_FONT_URLS above: declared here (not inside the
-    // color-theme IIFE further down) so this early-paint check and the
-    // fuller picker logic's own init/popover-building code share one array
-    // instead of this script hand-maintaining a separate id list that could
-    // drift out of sync with it.
     var COLOR_THEMES = [
         // Slate first -- it's the default (absence of data-color-theme).
         // The rest run in hue order (ROYGBIV-style spectral sweep, see
@@ -77,10 +68,9 @@
     ];
     // Applies the stored theme (and any theme-specific font) before first
     // paint, so navigating to a new page doesn't flash the :root (Slate/Light,
-    // default-font) state first. Intentionally standalone/duplicated from the
-    // fuller theme logic further down this file. Must run synchronously,
-    // before anything else, with no dependency on DOM elements that don't
-    // exist yet.
+    // default-font) state first. Deliberately separate from the picker in
+    // static/ledger.js: it must run synchronously, before anything else, with
+    // no dependency on DOM elements that don't exist yet.
     (function() {
         var root = document.documentElement;
         var mode = localStorage.getItem('walkingpad-theme');
@@ -107,8 +97,8 @@
             }
         }
         // Stale ids (colorTheme set but not recognized) are left unset here,
-        // matching :root's Slate defaults with no flash -- the fuller picker
-        // logic below also clears the stale localStorage key on next init.
+        // matching :root's Slate defaults with no flash; the picker in
+        // static/ledger.js also clears the stale localStorage key.
     })();
     </script>
     <title>WalkingDad</title>
@@ -125,8 +115,8 @@
     <script>
     // Syncs the browser chrome color (Safari tab bar, Android address bar,
     // etc.) with the resolved theme before the page renders. Must run here,
-    // after the stylesheets, since it needs the resolved background colour. Live updates when the user changes theme/mode are handled
-    // by updateThemeColorMeta() further down this file.
+    // after the stylesheets, since it needs the resolved background colour.
+    // Live updates on a theme or mode change are updateThemeColorMeta() in static/ledger.js.
     (function() {
         var headerBg = getComputedStyle(document.documentElement).backgroundColor;
         var meta = document.querySelector('meta[name="theme-color"]');
@@ -139,8 +129,8 @@
     <script>
     // Defined before the page's main content block so child templates can
     // call this synchronously the moment their own inline <script> runs,
-    // instead of waiting for scripts later in the document (e.g.
-    // showShutdownOverlay below) to have executed first.
+    // instead of waiting for static/ledger.js at the end of the page
+    // (showShutdownOverlay lives there; it's only called from SSE ticks, after load).
     var shutdownShown = false;
     var statsTickSeen = false;
     // renderedDisconnected: the page was rendered without a connection (a
@@ -243,14 +233,15 @@
             </a>
             {% set on_settings = request.endpoint == 'settings_page' %}
             <a class="ri" href="{{ url_for('root') }}" aria-label="Walk"{% if not on_settings %} aria-current="page"{% endif %}><i class="bi bi-person-walking" aria-hidden="true"></i><span class="lbl" aria-hidden="true">Walk</span><span class="tip" aria-hidden="true">Walk</span></a>
-            <a class="ri" href="{{ url_for('settings_page') }}" aria-label="Settings"{% if on_settings %} aria-current="page"{% endif %}><i class="bi bi-gear" aria-hidden="true"></i><span class="lbl" aria-hidden="true">Settings</span><span class="tip" aria-hidden="true">Settings</span></a>
-            <span class="rail-gap"></span>
+            <hr>
             <button type="button" class="ri" id="color-theme-toggle" popovertarget="color-theme-menu" aria-label="Color theme"><i class="bi bi-palette" aria-hidden="true"></i><span class="lbl" aria-hidden="true">Theme</span><span class="tip" aria-hidden="true">Color theme</span></button>
             <div id="color-theme-menu" popover class="wd-theme-menu" role="menu" aria-label="Color theme"></div>
             <button type="button" class="ri" id="theme-toggle" aria-label="Appearance: System"><i class="bi bi-display" aria-hidden="true"></i><span class="lbl" aria-hidden="true">System</span><span class="tip" aria-hidden="true">Appearance</span></button>
             {% if keyboard_shortcuts_enabled %}
             <button type="button" class="ri ri-keys" id="shortcuts-button" aria-label="Keyboard shortcuts"><i class="bi bi-keyboard" aria-hidden="true"></i><span class="lbl" aria-hidden="true">Keys</span><span class="tip" aria-hidden="true">Keyboard shortcuts (?)</span></button>
             {% endif %}
+            <span class="rail-gap"></span>
+            <a class="ri" href="{{ url_for('settings_page') }}" aria-label="Settings"{% if on_settings %} aria-current="page"{% endif %}><i class="bi bi-gear" aria-hidden="true"></i><span class="lbl" aria-hidden="true">Settings</span><span class="tip" aria-hidden="true">Settings</span></a>
             <hr>
             <button type="button" class="ri" id="shutdown-button" aria-label="Shut down WalkingDad"><i class="bi bi-power" aria-hidden="true"></i><span class="lbl" aria-hidden="true">Shut down</span><span class="tip" aria-hidden="true">Shut down</span></button>
         </nav>

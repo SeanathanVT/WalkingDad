@@ -221,6 +221,34 @@ function confirmDialog(title, message, confirmLabel) {
     });
 }
 
+// [data-tip] tooltips show on hover and on focus (a bare title attribute doesn't show on focus), in one fixed element
+// so a scrolling container can't clip them. Read at show time, so SSE updates to data-tip apply.
+(function() {
+    var tip = document.createElement('div');
+    tip.id = 'tip';
+    tip.className = 'wd-tip';
+    tip.setAttribute('aria-hidden', 'true');
+    tip.hidden = true;
+    document.body.appendChild(tip);
+    var owner = null;
+    function show(el) {
+        owner = el;
+        tip.textContent = el.getAttribute('data-tip');
+        tip.hidden = false;
+        var r = el.getBoundingClientRect(), t = tip.getBoundingClientRect();
+        var top = r.top - t.height - 6;
+        tip.style.left = Math.min(Math.max(8, r.left + r.width / 2 - t.width / 2), innerWidth - t.width - 8) + 'px';
+        tip.style.top = (top < 8 ? r.bottom + 6 : top) + 'px';
+        tip.classList.add('is-on');
+    }
+    function hide() { owner = null; tip.classList.remove('is-on'); tip.hidden = true; }
+    document.addEventListener('pointerover', function(e) { var el = e.target.closest('[data-tip]'); if (el && el !== owner) show(el); });
+    document.addEventListener('pointerout', function(e) { if (owner && !owner.contains(e.relatedTarget) && document.activeElement !== owner) hide(); });
+    document.addEventListener('focusin', function(e) { var el = e.target.closest('[data-tip]'); if (el) show(el); else if (owner) hide(); });
+    document.addEventListener('focusout', function(e) { if (e.target === owner) hide(); });
+    window.addEventListener('scroll', function() { if (owner) hide(); }, true);
+})();
+
 var toastTimer;
 function toast(message) {
     var t = document.getElementById('toast');
@@ -313,7 +341,7 @@ function showShutdownOverlay() {
         // Held keys don't repeat: each press is a locked BLE command.
         if (e.defaultPrevented || e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
         if (e.target.closest('input, select, textarea, [contenteditable]')) return;
-        if (e.key === ' ' && e.target === keyboardFocused && e.target.closest('button, a, summary, [role="button"], [role="slider"]')) return;
+        if (e.key === ' ' && e.target === keyboardFocused && e.target.closest('button, a, summary, [role="button"]')) return;
         if (document.querySelector('dialog[open], :popover-open')) return;
         if (e.key === '?') {
             e.preventDefault();
