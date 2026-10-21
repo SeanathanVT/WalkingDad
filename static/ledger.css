@@ -269,7 +269,7 @@ kbd { font-family: inherit; font-size: 11px; font-weight: 700; padding: 0 5px; b
 .wd-switch input::after { content: ""; position: absolute; inset: 3px auto 3px 3px; aspect-ratio: 1; border-radius: 50%; background: #fff; transition: translate .2s var(--ease); }
 .wd-switch input:checked { background: var(--positive); }
 .wd-switch input:checked::after { translate: 13px; }
-.wd-set-actions { display: flex; gap: .75rem; position: sticky; bottom: 0; background: var(--ground); border-top: 1px solid var(--border); padding: 16px 0; z-index: 10; }
+.wd-set-actions { display: flex; gap: .75rem; position: sticky; bottom: 0; background: var(--ground); border-top: 1px solid var(--border); padding: 16px 0; z-index: 1; } /* above scrolling content, below the ambient effects */
 
 /* dialogs */
 .wd-dialog { border: 1px solid var(--border); border-radius: 12px; padding: 0; background: var(--surface); color: var(--text); width: min(26rem, calc(100vw - 2rem)); box-shadow: 0 16px 40px -12px rgb(0 0 0 / .3); }
@@ -351,6 +351,8 @@ kbd { font-family: inherit; font-size: 11px; font-weight: 700; padding: 0 5px; b
   77% { opacity: 0; left: var(--fx-ex3); top: var(--fx-ey3); } 78%, 100% { opacity: 0; left: var(--fx-ex1); top: var(--fx-ey1); }
 }
 @media (prefers-reduced-motion: reduce) { .wd-fx { display: none; } }
+/* phones: the layer ends at the bottom bar, so crabs walk above it rather than hidden behind it */
+@media (max-width: 640px) { .wd-fx { bottom: calc(61px + env(safe-area-inset-bottom)); } }
 
 /* iOS opens Shortcuts links directly; elsewhere a QR is shown (is-ios is set in <head>) */
 html:not(.is-ios) .ios-only, .is-ios .not-ios { display: none !important; }
