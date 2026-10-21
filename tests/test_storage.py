@@ -494,3 +494,23 @@ def test_init_db_backup_failure_is_a_clean_error(tmp_path):
     with pytest.raises(storage.DataVersionError, match=r"backing up .*w\.db failed"):
         storage.init_db(path, str(blocker))
     assert _meta_version(path) == "2"
+
+
+@pytest.mark.parametrize("value", ["1", "0", "-3"])
+def test_init_db_rejects_version_below_oldest_shipped(tmp_path, value):
+    path = str(tmp_path / "w.db")
+    storage.init_db(path)
+    _set_meta_version(path, value)
+    with pytest.raises(storage.DataVersionError, match=f"unreadable schema version '{value}'"):
+        storage.init_db(path, str(tmp_path / "b"))
+    assert not (tmp_path / "b").exists()
+
+
+def test_upgraded_schema_matches_fresh(tmp_path):
+    fresh, upgraded = str(tmp_path / "fresh.db"), str(tmp_path / "up.db")
+    storage.init_db(fresh)
+    _v2_db(upgraded)
+    storage.init_db(upgraded, str(tmp_path / "b"))
+    schema = "SELECT type, name, sql FROM sqlite_master ORDER BY type, name"
+    assert _q(upgraded, schema) == _q(fresh, schema)
+

@@ -12,6 +12,8 @@ def dirs(monkeypatch, tmp_path):
     monkeypatch.setattr(config, "APP_DIR", str(app_dir))
     monkeypatch.setattr(config, "DATA_DIR", str(data_dir))
     monkeypatch.setattr(config, "BACKUP_DIR", str(data_dir / "backups"))
+    monkeypatch.setattr(config, "CONFIG_FILE", str(data_dir / "config.json"))
+    monkeypatch.setattr(config, "SESSION_STATE_FILE", str(data_dir / "session_state.json"))
     monkeypatch.setattr(config, "DATABASE_PATH", "walkingdad.db")
     return app_dir, data_dir
 
@@ -130,3 +132,23 @@ def test_prepare_data_warns_unknown_keys(dirs, monkeypatch, caplog):
     config.prepare_data()
     assert "max_speed_kph" in caplog.text
     assert "schema_version" not in caplog.text and "port" not in caplog.text
+
+
+@pytest.mark.parametrize("value", [0, -1])
+def test_prepare_data_rejects_config_version_below_1(dirs, monkeypatch, value):
+    monkeypatch.setattr(config, "_overrides", {"schema_version": value})
+    with pytest.raises(storage.DataVersionError, match="unreadable schema_version"):
+        config.prepare_data()
+
+
+def test_prepare_data_rejects_session_state_version_below_1(dirs, monkeypatch):
+    monkeypatch.setattr(config, "_overrides", {})
+    dirs[1].mkdir()
+    (dirs[1] / "session_state.json").write_text('{"schema_version": 0, "session_active": true}')
+    with pytest.raises(storage.DataVersionError, match="unreadable schema_version"):
+        config.prepare_data()
+
+
+@pytest.mark.parametrize("value", [0, -1, "2", None])
+def test_migrate_skips_unusable_versions(value):
+    assert config.migrate({"schema_version": value}, {}, 1) == {"schema_version": value}

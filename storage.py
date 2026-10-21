@@ -110,9 +110,13 @@ def _stored_version(conn, path):
     if row is None:
         return None
     try:
-        return int(row[0])
+        found = int(row[0])
     except ValueError:
-        raise DataVersionError(f"Can't start: {path} has an unreadable schema version {row[0]!r}.") from None
+        found = None
+    # Below the oldest version any release wrote, so no migration path exists from it.
+    if found is None or found < min(_MIGRATIONS) - 1:
+        raise DataVersionError(f"Can't start: {path} has an unreadable schema version {row[0]!r}.")
+    return found
 
 
 def init_db(path, backup_dir=None):
@@ -518,11 +522,11 @@ def migrate_json(json_path, backup_dir=None):
         try:
             with conn:
                 conn.executemany(
-                    """INSERT INTO sessions
+                    f"""INSERT INTO sessions
                        (id, start_time, end_time, elapsed_s, moving_s, distance_m, steps,
                         calories_kcal, avg_speed_mps, health_logged,
-                        status, source, tz_assumed)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', 'migrated_json', 1)""",
+                        status, source, tz_assumed, schema_version)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', 'migrated_json', 1, {SCHEMA_VERSION})""",
                     rows,
                 )
                 conn.execute(

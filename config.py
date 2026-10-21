@@ -46,7 +46,7 @@ def _load_overrides(*paths):
 def migrate(data, migrations, current):
     """Apply migrations[v] for each version after data's (missing = 1) up to current, in memory."""
     found = data.get("schema_version", 1)
-    if type(found) is int:
+    if type(found) is int and found >= 1:  # Unusable versions are left for prepare_data to refuse.
         for version in range(found + 1, current + 1):
             data = migrations[version](data)
     return data
@@ -104,7 +104,7 @@ def relocate_legacy_files():
 
 def _check_version(path, data, current, too_new):
     found = data.get("schema_version", 1)
-    if type(found) is not int:
+    if type(found) is not int or found < 1:
         raise storage.DataVersionError(f"Can't start: {path} has an unreadable schema_version {found!r}.")
     if found > current:
         raise storage.DataVersionError(too_new(found))
@@ -114,13 +114,13 @@ def prepare_data():
     """Startup data step, run before anything else touches data/: relocate legacy files, refuse
     files newer than this code, then create or upgrade the database. Raises storage.DataVersionError."""
     relocate_legacy_files()
-    config_path = os.path.join(DATA_DIR, "config.json")
+    config_path = CONFIG_FILE
     _check_version(config_path, _overrides, CONFIG_SCHEMA_VERSION, lambda found: (
         f"Can't start: {config_path} was written by settings format v{found}; this version understands "
         f"up to v{CONFIG_SCHEMA_VERSION}. Run a newer WalkingDad, or delete {config_path} to start over "
         "with default settings (your settings will be lost)."))
 
-    state_path = os.path.join(DATA_DIR, "session_state.json")
+    state_path = SESSION_STATE_FILE
     try:
         with open(state_path) as f:
             state = json.load(f)

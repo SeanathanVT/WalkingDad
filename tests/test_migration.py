@@ -43,6 +43,7 @@ def test_migrates_records_and_skips_malformed(db, caplog):
         assert s["tz_assumed"] == 1
         assert s["has_samples"] == 0
         assert s["status"] == "completed"
+        assert s["schema_version"] == storage.SCHEMA_VERSION
 
 
 def test_field_mapping(db):
