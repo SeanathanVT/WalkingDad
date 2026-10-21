@@ -57,8 +57,11 @@ kbd { font-family: inherit; font-size: 11px; font-weight: 700; padding: 0 5px; b
 
 /* selects (customizable select where supported, native elsewhere) */
 .wd-select { min-height: var(--control-height); padding: 0 2.25rem 0 .9rem; border: 1px solid var(--control); border-radius: var(--radius-control); background-color: var(--surface);
-  font-weight: 500; font-size: 14px; appearance: none; background-image: linear-gradient(45deg, transparent 50%, currentColor 50%), linear-gradient(135deg, currentColor 50%, transparent 50%);
-  background-position: right 1.05rem center, right .75rem center; background-size: 5px 5px; background-repeat: no-repeat; }
+  font-weight: 500; font-size: 14px; appearance: none; background-image: var(--chevron);
+  background-position: right .8rem center; background-size: 10px 6px; background-repeat: no-repeat; }
+/* one SVG chevron (an image can't use currentColor, so it's grey that reads on every theme's surface) */
+:root { --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23525252' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); }
+:root[data-theme="dark"] { --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23c4c4c4' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); }
 .wd-select-sm { min-height: 32px; font-size: 13px; }
 .wd-select[aria-invalid="true"] { border-color: var(--negative); box-shadow: 0 0 0 1px var(--negative); }
 @supports (appearance: base-select) {
@@ -66,7 +69,8 @@ kbd { font-family: inherit; font-size: 11px; font-weight: 700; padding: 0 5px; b
   .wd-select::picker(select) { appearance: base-select; border: 1px solid var(--control); border-radius: var(--radius-control); background: var(--surface); color: var(--text); padding: .3rem; box-shadow: 0 12px 32px -12px rgb(0 0 0 / .35); }
   .wd-select option { padding: .5rem .75rem; border-radius: calc(var(--radius-control) - 3px); }
   .wd-select option:checked { background: color-mix(in oklab, var(--primary) 18%, transparent); }
-  .wd-select::picker-icon { content: ""; width: 7px; height: 7px; border: solid currentColor; border-width: 0 2px 2px 0; transform: rotate(45deg) translate(-2px, -2px); }
+  /* the same SVG chevron, not a rotated border box, which Safari clips into a half check mark */
+  .wd-select::picker-icon { content: ""; width: 10px; height: 6px; background: var(--chevron) center / 10px 6px no-repeat; }
 }
 
 /* shell: icon rail */
@@ -89,7 +93,9 @@ kbd { font-family: inherit; font-size: 11px; font-weight: 700; padding: 0 5px; b
 /* theme menu (popover) */
 #color-theme-toggle { anchor-name: --theme-toggle; }
 .wd-theme-menu { position-anchor: --theme-toggle; margin: 0 0 0 8px; inset: auto; padding: .4rem; min-width: 14rem; border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--surface); color: var(--text); box-shadow: 0 18px 40px -16px rgb(0 0 0 / .4);
-  position-area: right span-top; position-try-fallbacks: flip-block; }
+  position-area: right span-top; }
+/* No position-try-fallbacks: with them, WebKit (seen in Safari and WebKitGTK 2.50) hangs the page when a theme's web font
+   loads after the menu was opened. The menu opens upward from the bottom of the rail, so it needs no flip. */
 @supports not (position-area: right) { .wd-theme-menu { position: fixed; inset: auto auto 1rem 64px; } }
 .wd-theme-item { display: flex; width: 100%; align-items: center; gap: .65rem; min-height: 38px; padding: 0 .6rem; border: 0; background: none; border-radius: var(--radius-control); text-align: left; }
 .wd-theme-item:hover { background: color-mix(in oklab, var(--text) 8%, transparent); }

@@ -561,7 +561,7 @@ Added the missing viewport meta, so phones get a real phone layout instead of a 
 - **Problem:** The 3.9 console look is a Bootstrap page with one inline stylesheet in `base.html`; it has no tablet layout (3.17), two unthemed `confirm()` popups (3.15), and modals, toasts, tooltips and collapses that all depend on Bootstrap's JS.
 - **Solution:** Design "Ledger": an icon rail (a labelled bottom bar on phones), one title row per screen with its actions, and quiet panels with tabular numbers. Walking shows a large speed figure with steppers and a belt-ladder slider of the presets; Paused leads with the time and parks the ladder. Every current feature, shortcut and no-JS form POST keeps working. The 15 colour themes keep their current palettes; Virginia Tech follows brand.vt.edu (maroon and burnt orange shaded only, VT neutrals, 2px detail lines, square dots), and the seasonal themes keep their season, font and ambient effect, with Frost renamed Holly and Harvest renamed Pumpkin (saved choices migrate). Delivers 3.15 and 3.17.
 - **Deviation:** The live speed figure is about 128px, far above usual app-figure sizes, because it's read from the treadmill.
-- **Implementation:** Self-hosted `static/ledger.css` and `static/themes.css` replace the inline styles, and Bootstrap's CSS and JS are gone: native `<dialog>` (Esc or a backdrop click closes, focus returns to the opener), the Popover API for the theme menu, and `hidden` for reveals. The Bootstrap Icons font stays. Same routes and form POSTs, so everything still works without JavaScript. The walker picker sits in Start's title row beside **Start walking**. The belt ladder is a slider over the existing speed commands: a click steps one notch toward it, the arrow and Page keys step, Home and End jump to Slow and Max. Dragging to an arbitrary speed would need a new set-speed route, not built. The connection screens show the device and the last walk. Settings labels now name their inputs (part of 3.20). Ambient effects travel relative to their own layer, so they reach the bottom of any page height. Needs Safari 17.5, Chrome 123, or Firefox 125 (the floor for `light-dark()`).
+- **Implementation:** Self-hosted `static/ledger.css` and `static/themes.css` replace the inline styles, and Bootstrap's CSS and JS are gone: native `<dialog>` (Esc or a backdrop click closes, focus returns to the opener), the Popover API for the theme menu, and `hidden` for reveals. The Bootstrap Icons font stays. Same routes and form POSTs, so everything still works without JavaScript. The walker picker sits in Start's title row beside **Start walking**. The belt ladder is a slider over the existing speed commands: a click steps one notch toward it, the arrow and Page keys step, Home and End jump to Slow and Max. Dragging to an arbitrary speed is 3.23. The connection screens show the device and the last walk. Settings labels now name their inputs (part of 3.20). Ambient effects travel relative to their own layer, so they reach the bottom of any page height. Needs Safari 17.5, Chrome 123, or Firefox 125 (the floor for `light-dark()`).
 
 ---
 
@@ -571,6 +571,15 @@ Added the missing viewport meta, so phones get a real phone layout instead of a 
 - **Problem:** Walking and Paused show only the current speed; there's no view of how speed changed over the session.
 - **Solution:** A "Speed this session" line chart on Walking and Paused, with a dashed reference at the walker's usual speed.
 - **Implementation:** `GET /session/speed` returns 30-second means of the current session's walking samples (`storage.get_samples()`) and the walker's usual speed (total miles over total hours); the page polls it every 30 s and draws a small SVG line. SSE stays the source for live figures. Builds on 3.21.
+
+---
+
+### 3.23 Drag the Belt Ladder to Any Speed
+- **Status:** Planned
+- **Priority:** Low
+- **Problem:** The belt ladder (3.21) only steps one notch per click or key, or jumps to a preset; it can't be dragged to a speed.
+- **Solution:** Dragging the ladder (pointer or touch) previews the speed under the pointer and sets it on release, snapped to the speed step and clamped to min/max.
+- **Implementation:** A `POST /set_speed` route taking mph or km/h through `_set_preset_speed()`, so it shares the presets' clamping, locking and ramp handling (1.8). Send only on release, not while dragging, and verify on the pad that a large jump behaves like a preset. The no-JS fallback stays the stepper and preset forms.
 
 ---
 
