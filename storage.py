@@ -152,6 +152,7 @@ def _upgrade(conn, path, found, backup_dir):
         dest = sqlite3.connect(backup)
         try:
             conn.backup(dest)
+            dest.execute("PRAGMA journal_mode = DELETE")  # So opening the copy doesn't create -wal/-shm beside it.
         finally:
             dest.close()
     except (OSError, sqlite3.Error) as exc:

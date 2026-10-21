@@ -302,6 +302,8 @@ The database, `config.json`, and `session_state.json` each carry a `schema_versi
 
 Every past `config.json` and `session_state.json` change was additive, so all existing files are version 1. Unknown `config.json` keys log a warning. `sessions.schema_version` records the version a row was created under and never drives migrations.
 
+A newer `session_state.json` is refused even when it says no walk is active: that field can't be trusted in a format this code doesn't know, and misreading it would let the startup sweep close a walk the newer version could recover.
+
 Read-only mode for an older checkout pointed at newer data was considered and deferred: it's only safe for additive changes, which older code can't detect, and it would mean gating every write path.
 
 ---

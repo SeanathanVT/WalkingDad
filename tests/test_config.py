@@ -127,10 +127,17 @@ def test_prepare_data_relocates_before_checking(dirs, monkeypatch):
         config.prepare_data()
 
 
-def test_prepare_data_warns_unknown_keys(dirs, monkeypatch, caplog):
-    monkeypatch.setattr(config, "_overrides", {"schema_version": 1, "port": 5001, "max_speed_kph": 9})
+def test_prepare_data_does_not_warn_unknown_keys(dirs, monkeypatch, caplog):
+    # run.py and the server process both call prepare_data; only the server warns.
+    monkeypatch.setattr(config, "_overrides", {"max_speed_kph": 9})
     config.prepare_data()
-    assert "max_speed_kph" in caplog.text
+    assert "max_speed_kph" not in caplog.text
+
+
+def test_warn_unknown_settings(monkeypatch, caplog):
+    monkeypatch.setattr(config, "_overrides", {"schema_version": 1, "port": 5001, "max_speed_kph": 9})
+    config.warn_unknown_settings()
+    assert "Ignoring unknown settings" in caplog.text and "max_speed_kph" in caplog.text
     assert "schema_version" not in caplog.text and "port" not in caplog.text
 
 

@@ -133,8 +133,10 @@ def prepare_data():
             "Deleting the file discards it; the walk's history row will be closed from its recorded samples "
             "(or removed if none were recorded)."))
 
+    storage.init_db(os.path.join(DATA_DIR, DATABASE_PATH), BACKUP_DIR)
+
+
+def warn_unknown_settings():
     unknown = sorted(set(_overrides) - set(_DEFAULTS) - {"schema_version"})
     if unknown:
-        logging.warning(f"Ignoring unknown settings in {config_path}: {', '.join(unknown)}")
-
-    storage.init_db(os.path.join(DATA_DIR, DATABASE_PATH), BACKUP_DIR)
+        logging.warning(f"Ignoring unknown settings in {CONFIG_FILE}: {', '.join(unknown)}")

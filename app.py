@@ -635,6 +635,7 @@ _STARTUP_ENABLED = os.environ.get("WALKINGDAD_NO_STARTUP") != "1"
 
 if _STARTUP_ENABLED:
     config.prepare_data()
+    config.warn_unknown_settings()
     storage.migrate_json(HISTORY_FILE, config.BACKUP_DIR)
 
     _pending_restore = _load_session_state()  # Check for an interrupted session at startup

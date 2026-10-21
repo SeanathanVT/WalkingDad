@@ -1,5 +1,6 @@
 """Tests query sqlite3 directly in places storage.py has no read API for (e.g. raw pause rows);
 that's a test-code exception to the "no SQL outside storage.py" rule, which governs app code."""
+import os
 import sqlite3
 import threading
 
@@ -514,3 +515,29 @@ def test_upgraded_schema_matches_fresh(tmp_path):
     schema = "SELECT type, name, sql FROM sqlite_master ORDER BY type, name"
     assert _q(upgraded, schema) == _q(fresh, schema)
 
+
+
+def test_init_db_backup_includes_uncheckpointed_wal(tmp_path):
+    path, backups = str(tmp_path / "w.db"), tmp_path / "backups"
+    _v2_db(path)
+    # An open connection with autocheckpoint off keeps the row in -wal only.
+    holder = sqlite3.connect(path)
+    try:
+        holder.execute("PRAGMA wal_autocheckpoint = 0")
+        with holder:
+            holder.execute("INSERT INTO sessions(id, status, start_time) VALUES ('wal-only', 'completed', 'x')")
+        assert os.path.getsize(path + "-wal") > 0
+        storage.init_db(path, str(backups))
+    finally:
+        holder.close()
+    [backup] = backups.iterdir()
+    assert _q(str(backup), "SELECT id FROM sessions") == [("wal-only",)]
+
+
+def test_init_db_backup_is_not_wal(tmp_path):
+    path, backups = str(tmp_path / "w.db"), tmp_path / "backups"
+    _v2_db(path)
+    storage.init_db(path, str(backups))
+    [backup] = backups.iterdir()
+    assert _q(str(backup), "PRAGMA journal_mode") == [("delete",)]
+    assert sorted(p.name for p in backups.iterdir()) == [backup.name]
