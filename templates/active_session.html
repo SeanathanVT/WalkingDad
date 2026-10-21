@@ -2,6 +2,7 @@
 {% block content %}
 <div class="text-center screen">
     <h1 class="visually-hidden">Active Session</h1>
+    {% if walker_name %}<p class="text-muted mb-2" id="walker-name"><i class="bi bi-person" aria-hidden="true"></i> {{ walker_name }}</p>{% endif %}
     <div class="console-hero">
         <span class="console-hero-label">Speed</span>
         <div class="console-hero-controls">

@@ -12,7 +12,7 @@ def client(app_state):
 def side_effects(monkeypatch, app_state):
     """Every guarded route's effect, recorded: BLE coroutines, history wipe, config write, process exit."""
     calls = []
-    monkeypatch.setattr(app, "_clear_session_history", lambda: calls.append("clear_history"))
+    monkeypatch.setattr(app, "_clear_session_history", lambda profile=None: calls.append("clear_history"))
     monkeypatch.setattr(app, "_write_config", lambda updates: calls.append("write_config"))
     monkeypatch.setattr(app.os, "_exit", lambda code: calls.append("exit"))
     monkeypatch.setattr(app, "_start_ble_thread", lambda: calls.append("start_ble_thread"))

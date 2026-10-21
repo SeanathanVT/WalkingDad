@@ -33,11 +33,11 @@ def test_init_db_idempotent(db):
         tables = {r[0] for r in conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table'"
         ).fetchall()}
-        assert {"meta", "sessions", "pauses", "samples"} <= tables
+        assert {"meta", "sessions", "pauses", "samples", "profiles"} <= tables
         version = conn.execute(
             "SELECT value FROM meta WHERE key = 'schema_version'"
         ).fetchone()[0]
-        assert version == "2"
+        assert version == "3"
     finally:
         conn.close()
 
@@ -308,3 +308,98 @@ def test_concurrent_writes(db):
     assert len(sessions) == 5
     total_samples = sum(len(storage.get_samples(s["id"])) for s in sessions)
     assert total_samples == 5 * 20
+
+
+def test_init_db_upgrades_schema_version(db):
+    conn = sqlite3.connect(db)
+    with conn:
+        conn.execute("UPDATE meta SET value = '2' WHERE key = 'schema_version'")
+    conn.close()
+    storage.init_db(db)
+    conn = sqlite3.connect(db)
+    try:
+        assert conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()[0] == "3"
+    finally:
+        conn.close()
+
+
+def test_create_and_get_profile(db):
+    pid = storage.create_profile("Sean", height_m=1.778, weight_kg=81.6)
+    p = storage.get_profile(pid)
+    assert (p["name"], p["height_m"], p["weight_kg"]) == ("Sean", 1.778, 81.6)
+    assert p["created_at"]
+    assert storage.get_profile("nope") is None
+
+
+def test_profile_stats_optional(db):
+    p = storage.get_profile(storage.create_profile("Kim"))
+    assert p["height_m"] is None and p["weight_kg"] is None
+
+
+def test_profile_name_unique_case_insensitive(db):
+    storage.create_profile("Sean")
+    with pytest.raises(sqlite3.IntegrityError):
+        storage.create_profile("sEAN")
+
+
+def test_list_profiles_sorted_case_insensitive(db):
+    for name in ("bob", "Alice", "carol"):
+        storage.create_profile(name)
+    assert [p["name"] for p in storage.list_profiles()] == ["Alice", "bob", "carol"]
+
+
+def test_update_profile(db):
+    pid = storage.create_profile("Sean")
+    assert storage.update_profile(pid, "SEAN", 1.8, 80.0)  # its own name in a new case is not a conflict
+    p = storage.get_profile(pid)
+    assert (p["name"], p["height_m"], p["weight_kg"]) == ("SEAN", 1.8, 80.0)
+    assert storage.update_profile("nope", "X", None, None) is False
+
+
+def test_update_profile_name_taken(db):
+    storage.create_profile("Sean")
+    pid = storage.create_profile("Kim")
+    with pytest.raises(sqlite3.IntegrityError):
+        storage.update_profile(pid, "sean", None, None)
+
+
+def test_delete_profile_unassigns_its_sessions(db):
+    pid = storage.create_profile("Sean")
+    sid = storage.create_session("2026-01-01T08:00:00", None, None, profile=pid)
+    storage.delete_profile(pid)
+    assert storage.get_profile(pid) is None
+    assert storage.get_session(sid)["profile"] == storage.UNASSIGNED
+
+
+def test_count_and_assign_unassigned(db):
+    pid = storage.create_profile("Sean")
+    other = storage.create_profile("Kim")
+    for start in ("2026-01-01T08:00:00", "2026-01-02T08:00:00"):
+        storage.complete_session(storage.create_session(start, None, None), {"end_time": start})
+    kims = storage.create_session("2026-01-03T08:00:00", None, None, profile=other)
+    assert storage.count_unassigned() == 2
+    assert storage.assign_unassigned(pid) == 2
+    assert storage.count_unassigned() == 0
+    assert storage.get_session(kims)["profile"] == other
+
+
+def test_unassigned_counts_and_claims_only_completed_sessions(db):
+    pid = storage.create_profile("Sean")
+    done = storage.create_session("2026-01-01T08:00:00", None, None)
+    storage.complete_session(done, {"end_time": "2026-01-01T08:10:00"})
+    interrupted = storage.create_session("2026-01-02T08:00:00", None, None)
+    assert storage.count_unassigned() == 1
+    assert storage.assign_unassigned(pid) == 1
+    assert storage.get_session(interrupted)["profile"] == storage.UNASSIGNED
+
+
+
+def test_set_session_profile_only_completed(db):
+    pid = storage.create_profile("Sean")
+    done = storage.create_session("2026-01-01T08:00:00", None, None)
+    storage.complete_session(done, {"end_time": "2026-01-01T08:10:00"})
+    active = storage.create_session("2026-01-02T08:00:00", None, None)
+    assert storage.set_session_profile(done, pid) is True
+    assert storage.get_session(done)["profile"] == pid
+    assert storage.set_session_profile(active, pid) is False
+    assert storage.set_session_profile("nope", pid) is False
