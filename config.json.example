@@ -1,4 +1,5 @@
 {
+  "schema_version": 1,
   "ble_device_name": "KS-BLC2",
   "max_speed_kmh": 6.0,
   "min_speed_kmh": 1.0,

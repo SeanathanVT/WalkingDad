@@ -3,6 +3,7 @@ import json
 import pytest
 
 import config
+import storage
 
 
 @pytest.fixture
@@ -11,6 +12,8 @@ def dirs(monkeypatch, tmp_path):
     monkeypatch.setattr(config, "APP_DIR", str(app_dir))
     monkeypatch.setattr(config, "DATA_DIR", str(data_dir))
     monkeypatch.setattr(config, "BACKUP_DIR", str(data_dir / "backups"))
+    monkeypatch.setattr(config, "CONFIG_FILE", str(data_dir / "config.json"))
+    monkeypatch.setattr(config, "SESSION_STATE_FILE", str(data_dir / "session_state.json"))
     monkeypatch.setattr(config, "DATABASE_PATH", "walkingdad.db")
     return app_dir, data_dir
 
@@ -74,3 +77,85 @@ def test_load_overrides_falls_back_to_legacy(tmp_path):
     legacy.write_text(json.dumps({"port": 6000}))
     assert config._load_overrides(str(tmp_path / "data" / "config.json"), str(legacy)) == {"port": 6000}
     assert config._load_overrides(str(tmp_path / "missing.json")) == {}
+
+
+def test_prepare_data_refuses_newer_config(dirs, monkeypatch):
+    monkeypatch.setattr(config, "_overrides", {"schema_version": 2})
+    with pytest.raises(storage.DataVersionError,
+                       match=r"settings format v2; this version understands up to v1\. .*delete .*config\.json"):
+        config.prepare_data()
+    assert not (dirs[1] / "walkingdad.db").exists()
+
+
+def test_prepare_data_rejects_string_config_version(dirs, monkeypatch):
+    monkeypatch.setattr(config, "_overrides", {"schema_version": "2"})
+    with pytest.raises(storage.DataVersionError):
+        config.prepare_data()
+
+
+def test_prepare_data_refuses_newer_session_state(dirs, monkeypatch):
+    monkeypatch.setattr(config, "_overrides", {})
+    dirs[1].mkdir()
+    (dirs[1] / "session_state.json").write_text('{"schema_version": 2, "session_active": true}')
+    with pytest.raises(storage.DataVersionError,
+                       match=r"\(an interrupted walk\) was written by format v2.*recorded samples"):
+        config.prepare_data()
+    assert not (dirs[1] / "walkingdad.db").exists()
+
+
+def test_prepare_data_ignores_corrupt_session_state(dirs, monkeypatch):
+    monkeypatch.setattr(config, "_overrides", {})
+    dirs[1].mkdir()
+    (dirs[1] / "session_state.json").write_text("{not json")
+    config.prepare_data()
+    assert (dirs[1] / "walkingdad.db").exists()
+
+
+def test_prepare_data_unversioned_files_are_v1(dirs, monkeypatch):
+    monkeypatch.setattr(config, "_overrides", {"port": 5001})
+    dirs[1].mkdir()
+    (dirs[1] / "session_state.json").write_text('{"session_active": true}')
+    config.prepare_data()
+    assert (dirs[1] / "walkingdad.db").exists()
+
+
+def test_prepare_data_relocates_before_checking(dirs, monkeypatch):
+    app_dir, _ = dirs
+    monkeypatch.setattr(config, "_overrides", {})
+    (app_dir / "session_state.json").write_text('{"schema_version": 2}')
+    with pytest.raises(storage.DataVersionError):
+        config.prepare_data()
+
+
+def test_prepare_data_does_not_warn_unknown_keys(dirs, monkeypatch, caplog):
+    # run.py and the server process both call prepare_data; only the server warns.
+    monkeypatch.setattr(config, "_overrides", {"max_speed_kph": 9})
+    config.prepare_data()
+    assert "max_speed_kph" not in caplog.text
+
+
+def test_warn_unknown_settings(monkeypatch, caplog):
+    monkeypatch.setattr(config, "_overrides", {"schema_version": 1, "port": 5001, "max_speed_kph": 9})
+    config.warn_unknown_settings()
+    assert "Ignoring unknown settings" in caplog.text and "max_speed_kph" in caplog.text
+    assert "schema_version" not in caplog.text and "port" not in caplog.text
+
+
+@pytest.mark.parametrize("value", [0, -1])
+def test_prepare_data_rejects_config_version_below_1(dirs, monkeypatch, value):
+    monkeypatch.setattr(config, "_overrides", {"schema_version": value})
+    with pytest.raises(storage.DataVersionError, match="unreadable schema_version"):
+        config.prepare_data()
+
+
+def test_prepare_data_rejects_session_state_version_below_1(dirs, monkeypatch):
+    monkeypatch.setattr(config, "_overrides", {})
+    dirs[1].mkdir()
+    (dirs[1] / "session_state.json").write_text('{"schema_version": 0, "session_active": true}')
+    with pytest.raises(storage.DataVersionError, match="unreadable schema_version"):
+        config.prepare_data()
+
+
+@pytest.mark.parametrize("value", [0, -1, "2", None])
+def test_migrate_skips_unusable_versions(value):
+    assert config.migrate({"schema_version": value}, {}, 1) == {"schema_version": value}
