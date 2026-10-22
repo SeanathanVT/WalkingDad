@@ -821,26 +821,32 @@ async def _connect_to_pad() -> bool:
     await _safe_disconnect_client(getattr(controller, "client", None), "stale controller before reconnect")
 
     controller = Controller()
-    await asyncio.wait_for(controller.run(dev.address), timeout=_BLE_CONNECT_TIMEOUT_SECONDS)
+    try:
+        await asyncio.wait_for(controller.run(dev.address), timeout=_BLE_CONNECT_TIMEOUT_SECONDS)
 
-    # Try to set disconnect callback (API varies by Bleak version)
-    if hasattr(controller, "client") and controller.client:
-        if hasattr(controller.client, "set_disconn_callback"):
-            # Newer Bleak API
-            try:
-                controller.client.set_disconn_callback(_handle_disconnect)
-            except Exception as exc:
-                logging.warning(f"Could not set disconnect callback: {exc}")
-        elif hasattr(controller.client, "set_disconnected_callback"):
-            # Older Bleak API
-            try:
-                controller.client.set_disconnected_callback(_handle_disconnect)
-            except Exception as exc:
-                logging.warning(f"Could not set disconnect callback: {exc}")
-        else:
-            logging.debug("Disconnect callback not available in this Bleak version")
+        # Try to set disconnect callback (API varies by Bleak version)
+        if hasattr(controller, "client") and controller.client:
+            if hasattr(controller.client, "set_disconn_callback"):
+                # Newer Bleak API
+                try:
+                    controller.client.set_disconn_callback(_handle_disconnect)
+                except Exception as exc:
+                    logging.warning(f"Could not set disconnect callback: {exc}")
+            elif hasattr(controller.client, "set_disconnected_callback"):
+                # Older Bleak API
+                try:
+                    controller.client.set_disconnected_callback(_handle_disconnect)
+                except Exception as exc:
+                    logging.warning(f"Could not set disconnect callback: {exc}")
+            else:
+                logging.debug("Disconnect callback not available in this Bleak version")
 
-    await asyncio.wait_for(controller.switch_mode(WalkingPad.MODE_MANUAL), timeout=_BLE_WRITE_TIMEOUT_SECONDS)
+        await asyncio.wait_for(controller.switch_mode(WalkingPad.MODE_MANUAL), timeout=_BLE_WRITE_TIMEOUT_SECONDS)
+    except BaseException:
+        # A half-open connection left behind keeps the pad connected to this computer, so it stops advertising
+        # and every retry's scan misses it until the app restarts.
+        await _safe_disconnect_client(getattr(controller, "client", None), "failed connect")
+        raise
 
     def _handle_status_update(_sender, status):
         try:
@@ -1352,7 +1358,7 @@ def _ble_thread():
             # (RuntimeError) all need the same handling. Without this,
             # `connecting` never resets and _start_ble_thread()'s guard
             # permanently blocks every future reconnect attempt.
-            logging.warning(f"BLE connection attempt failed: {exc}")
+            logging.warning(f"BLE connection attempt failed: {exc!r}")
             connected_result = False
 
         if not connected_result:
@@ -1437,7 +1443,7 @@ async def _auto_reconnect():
         try:
             ok = await _connect_to_pad()
         except Exception as exc:
-            logging.warning(f"Auto-reconnect attempt failed: {exc}")
+            logging.warning(f"Auto-reconnect attempt failed: {exc!r}")
             ok = False
         if ok:
             connected = True
