@@ -166,7 +166,11 @@ _ble_command_lock: asyncio.Lock | None = None
 # device's normal response time (a handful of 0.5s sleeps between steps),
 # not tuned for snappiness.
 _BLE_READ_TIMEOUT_SECONDS = 2  # ask_stats() -- a request/reply round trip
-_BLE_WRITE_TIMEOUT_SECONDS = 5  # everything else: connect, mode/speed/belt commands
+_BLE_WRITE_TIMEOUT_SECONDS = 5  # everything else: mode/speed/belt commands
+# The connect is the OS-level connect plus discovering every service and descriptor on the pad, not one GATT call;
+# a slow macOS connect alone has taken over 4 s, so it gets its own budget. Kept separate so the lock and shutdown
+# bounds below, which are sized around one write, don't grow with it.
+_BLE_CONNECT_TIMEOUT_SECONDS = 10
 # Bounds how long the idle watchdog / stats monitor will wait to *acquire*
 # _ble_command_lock (see _run_locked()). Belt-and-suspenders on top of the
 # write-side timeouts above: even though no write can hang forever, one can
@@ -817,7 +821,7 @@ async def _connect_to_pad() -> bool:
     await _safe_disconnect_client(getattr(controller, "client", None), "stale controller before reconnect")
 
     controller = Controller()
-    await asyncio.wait_for(controller.run(dev.address), timeout=_BLE_WRITE_TIMEOUT_SECONDS)
+    await asyncio.wait_for(controller.run(dev.address), timeout=_BLE_CONNECT_TIMEOUT_SECONDS)
 
     # Try to set disconnect callback (API varies by Bleak version)
     if hasattr(controller, "client") and controller.client:

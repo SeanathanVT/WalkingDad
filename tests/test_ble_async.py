@@ -472,6 +472,31 @@ def test_connect_to_pad(sleeps, monkeypatch):
     assert app.current_speed_kmh == 2.5
 
 
+def _slow_run(controller, seconds):
+    async def run_(address):
+        controller.calls.append(("run", address))
+        await _real_sleep(seconds)
+    controller.run = run_
+
+
+def test_connect_to_pad_allows_a_slow_connect(sleeps, monkeypatch):
+    # The connect (OS connect plus service discovery) gets its own budget; a slow macOS connect took ~5 s.
+    new = _new_controller(monkeypatch)
+    _slow_run(new, 0.2)
+    monkeypatch.setattr(app, "_BLE_WRITE_TIMEOUT_SECONDS", 0.05)
+    monkeypatch.setattr(app, "_BLE_CONNECT_TIMEOUT_SECONDS", 0.5, raising=False)
+    assert run(app._connect_to_pad) is True
+    assert new.calls == [("run", _NAMED.address), MANUAL]
+
+
+def test_connect_to_pad_still_times_out(sleeps, monkeypatch):
+    new = _new_controller(monkeypatch)
+    _slow_run(new, 1.0)
+    monkeypatch.setattr(app, "_BLE_CONNECT_TIMEOUT_SECONDS", 0.1, raising=False)
+    with pytest.raises(asyncio.TimeoutError):
+        run(app._connect_to_pad)
+
+
 def test_connect_to_pad_device_not_found(sleeps, monkeypatch):
     scans = []
 
