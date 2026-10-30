@@ -138,6 +138,7 @@ function renderThemeFx() {
         var head = document.createElement('p');
         head.className = 'wd-menu-label';
         head.id = 'theme-group-' + label.toLowerCase();
+        head.setAttribute('role', 'presentation');  // a menu may only hold groups and items; the label names its group
         head.textContent = label;
         var box = document.createElement('div');
         box.setAttribute('role', 'group');

@@ -100,4 +100,4 @@ def test_theme_contrast(tid, mode):
 
 def test_vt_dark_selected_stop_has_a_ring():
     css = (STATIC / "themes.css").read_text()
-    assert re.search(r':root\[data-color-theme="vt"\]\[data-theme="dark"\] \.stop\[aria-pressed="true"\] \{[^}]*box-shadow: 0 0 0 2px #e5751f', css)
+    assert re.search(r':root\[data-color-theme="vt"\]\[data-theme="dark"\] \.stop\[aria-current="true"\] \{[^}]*box-shadow: 0 0 0 2px #e5751f', css)

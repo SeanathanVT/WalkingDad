@@ -57,16 +57,17 @@
             {% endfor %}
             {% set adding = profile_form | length > 0 %}
             <div>
-                <button type="button" class="wd-btn wd-btn-sm" id="add-profile-btn" aria-controls="add-profile" aria-expanded="{{ 'true' if adding else 'false' }}"{% if adding %} hidden{% endif %}>
+                <button type="button" class="wd-btn wd-btn-sm" id="add-profile-btn" aria-controls="add-profile" aria-expanded="true" hidden>
                     <i class="bi bi-plus-lg" aria-hidden="true"></i>Add profile
                 </button>
             </div>
-            <div id="add-profile"{% if not adding %} hidden{% endif %}>
+            {# Rendered open so it works without JavaScript; the script below folds it behind the button. #}
+            <div id="add-profile" data-open="{{ 'true' if adding else 'false' }}">
                 <form method="post" action="{{ url_for('profile_create') }}" aria-label="Add profile" class="wd-profile">
                     {{ profile_fields(profile_form, 'new') }}
                     <div class="wd-btn-row">
                         <button type="submit" class="wd-btn wd-btn-primary wd-btn-sm">Save profile</button>
-                        <button type="button" class="wd-btn wd-btn-sm" id="add-profile-cancel">Cancel</button>
+                        <button type="button" class="wd-btn wd-btn-sm" id="add-profile-cancel" hidden>Cancel</button>
                     </div>
                 </form>
             </div>
@@ -219,12 +220,14 @@
 
     var addBtn = document.getElementById('add-profile-btn');
     var addBox = document.getElementById('add-profile');
-    function setAdding(on) {
+    function setAdding(on, quiet) {
         addBox.hidden = !on;
         addBtn.hidden = on;
         addBtn.setAttribute('aria-expanded', on ? 'true' : 'false');
-        (on ? document.getElementById('name-new') : addBtn).focus();
+        if (!quiet) (on ? document.getElementById('name-new') : addBtn).focus();
     }
+    document.getElementById('add-profile-cancel').hidden = false;
+    setAdding(addBox.dataset.open === 'true', true);
     addBtn.addEventListener('click', function() { setAdding(true); });
     document.getElementById('add-profile-cancel').addEventListener('click', function() { setAdding(false); });
 

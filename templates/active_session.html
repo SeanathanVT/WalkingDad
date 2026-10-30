@@ -94,7 +94,7 @@
     ladder.setAttribute('aria-valuetext', text + ' mph');
     ladder.style.setProperty('--speed-frac', Math.min(1, Math.max(0, (mph - minMph) / ((maxMph - minMph) || 1))).toFixed(3));
     document.querySelectorAll('.stop[data-mph]').forEach(function(s) {
-      s.setAttribute('aria-pressed', Math.abs(parseFloat(s.dataset.mph) - mph) < 0.05 ? 'true' : 'false');
+      if (Math.abs(parseFloat(s.dataset.mph) - mph) < 0.05) s.setAttribute('aria-current', 'true'); else s.removeAttribute('aria-current');
     });
   }
 

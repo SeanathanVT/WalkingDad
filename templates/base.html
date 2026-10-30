@@ -234,7 +234,7 @@
             {% set on_settings = request.endpoint == 'settings_page' %}
             <a class="ri" href="{{ url_for('root') }}" aria-label="Walk"{% if not on_settings %} aria-current="page"{% endif %}><i class="bi bi-person-walking" aria-hidden="true"></i><span class="lbl" aria-hidden="true">Walk</span><span class="tip" aria-hidden="true">Walk</span></a>
             <hr>
-            <button type="button" class="ri" id="color-theme-toggle" popovertarget="color-theme-menu" aria-label="Color theme"><i class="bi bi-palette" aria-hidden="true"></i><span class="lbl" aria-hidden="true">Theme</span><span class="tip" aria-hidden="true">Color theme</span></button>
+            <button type="button" class="ri" id="color-theme-toggle" popovertarget="color-theme-menu" aria-haspopup="menu" aria-label="Color theme"><i class="bi bi-palette" aria-hidden="true"></i><span class="lbl" aria-hidden="true">Theme</span><span class="tip" aria-hidden="true">Color theme</span></button>
             <div id="color-theme-menu" popover class="wd-theme-menu" role="menu" aria-label="Color theme"></div>
             <button type="button" class="ri" id="theme-toggle" aria-label="Appearance: System"><i class="bi bi-display" aria-hidden="true"></i><span class="lbl" aria-hidden="true">System</span><span class="tip" aria-hidden="true">Appearance</span></button>
             {% if keyboard_shortcuts_enabled %}
