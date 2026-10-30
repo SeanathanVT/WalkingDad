@@ -2,7 +2,11 @@
 
 All notable changes to WalkingDad will be documented in this file.
 
-## [Unreleased]
+## [2.0.0] (2026-10-30)
+
+### Upgrading from 1.x
+
+- **The new interface needs Safari 17.5, Chrome 123, Firefox 125, or newer** on every device you use WalkingDad from. Older browsers no longer work.
 
 ### Added
 
@@ -13,7 +17,7 @@ All notable changes to WalkingDad will be documented in this file.
 
 ### Changed
 
-- **A new interface** (ROADMAP 3.21). Every screen is redesigned: a side rail (a bottom bar on phones) holds Walk, Settings, color theme, appearance, shortcuts, and Shut down; each screen has one title row with its actions; stats sit in quiet panels. Walking shows the belt speed large, with the presets as stops on a belt-speed ladder you can click or drive with the arrow keys. Paused leads with the elapsed time. Settings lays each section out beside its description. Layouts now adapt to tablet widths too (3.17). Needs Safari 17.5, Chrome 123, Firefox 125, or newer.
+- **A new interface** (ROADMAP 3.21). Every screen is redesigned: a side rail (a bottom bar on phones) holds Walk, Settings, color theme, appearance, shortcuts, and Shut down; each screen has one title row with its actions; stats sit in quiet panels. Walking shows the belt speed large, with the presets as stops on a belt-speed ladder you can click or drive with the arrow keys. Paused leads with the elapsed time. Settings lays each section out beside its description. Layouts now adapt to tablet widths too (3.17).
 - **Themed confirmations replace the browser's pop-ups** (ROADMAP 3.15) for Shut down, deleting a session or profile, and clearing history. Shut down now asks first.
 - **Frost is now Holly and Harvest is now Pumpkin**, so no two theme names share a first letter and the Christmas theme says so. A saved choice of either carries over.
 - **Color themes keep their palettes in the new design**, with any color that missed WCAG AA contrast (mostly dark-mode buttons and field borders) lightened or darkened just enough, keeping its hue. Virginia Tech follows brand.vt.edu: maroon and burnt orange are never lightened, and the neutrals are VT's own greys.

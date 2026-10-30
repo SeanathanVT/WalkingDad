@@ -60,7 +60,7 @@ The official WalkingPad experience is a bloated mobile app that wants your email
 
 ## Quick Start
 
-**Requirements:** Python 3.10+, Bluetooth adapter, compatible WalkingPad (confirmed: C2 / `KS-BLC2`).
+**Requirements:** Python 3.10+, Bluetooth adapter, compatible WalkingPad (confirmed: C2 / `KS-BLC2`), and Safari 17.5, Chrome 123, Firefox 125, or newer on each device you control it from.
 
 ```bash
 # Clone and enter the project
