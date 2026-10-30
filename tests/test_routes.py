@@ -2,6 +2,7 @@ import csv
 import io
 import json
 import os
+import pathlib
 import re
 import sqlite3
 from datetime import datetime, timedelta
@@ -87,19 +88,139 @@ def test_root_disconnected(client, monkeypatch):
     monkeypatch.setattr(app, "connected", False)
     resp = client.get("/")
     assert resp.status_code == 200
-    assert b"DISCONNECTED" in resp.data
+    assert b"WalkingPad disconnected" in resp.data
+
+
+def test_connecting_shows_device_panel(client, monkeypatch):
+    monkeypatch.setattr(app, "connected", False)
+    monkeypatch.setattr(app, "BLE_DEVICE_NAME", "KS-TEST")
+    completed_session(datetime.fromisoformat("2026-10-20T14:05"))
+    html = client.get("/").get_data(as_text=True)
+    assert "KS-TEST" in html
+    assert re.search(r'<a [^>]*href="/settings"[^>]*>Change device</a>', html)
+    assert "Tuesday, Oct 20, 2:05 PM, Unassigned" in html
+
+
+def test_connecting_without_history_says_none_yet(client, monkeypatch):
+    monkeypatch.setattr(app, "connected", False)
+    assert "None yet" in client.get("/").get_data(as_text=True)
+
+
+def test_connection_titles(client, monkeypatch):
+    monkeypatch.setattr(app, "connected", False)
+    monkeypatch.setattr(app, "connecting", True)
+    assert "Looking for your WalkingPad" in client.get("/").get_data(as_text=True)
+    monkeypatch.setattr(app, "connecting", False)
+    monkeypatch.setattr(app, "connection_failed", True)
+    html = client.get("/").get_data(as_text=True)
+    assert "Couldn&#39;t find your WalkingPad" in html or "Couldn't find your WalkingPad" in html
+    assert re.search(r'<form method="post" action="/reconnect"', html)
+
+
+def test_base_links_self_hosted_styles(client):
+    html = client.get("/").get_data(as_text=True)
+    assert 'href="/static/ledger.css"' in html
+    assert 'href="/static/themes.css"' in html
+    assert "bootstrap.min.css" not in html
+
+
+def test_shell_rail_has_named_controls(client):
+    html = client.get("/").get_data(as_text=True)
+    for name in ("Settings", "Color theme", "Keyboard shortcuts", "Shut down WalkingDad"):
+        assert f'aria-label="{name}"' in html
+    assert '<dialog id="shortcuts-dialog"' in html
+    assert '<dialog id="shutdown-dialog"' in html
+    assert 'id="color-theme-menu" popover' in html
+
+
+def test_shell_has_no_bootstrap(client):
+    html = client.get("/").get_data(as_text=True)
+    assert "bootstrap.bundle" not in html
+    assert "bootstrap-icons" in html
+    assert 'src="/static/ledger.js"' in html
+
+
+def test_color_themes_use_renamed_seasons(client):
+    html = client.get("/").get_data(as_text=True)
+    assert "id: 'holly', label: 'Holly'" in html
+    assert "id: 'pumpkin', label: 'Pumpkin'" in html
+    assert "id: 'frost'" not in html and "id: 'harvest'" not in html
+
+
+def test_saved_old_theme_ids_migrate(client):
+    assert "{ frost: 'holly', harvest: 'pumpkin' }" in client.get("/").get_data(as_text=True)
+
+
+def test_themes_css_covers_every_color_theme():
+    css = (pathlib.Path(app.__file__).parent / "static" / "themes.css").read_text()
+    for tid in ("red", "amber", "lime", "forest", "teal", "cyan", "blue", "violet", "pink", "vt", "bloom", "tide", "pumpkin", "holly"):
+        assert f':root[data-color-theme="{tid}"]' in css, tid
+    assert "frost" not in css and "harvest" not in css
 
 
 def test_root_idle(client):
-    assert b"Start New Session" in client.get("/").data
+    assert b"Ready when you are" in client.get("/").data
 
 
 def test_root_active(client, running):
-    assert b"Active Session" in client.get("/").data
+    assert b"Walking</h1>" in client.get("/").data
 
 
 def test_root_paused(client, paused):
-    assert b"Session Paused" in client.get("/").data
+    assert b"Paused</h1>" in client.get("/").data
+
+
+def test_active_controls_post_to_existing_routes(client, running):
+    html = client.get("/").get_data(as_text=True)
+    for route, keys in [("decrease_speed", "ArrowDown S"), ("increase_speed", "ArrowUp W"), ("min_speed", "L"),
+                        ("slow_speed", "K"), ("max_speed", "M"), ("pause_session", "Space")]:
+        assert re.search(rf'<form method="post" action="/{route}"[^>]*>\s*<button [^>]*aria-keyshortcuts="{keys}"', html), route
+    assert '<form method="post" action="/end_session"' in html
+
+
+def test_active_belt_ladder_is_a_slider(client, running, monkeypatch):
+    monkeypatch.setattr(app, "MIN_SPEED_KMH", 1.0)
+    monkeypatch.setattr(app, "MAX_SPEED_KMH", 6.0)
+    monkeypatch.setattr(app, "current_speed_kmh", 4.5)
+    html = client.get("/").get_data(as_text=True)
+    ladder = re.search(r'<div id="belt-ladder"[^>]*>', html).group(0)
+    assert 'role="slider"' in ladder and 'tabindex="0"' in ladder
+    assert 'aria-valuemin="0.6"' in ladder and 'aria-valuemax="3.7"' in ladder
+    assert 'aria-valuenow="2.8"' in ladder and 'aria-valuetext="2.8 mph"' in ladder
+
+
+def test_active_controls_start_disabled_while_transitioning(client, running, monkeypatch):
+    monkeypatch.setattr(app, "_belt_transitioning", True)
+    html = client.get("/").get_data(as_text=True)
+    for b in re.findall(r'<button [^>]*type="submit"[^>]*>', html):
+        assert " disabled" in b, b
+    assert 'aria-disabled="true"' in re.search(r'<div id="belt-ladder"[^>]*>', html).group(0)
+
+
+def test_paused_parks_the_ladder(client, paused):
+    html = client.get("/").get_data(as_text=True)
+    assert 'class="panel s8 speed-block is-parked"' in html
+    ladder = re.search(r'<div id="belt-ladder"[^>]*>', html).group(0)
+    assert 'aria-disabled="true"' in ladder
+
+
+@pytest.mark.parametrize("state", ["running", "paused"])
+def test_transitioning_page_refreshes_without_js(client, monkeypatch, state):
+    # Controls render disabled during a belt sequence; with JS off nothing else would re-enable them.
+    monkeypatch.setattr(app, "session_active", True)
+    monkeypatch.setattr(app, "belt_running", state == "running")
+    refresh = '<noscript><meta http-equiv="refresh" content="2"></noscript>'
+    assert refresh not in client.get("/").get_data(as_text=True)
+    monkeypatch.setattr(app, "_belt_transitioning", True)
+    assert refresh in client.get("/").get_data(as_text=True)
+
+
+def test_key_hints_stay_out_of_accessible_names(client, running, monkeypatch):
+    monkeypatch.setattr(app, "MIN_SPEED_KMH", 1.0)
+    html = client.get("/").get_data(as_text=True)
+    kbds = re.findall(r"<kbd[^>]*>", html)
+    assert kbds and all('aria-hidden="true"' in k for k in kbds)
+    assert re.search(r'<button [^>]*class="stop"[^>]*aria-label="Slow, 0.6 mph"', html)
 
 
 @pytest.mark.parametrize("connecting", [True, False])
@@ -110,7 +231,7 @@ def test_root_paused_disconnected(client, paused, monkeypatch, connecting):
     monkeypatch.setattr(app, "connecting", connecting)
     monkeypatch.setattr(app, "connection_failed", not connecting)
     html = client.get("/").get_data(as_text=True)
-    assert "Session Paused" in html
+    assert "Paused</h1>" in html
     assert 'id="btn-end"' in html
     assert 'id="btn-resume"' not in html
     assert ('id="btn-reconnect"' in html) is not connecting
@@ -134,14 +255,15 @@ def test_active_shortcuts(client, running):
     html = client.get("/").get_data(as_text=True)
     for keys in ("ArrowUp W", "ArrowDown S", "L", "K", "M", "Space"):
         assert f'aria-keyshortcuts="{keys}"' in html
-    assert 'id="shortcuts-modal"' in html
+    assert '<dialog id="shortcuts-dialog"' in html
 
 
 def test_shortcuts_disabled(client, running, monkeypatch):
     monkeypatch.setattr(config, "KEYBOARD_SHORTCUTS_ENABLED", False)
     html = client.get("/").get_data(as_text=True)
     assert "aria-keyshortcuts" not in html
-    assert "shortcuts-modal" not in html
+    assert "shortcuts-dialog" not in html
+    assert 'aria-label="Keyboard shortcuts"' not in html
 
 
 def test_paused_shortcut(client, paused):
@@ -160,7 +282,7 @@ def test_settings_shortcuts_switch_reflects_config(client, monkeypatch, enabled)
 def test_start_has_no_shortcut(client):
     html = client.get("/").get_data(as_text=True)
     assert 'aria-keyshortcuts="' not in html
-    assert 'id="shortcuts-modal"' in html
+    assert '<dialog id="shortcuts-dialog"' in html
 
 
 def test_start_not_connected(client, app_state, monkeypatch):
@@ -922,21 +1044,53 @@ def test_start_when_profiles_unreadable_is_unassigned(client, app_state, monkeyp
     assert storage.get_session(app._session_id)["profile"] == storage.UNASSIGNED
 
 
+def test_start_screen_titles_the_walker(client):
+    assert "Ready when you are</h1>" in client.get("/").get_data(as_text=True)
+    storage.create_profile("Sean")
+    assert "Ready when you are, Sean</h1>" in client.get("/").get_data(as_text=True)
+    storage.create_profile("Kim")
+    assert "Who's walking?</h1>" in client.get("/").get_data(as_text=True)
+
+
+def test_start_uses_themed_dialogs_not_bootstrap(client, monkeypatch):
+    monkeypatch.setattr(config, "APPLE_HEALTH_EXPORT_ENABLED", True)
+    monkeypatch.setattr(app, "APPLE_HEALTH_EXPORT_ENABLED", True)
+    completed_session(datetime.now())
+    html = client.get("/").get_data(as_text=True)
+    assert '<dialog id="confirm-dialog"' in html
+    assert '<dialog id="health-export-dialog"' in html
+    assert "confirm(" not in html
+    assert "data-bs-" not in html
+    assert "bootstrap." not in html
+
+
+def test_health_icon_is_focusable(client, monkeypatch):
+    monkeypatch.setattr(config, "APPLE_HEALTH_EXPORT_ENABLED", True)
+    monkeypatch.setattr(app, "APPLE_HEALTH_EXPORT_ENABLED", True)
+    monkeypatch.setattr(app, "HISTORY_DISPLAY_LIMIT", 10)
+    completed_session(datetime.now() - timedelta(days=1))
+    html = client.get("/").get_data(as_text=True)
+    icon = re.search(r'<i class="bi bi-heart health-icon"[^>]*>', html).group(0)
+    assert 'tabindex="0"' in icon
+    assert 'aria-label="Not logged to Apple Health. Use Edit, then Log, to log it."' in icon
+    assert 'data-tip="Not logged to Apple Health. Use Edit, then Log, to log it."' in icon
+
+
 def test_start_screen_walker_picker(client):
     assert 'id="walker-select"' not in client.get("/").get_data(as_text=True)
     pid = storage.create_profile("Sean")
     html = client.get("/").get_data(as_text=True)
-    assert '<label for="walker-select" class="visually-hidden">Walker</label>' in html
+    assert '<label for="walker-select" class="wd-vh">Walker</label>' in html
     assert f'<option value="{pid}" selected>' in html
-    assert "choose a walker" not in html
+    assert "Choose a walker" not in html
 
 
 def test_start_screen_needs_choice_without_previous_walker(client):
     pid = storage.create_profile("Sean")
     storage.create_profile("Kim")
     html = client.get("/").get_data(as_text=True)
-    assert '<select id="walker-select" name="profile_id" class="walker-inline" required' in html
-    assert '<option value="" selected disabled>choose a walker</option>' in html
+    assert '<select id="walker-select" name="profile_id" class="wd-select" required' in html
+    assert '<option value="" selected disabled>Choose a walker</option>' in html
     assert f'<option value="{pid}">' in html
 
 
@@ -947,13 +1101,13 @@ def test_start_screen_defaults_to_last_sessions_walker(client):
     storage.assign_unassigned(kim)
     html = client.get("/").get_data(as_text=True)
     assert f'<option value="{kim}" selected>' in html
-    assert "choose a walker" not in html
+    assert "Choose a walker" not in html
 
 
 def test_start_screen_shows_walker_error(client):
     storage.create_profile("Sean")
     storage.create_profile("Kim")
-    assert "Choose who's walking, then press Start." in client.get("/?walker_error=1").get_data(as_text=True)
+    assert "Choose who's walking, then press Start walking." in client.get("/?walker_error=1").get_data(as_text=True)
 
 
 def test_session_screen_shows_walker(client, app_state):
@@ -1000,17 +1154,17 @@ def test_history_filters_by_walker(client, walkers):
 
 def test_history_walker_column(client, walkers):
     html = client.get("/").get_data(as_text=True)
-    assert '<td data-label="Walker" class="text-start" data-walker-cell>Unassigned</td>' in html
-    assert '<td data-label="Walker" class="text-start" data-walker-cell>Sean</td>' in html
+    assert '<td data-walker-cell>Unassigned</td>' in html
+    assert '<td data-walker-cell>Sean</td>' in html
 
 
 def test_history_no_walker_column_without_profiles(client, monkeypatch):
     monkeypatch.setattr(app, "HISTORY_DISPLAY_LIMIT", 10)
     completed_session(datetime.now() - timedelta(days=1))
     html = client.get("/").get_data(as_text=True)
-    assert 'data-label="Walker"' not in html
+    assert "<td data-walker-cell>" not in html
     assert 'id="history-scope"' not in html
-    assert '<h2 id="history-heading" class="content-title" style="font-size:1.5rem;">Recent Sessions</h2>' in html
+    assert '<h2 id="history-heading">Recent Sessions</h2>' in html
 
 
 def test_history_empty_filter_keeps_filter_visible(client, monkeypatch):
@@ -1053,7 +1207,7 @@ def test_profile_weight_round_trip_keeps_hundredths(client):
 def test_profile_error_takes_focus(client):
     storage.create_profile("Sean")
     html = client.post("/profiles", data=profile_form(name="sean")).get_data(as_text=True)
-    assert 'id="profile-error" class="alert alert-danger" role="alert" tabindex="-1"' in html
+    assert 'id="profile-error" class="notice" role="alert" tabindex="-1"' in html
     assert "getElementById('profile-error').focus()" in html
 
 
@@ -1080,16 +1234,36 @@ def test_export_csv_has_no_walker_column_without_profiles(client):
     assert header == "date,start_time,end_time,duration_seconds,distance_km,distance_mi,steps,calories,avg_speed_kmh,avg_speed_mph,id,has_samples"
 
 
-def test_add_profile_form_hidden_behind_button(client):
+def test_add_profile_reveal_without_bootstrap(client):
     html = client.get("/settings").get_data(as_text=True)
     assert 'aria-controls="add-profile" aria-expanded="false"' in html
-    assert 'class="collapse" id="add-profile"' in html
+    assert '<div id="add-profile" hidden>' in html
+    assert "data-bs-" not in html
+    assert "confirm(" not in html
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+def test_apple_health_section_follows_switch(client, monkeypatch, enabled):
+    monkeypatch.setattr(config, "APPLE_HEALTH_EXPORT_ENABLED", enabled)
+    monkeypatch.setattr(app, "APPLE_HEALTH_EXPORT_ENABLED", enabled)
+    html = client.get("/settings").get_data(as_text=True)
+    assert ('<div id="apple-health-collapse" hidden>' in html) is not enabled
+    assert 'aria-controls="apple-health-collapse"' in html
+
+
+def test_settings_labels_name_their_inputs(client):
+    html = client.get("/settings").get_data(as_text=True)
+    for name in ("ble_device_name", "max_speed_kmh", "min_speed_kmh", "speed_step", "slow_walk_speed_kmh", "kcal_per_mile",
+                 "resume_grace_period_seconds", "history_display_limit", "stale_pause_timeout_minutes", "host", "port", "waitress_threads",
+                 "apple_health_shortcut_name"):
+        assert re.search(rf'<label for="{name}"', html), name
+        assert re.search(rf'<input [^>]*id="{name}"[^>]*name="{name}"', html), name
 
 
 def test_add_profile_form_open_after_create_error(client):
     html = client.post("/profiles", data=profile_form(lb="49")).get_data(as_text=True)
     assert 'aria-controls="add-profile" aria-expanded="true"' in html
-    assert 'class="collapse show" id="add-profile"' in html
+    assert '<div id="add-profile">' in html
 
 
 
@@ -1101,7 +1275,7 @@ def test_history_fragment_for_walker(client, walkers):
     assert history_ids(html) == [s1]
     assert 'data-heading="Sean&#39;s Sessions"' in html
     assert f'data-walker="{sean}"' in html
-    assert 'data-label="Walker"' not in html
+    assert "<td data-walker-cell>" not in html
     assert "<html" not in html
 
 
@@ -1112,7 +1286,7 @@ def test_history_fragment_scopes(client, walkers):
     assert 'data-heading="Unassigned Sessions"' in unassigned
     everyone = client.get("/history?walker=all").get_data(as_text=True)
     assert history_ids(everyone) == [s3, s2, s1]
-    assert 'data-label="Walker"' in everyone
+    assert "<td data-walker-cell>" in everyone
     assert history_ids(client.get("/history?walker=nope").get_data(as_text=True)) == [s3, s2, s1]
 
 
@@ -1127,7 +1301,7 @@ def test_start_screen_history_follows_last_walker(client, walkers, monkeypatch):
 def test_history_rows_offer_walker_reassignment(client, walkers):
     sean, _kim, (s1, _s2, _s3) = walkers
     html = client.get("/history?walker=all").get_data(as_text=True)
-    assert f'<select id="walker-{s1}" class="history-walker" data-session-id="{s1}">' in html
+    assert f'<select id="walker-{s1}" class="wd-select wd-select-sm history-walker" data-session-id="{s1}">' in html
     assert f'<option value="{sean}" selected>Sean</option>' in html
     assert '<option value="unassigned" selected>Unassigned</option>' in html
 

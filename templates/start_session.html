@@ -1,104 +1,98 @@
 {% extends "base.html" %}
+{% set walker_name = (profiles | selectattr('id', 'equalto', default_walker) | map(attribute='name') | first) if default_walker else none %}
+{% block title %}{% if walker_name %}Ready when you are, {{ walker_name }}{% elif profiles %}Who's walking?{% else %}Ready when you are{% endif %}{% endblock %}
+{% block actions %}
+<form method="post" action="{{ url_for('start_session') }}" id="start-form" style="display:contents">
+    {% if profiles %}
+    <label for="walker-select" class="wd-vh">Walker</label>
+    <select id="walker-select" name="profile_id" class="wd-select" required{% if walker_error %} aria-describedby="walker-error" aria-invalid="true"{% endif %}>
+        {% if not default_walker %}<option value="" selected disabled>Choose a walker</option>{% endif %}
+        {% for p in profiles %}
+        <option value="{{ p.id }}"{{ ' selected' if p.id == default_walker }}>{{ p.name }}</option>
+        {% endfor %}
+    </select>
+    {% endif %}
+    <button type="submit" class="wd-btn wd-btn-primary" id="btn-start"><i class="bi bi-play-fill" aria-hidden="true"></i>Start walking</button>
+</form>
+{% endblock %}
 {% block content %}
-<h1 class="visually-hidden">Start New Session</h1>
+{% if walker_error %}<p class="hint" role="alert" id="walker-error" style="color:var(--negative)">Choose who's walking, then press Start walking.</p>{% endif %}
+<p id="transitioning-hint" class="hint" role="status" hidden><span class="spin" aria-hidden="true"></span>Stopping the belt&hellip;</p>
 {% if pending_restore %}
-<div class="stat-card mb-4 text-center" style="border:1px solid var(--accent-color);">
-    <p class="mb-2" style="font-weight:500;">
-        A previous session was interrupted before it could be saved,
-        {{ "%.2f"|format(pending_restore.distance_mi) }} mi &middot;
-        {{ "{:,}".format(pending_restore.steps|int) }} steps &middot;
-        {{ pending_restore.calories }} cal &middot;
-        {{ pending_restore.time_active }}
-    </p>
-    <div class="d-flex justify-content-center gap-2 action-row">
+<div class="notice" role="region" aria-label="Interrupted session">
+    <p>A session was interrupted before it was saved:
+        {{ "%.2f"|format(pending_restore.distance_mi) }} mi, {{ "{:,}".format(pending_restore.steps|int) }} steps,
+        {{ pending_restore.calories }} cal, {{ pending_restore.time_active }}.</p>
+    <div class="wd-btn-row">
         <form method="post" action="{{ url_for('restore_session') }}" style="display:contents">
-            <button type="submit" class="btn btn-custom-primary">Restore Session</button>
+            <button type="submit" class="wd-btn wd-btn-primary wd-btn-sm">Restore session</button>
         </form>
         <form method="post" action="{{ url_for('discard_session') }}" style="display:contents">
-            <button type="submit" class="btn btn-custom-danger">Discard</button>
+            <button type="submit" class="wd-btn wd-btn-sm">Discard</button>
         </form>
     </div>
 </div>
 {% endif %}
 {% if pending_health_export %}
-{# log_shortcut_url comes from root() (depends on history[0]); setup_shortcut_url
-   comes from inject_flags() (config-derived only). Both are built as plain
-   strings in app.py, not with Jinja's tojson/urlencode filters -- mixing those
-   with plain-string concatenation double-escaped & into &amp;. #}
-<div class="stat-card mb-4 text-center" id="health-export-banner" data-session-id="{{ health_session_id }}" style="border:1px solid var(--accent-color);">
-    <p class="mb-2" style="font-weight:500;">{{ health_walker ~ "'s session complete." if health_walker else "Session complete." }} Log it to Apple Health?</p>
-    <div class="d-flex justify-content-center gap-2">
-        <button type="button" class="btn btn-custom-primary text-nowrap not-ios" data-bs-toggle="modal" data-bs-target="#health-export-modal"
-                data-log-url="{{ log_shortcut_url }}" data-session-id="{{ health_session_id }}">
-            <i class="bi bi-heart-pulse"></i> Log to Apple Health
+{# log_shortcut_url comes from root() (depends on history[0]); setup_shortcut_url comes from inject_flags()
+   (config-derived only). Both are built as plain strings in app.py, not with Jinja's tojson/urlencode filters:
+   mixing those with plain-string concatenation double-escaped & into &amp;. #}
+<div class="notice neutral" id="health-export-banner" data-session-id="{{ health_session_id }}" role="region" aria-label="Apple Health">
+    <p>{{ health_walker ~ "'s session complete." if health_walker else "Session complete." }} Log it to Apple Health?</p>
+    <div class="wd-btn-row">
+        <button type="button" class="wd-btn wd-btn-primary wd-btn-sm not-ios" data-log data-log-url="{{ log_shortcut_url }}" data-session-id="{{ health_session_id }}">
+            <i class="bi bi-heart-pulse" aria-hidden="true"></i>Log to Apple Health
         </button>
-        <a href="{{ log_shortcut_url }}" class="btn btn-custom-primary text-nowrap ios-only">
-            <i class="bi bi-heart-pulse"></i> Log to Apple Health
-        </a>
-        <button type="button" id="dismiss-health-export-btn" class="btn btn-sm" style="background-color:var(--card-color);color:var(--text-color);border:none;font-weight:500;">
-            Dismiss
-        </button>
+        <a href="{{ log_shortcut_url }}" class="wd-btn wd-btn-primary wd-btn-sm ios-only"><i class="bi bi-heart-pulse" aria-hidden="true"></i>Log to Apple Health</a>
+        <button type="button" id="dismiss-health-export-btn" class="wd-btn wd-btn-sm">Dismiss</button>
     </div>
-    <p class="ios-only mt-2 mb-0" style="font-size:0.85rem;"><a href="{{ setup_shortcut_url }}">Haven't installed the Shortcut yet? Install it here</a></p>
+    <p class="ios-only" style="flex-basis:100%"><a class="wd-link" href="{{ setup_shortcut_url }}">Haven't installed the Shortcut yet? Install it here</a></p>
 </div>
 {% endif %}
 {% if health_export_enabled %}
-
-<div class="modal fade" id="health-export-modal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content" style="background-color:var(--card-color);color:var(--text-color);">
-            <div class="modal-header" style="border-color:var(--border-color);">
-                <h5 class="modal-title" id="health-export-modal-title">Log to Apple Health</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body text-center">
-                <div id="health-qr-container" class="d-flex justify-content-center mb-3"></div>
-                <p class="text-muted mb-2" id="health-export-modal-hint" style="font-size:0.85rem;">Scan with iPhone Camera</p>
-                <a href="#" id="health-export-toggle-link" style="font-size:0.85rem;">Haven't set up the Shortcut yet? Set up here</a>
-            </div>
+<dialog id="health-export-dialog" class="wd-dialog" aria-labelledby="health-export-title">
+    <form method="dialog">
+        <header>
+            <h2 id="health-export-title">Log to Apple Health</h2>
+            <button class="wd-btn wd-btn-icon wd-btn-ghost" aria-label="Close"><i class="bi bi-x-lg" aria-hidden="true"></i></button>
+        </header>
+        <div class="wd-dialog-body wd-center">
+            <div id="health-qr-container" class="wd-qr"></div>
+            <p class="wd-hint" id="health-export-hint">Scan with your iPhone camera.</p>
+            <button type="button" class="wd-link" id="health-export-toggle-link">Haven't set up the Shortcut yet? Set it up here</button>
         </div>
-    </div>
-</div>
-
+    </form>
+</dialog>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script>
 (function() {
     var logUrl = '';
     var setupUrl = {{ setup_shortcut_url | tojson }};
     var showingSetup = false;
-
-    function renderQR(url) {
-        var container = document.getElementById('health-qr-container');
-        if (!container) return;
-        container.innerHTML = '';
-        new QRCode(container, { text: url, width: 220, height: 220, correctLevel: QRCode.CorrectLevel.M });
-    }
-
-    var modal = document.getElementById('health-export-modal');
-    if (modal) {
-        // The banner and each history row's Log button carry their own session's URL.
-        modal.addEventListener('show.bs.modal', function(e) {
-            logUrl = e.relatedTarget.dataset.logUrl;
-            modal.dataset.sessionId = e.relatedTarget.dataset.sessionId;
-            showingSetup = false;
-            renderQR(logUrl);
-            document.getElementById('health-export-modal-title').textContent = 'Log to Apple Health';
-            document.getElementById('health-export-modal-hint').textContent = 'Scan with iPhone Camera';
-            document.getElementById('health-export-toggle-link').textContent = "Haven't set up the Shortcut yet? Set up here";
-        });
-    }
-
+    var dialog = document.getElementById('health-export-dialog');
     var toggleLink = document.getElementById('health-export-toggle-link');
-    if (toggleLink) {
-        toggleLink.addEventListener('click', function(e) {
-            e.preventDefault();
-            showingSetup = !showingSetup;
-            renderQR(showingSetup ? setupUrl : logUrl);
-            document.getElementById('health-export-modal-title').textContent = showingSetup ? 'Set Up Apple Health Shortcut' : 'Log to Apple Health';
-            document.getElementById('health-export-modal-hint').textContent = showingSetup ? 'Scan once to install the Shortcut' : 'Scan with iPhone Camera';
-            toggleLink.textContent = showingSetup ? 'Back' : "Haven't set up the Shortcut yet? Set up here";
-        });
+
+    function show(setup) {
+        showingSetup = setup;
+        var container = document.getElementById('health-qr-container');
+        container.innerHTML = '';
+        if (window.QRCode) new QRCode(container, { text: setup ? setupUrl : logUrl, width: 204, height: 204, correctLevel: QRCode.CorrectLevel.M });
+        document.getElementById('health-export-title').textContent = setup ? 'Set up the Apple Health Shortcut' : 'Log to Apple Health';
+        document.getElementById('health-export-hint').textContent = setup ? 'Scan once to install the Shortcut.' : 'Scan with your iPhone camera.';
+        toggleLink.textContent = setup ? 'Back' : "Haven't set up the Shortcut yet? Set it up here";
     }
+
+    // The banner and each history row's Log button carry their own session's URL. Delegated, so rows swapped
+    // in by loadHistory() work too.
+    document.addEventListener('click', function(e) {
+        var btn = e.target.closest('button[data-log-url]');
+        if (!btn) return;
+        logUrl = btn.dataset.logUrl;
+        dialog.dataset.sessionId = btn.dataset.sessionId;
+        show(false);
+        openDialog('health-export-dialog');
+    });
+    toggleLink.addEventListener('click', function() { show(!showingSetup); });
 
     var dismissBtn = document.getElementById('dismiss-health-export-btn');
     if (dismissBtn) {
@@ -114,70 +108,28 @@
 })();
 </script>
 {% endif %}
-<div class="text-center">
-    <div class="console-hero">
-        <span class="console-hero-label">Ready</span>
-        <div class="mt-2">
-            <form method="post" action="{{ url_for('start_session') }}" id="start-form" style="display:inline-block">
-                <button type="submit" class="console-engage-btn" id="btn-start">
-                    <i class="bi bi-play-fill"></i>
-                    Start
-                </button>
-                {% if profiles %}
-                <div class="walker-as">
-                    <span aria-hidden="true">as</span>
-                    <label for="walker-select" class="visually-hidden">Walker</label>
-                    <span class="walker-select-wrap">
-                        <select id="walker-select" name="profile_id" class="walker-inline" required{% if walker_error %} aria-describedby="walker-error"{% endif %}>
-                            {% if not default_walker %}<option value="" selected disabled>choose a walker</option>{% endif %}
-                            {% for p in profiles %}
-                            <option value="{{ p.id }}"{{ ' selected' if p.id == default_walker }}>{{ p.name }}</option>
-                            {% endfor %}
-                        </select>
-                    </span>
-                </div>
-                {% if walker_error %}<p class="text-danger mt-2 mb-0" role="alert" id="walker-error">Choose who's walking, then press Start.</p>{% endif %}
-                {% endif %}
-            </form>
-        </div>
-        <p id="transitioning-hint" class="text-muted mt-3 mb-0" style="display:none;font-size:0.85rem;">
-            <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
-            Stopping belt&hellip;
-        </p>
-    </div>
-</div>
 
 {% if history or profiles %}
-<div class="mt-5" id="history">
-    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-        <h2 id="history-heading" class="content-title" style="font-size:1.5rem;">{{ history_heading }}</h2>
-        <div class="d-flex gap-2 align-items-center">
-            {% if profiles %}
-            <span class="history-scope">
-                <label for="history-scope" class="visually-hidden">Show sessions for</label>
-                <span class="walker-select-wrap">
-                    <select id="history-scope" class="walker-inline">
-                        {% for value, label in walker_options %}
-                        <option value="{{ value }}"{{ ' selected' if value == walker }}>{{ label }}</option>
-                        {% endfor %}
-                    </select>
-                </span>
-            </span>
-            {% endif %}
-            <a id="export-csv-link" href="{{ url_for('export_csv', walker=walker) }}" class="btn btn-sm text-nowrap" style="background-color:var(--card-color);color:var(--text-color);border:none;font-weight:500;padding:0.25rem 0.75rem;" title="Export these sessions as CSV">
-                <i class="bi bi-download"></i> Export CSV
-            </a>
-            <button id="clear-history-btn" class="btn btn-sm text-nowrap" style="background-color:var(--card-color);color:var(--text-color);border:none;font-weight:500;padding:0.25rem 0.75rem;" title="Clear these sessions">
-                <i class="bi bi-trash"></i> Clear
-            </button>
-            <button id="edit-history-btn" type="button" class="btn btn-sm text-nowrap" aria-pressed="false" style="background-color:var(--card-color);color:var(--text-color);border:none;font-weight:500;padding:0.25rem 0.75rem;" title="Log, reassign, or delete individual sessions">
-                <i class="bi bi-pencil"></i> Edit
-            </button>
-        </div>
+<section class="panel" id="history" aria-labelledby="history-heading">
+    <div class="panel-h">
+        <h2 id="history-heading">{{ history_heading }}</h2>
+        {% if profiles %}
+        <span class="history-scope">
+            <label for="history-scope" class="wd-vh">Show sessions for</label>
+            <select id="history-scope" class="wd-select wd-select-sm">
+                {% for value, label in walker_options %}
+                <option value="{{ value }}"{{ ' selected' if value == walker }}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </span>
+        {% endif %}
+        <a id="export-csv-link" href="{{ url_for('export_csv', walker=walker) }}" class="wd-btn wd-btn-sm" title="Export these sessions as CSV"><i class="bi bi-download" aria-hidden="true"></i>Export CSV</a>
+        <button id="clear-history-btn" type="button" class="wd-btn wd-btn-sm" title="Clear these sessions"><i class="bi bi-trash" aria-hidden="true"></i>Clear</button>
+        <button id="edit-history-btn" type="button" class="wd-btn wd-btn-sm" aria-pressed="false" title="Log, reassign, or delete individual sessions"><i class="bi bi-pencil" aria-hidden="true"></i>Edit</button>
     </div>
-    <p id="history-status" class="visually-hidden" aria-live="polite"></p>
+    <p id="history-status" class="wd-vh" aria-live="polite"></p>
     {% include "_history_table.html" %}
-</div>
+</section>
 {% endif %}
 
 <script>
@@ -203,28 +155,19 @@
     if (!change) return;
     var banner = document.getElementById('health-export-banner');
     if (banner && banner.dataset.sessionId === change.id) banner.remove();
-    var modalEl = document.getElementById('health-export-modal');
+    var dialog = document.getElementById('health-export-dialog');
     // Logged only: a dismissed status lingers in every update, and would close a later Log for that session.
-    if (modalEl && change.status === 1 && modalEl.dataset.sessionId === change.id && window.bootstrap) {
-      var modal = bootstrap.Modal.getInstance(modalEl);
-      if (modal) modal.hide();
-    }
+    if (dialog && dialog.open && change.status === 1 && dialog.dataset.sessionId === change.id) dialog.close();
     var row = document.querySelector('tr[data-session-id="' + change.id + '"]');
     if (row && change.status === 1) {
       var icon = row.querySelector('.health-icon');
       if (icon) {
         icon.classList.replace('bi-heart', 'bi-heart-fill');
         icon.setAttribute('aria-label', 'Logged to Apple Health');
-        var tip = window.bootstrap && bootstrap.Tooltip.getInstance(icon);
-        if (tip) tip.setContent({ '.tooltip-inner': 'Logged to Apple Health' });
+        icon.setAttribute('data-tip', 'Logged to Apple Health');
       }
       row.querySelectorAll('[data-log]').forEach(function(el) { el.remove(); });
     }
-  });
-
-  // Bootstrap's bundle loads after this block, so wait for it before wiring the heart tooltips.
-  document.addEventListener('DOMContentLoaded', function() {
-    document.querySelectorAll('.health-icon').forEach(function(el) { new bootstrap.Tooltip(el); });
   });
 
   var historyEl = document.getElementById('history');
@@ -232,11 +175,6 @@
   var scopeSelect = document.getElementById('history-scope');
 
   function historyBody() { return document.getElementById('history-body'); }
-
-  function initTooltips(root) {
-    if (!window.bootstrap) return;
-    root.querySelectorAll('.health-icon').forEach(function(el) { new bootstrap.Tooltip(el); });
-  }
 
   // Swaps the table in place (no navigation), so changing a select stays a content change (WCAG 3.2.2).
   function loadHistory(walker) {
@@ -249,7 +187,6 @@
         document.getElementById('history-status').textContent = 'Showing ' + body.dataset.heading;
         document.getElementById('export-csv-link').href = body.dataset.exportUrl;
         if (scopeSelect) scopeSelect.value = body.dataset.walker;
-        initTooltips(body);
       });
   }
 
@@ -270,7 +207,7 @@
     editBtn.addEventListener('click', function() {
       var on = historyEl.classList.toggle('history-editing');
       editBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
-      editBtn.innerHTML = on ? '<i class="bi bi-check-lg"></i> Done' : '<i class="bi bi-pencil"></i> Edit';
+      editBtn.innerHTML = on ? '<i class="bi bi-check-lg" aria-hidden="true"></i>Done' : '<i class="bi bi-pencil" aria-hidden="true"></i>Edit';
       if (!on && historyBody().dataset.walker !== walkerForStart()) loadHistory(walkerForStart());
     });
   }
@@ -280,13 +217,15 @@
     historyEl.addEventListener('click', function(e) {
       var btn = e.target.closest('[data-delete-url]');
       if (!btn) return;
-      if (!confirm('Delete this session? This cannot be undone.')) return;
-      fetch(btn.dataset.deleteUrl, { method: 'POST' }).then(function(resp) {
-        if (!resp.ok) return;
-        var row = btn.closest('tr');
-        var banner = document.getElementById('health-export-banner');
-        if (banner && banner.dataset.sessionId === row.dataset.sessionId) banner.remove();
-        row.remove();
+      confirmDialog('Delete this session?', "This can't be undone.", 'Delete session').then(function(ok) {
+        if (!ok) return;
+        fetch(btn.dataset.deleteUrl, { method: 'POST' }).then(function(resp) {
+          if (!resp.ok) return;
+          var row = btn.closest('tr');
+          var banner = document.getElementById('health-export-banner');
+          if (banner && banner.dataset.sessionId === row.dataset.sessionId) banner.remove();
+          row.remove();
+        });
       });
     });
 
@@ -317,13 +256,14 @@
   if (clearBtn) {
       clearBtn.addEventListener('click', function() {
           var body = historyBody();
-          if (confirm(body.dataset.clearConfirm)) {
+          confirmDialog('Clear history?', body.dataset.clearConfirm, 'Clear history').then(function(ok) {
+              if (!ok) return;
               fetch("{{ url_for('clear_history') }}", { method: 'POST', body: new URLSearchParams({ walker: body.dataset.walker }) })
                   .then(function(resp) {
-                      if (resp.status === 409) alert('That walker no longer exists, so nothing was cleared.');
-                      window.location.reload();
+                      if (resp.status === 409) toast('That walker no longer exists, so nothing was cleared.');
+                      else window.location.reload();
                   });
-          }
+          });
       });
   }
 </script>

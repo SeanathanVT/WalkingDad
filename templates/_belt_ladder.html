@@ -1,0 +1,28 @@
+{# The belt's whole range with the presets as stops on it. Walking: a slider driven by the existing speed commands.
+   Paused: parked (disabled, dashed). Expects min_mph, max_mph, moderate_mph, speed and `parked`. #}
+{% set span = (max_mph - min_mph) if max_mph > min_mph else 1 %}
+{% set frac = [[(speed - min_mph) / span, 0] | max, 1] | min %}
+{% set mod_at = [[(moderate_mph - min_mph) / span, 0] | max, 1] | min %}
+{% set off = parked or belt_transitioning %}
+<div class="ladder">
+    <div id="belt-ladder" class="track" role="slider" tabindex="{{ '-1' if parked else '0' }}" aria-label="Belt speed"
+         aria-valuemin="{{ '%.1f'|format(min_mph) }}" aria-valuemax="{{ '%.1f'|format(max_mph) }}"
+         aria-valuenow="{{ '%.1f'|format(speed) }}" aria-valuetext="{{ '%.1f'|format(speed) }} mph"{% if off %} aria-disabled="true"{% endif %}
+         style="--speed-frac: {{ '%.3f'|format(frac) }}"><span class="fill"></span></div>
+    <div class="stops" role="group" aria-label="Speed presets">
+        {# Moderate hangs off whichever side of its tick has more room, so it doesn't collide with Slow or Max. #}
+        {% for route, label, mph, keys, at, extra in [
+            ('min_speed', 'Slow', min_mph, 'L', 0, '--tx:0;--tick:0'),
+            ('slow_speed', 'Moderate', moderate_mph, 'K', mod_at, '--tx:-100%;--tick:100%' if mod_at > 0.5 else '--tx:0;--tick:0'),
+            ('max_speed', 'Max', max_mph, 'M', 1, '--tx:-100%;--tick:100%')] %}
+        {% set pressed = (speed - mph) | abs < 0.05 %}
+        {% if parked %}
+        <button type="button" class="stop" aria-label="{{ label }}, {{ '%.1f'|format(mph) }} mph" style="--at:{{ '%.3f'|format(at) }};{{ extra }}" aria-pressed="{{ 'true' if pressed else 'false' }}" disabled>{{ label }}<small>{{ '%.1f'|format(mph) }} mph</small></button>
+        {% else %}
+        <form method="post" action="{{ url_for(route) }}" style="display:contents">
+            <button type="submit" class="stop" aria-label="{{ label }}, {{ '%.1f'|format(mph) }} mph" style="--at:{{ '%.3f'|format(at) }};{{ extra }}" data-mph="{{ '%.1f'|format(mph) }}" aria-pressed="{{ 'true' if pressed else 'false' }}"{{ hotkey(keys) }}{{ ' disabled' if off }}>{{ label }}<small>{{ '%.1f'|format(mph) }} mph{% if keyboard_shortcuts_enabled %} <kbd aria-hidden="true">{{ keys }}</kbd>{% endif %}</small></button>
+        </form>
+        {% endif %}
+        {% endfor %}
+    </div>
+</div>
