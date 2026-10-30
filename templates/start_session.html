@@ -224,7 +224,11 @@
           var row = btn.closest('tr');
           var banner = document.getElementById('health-export-banner');
           if (banner && banner.dataset.sessionId === row.dataset.sessionId) banner.remove();
+          // Focus would fall to <body> with the removed button (WCAG 2.4.3): move it to a neighbour's Delete, else Edit.
+          var near = row.nextElementSibling || row.previousElementSibling;
+          var next = near && near.querySelector('[data-delete-url]');
           row.remove();
+          (next || editBtn).focus();
         });
       });
     });

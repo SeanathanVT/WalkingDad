@@ -54,4 +54,4 @@
 :root[data-color-theme="vt"] :is(.panel-h h2, .ledger dt, .wd-set-head h2)::before { content: ""; display: inline-block; width: 6px; height: 6px; margin: 0 8px 2px 0; background: #e5751f; vertical-align: middle; }
 /* Full-strength maroon is only 1.6:1 on VT's dark panels, and VT never lightens it, so the selected preset also gets
    a 2px Burnt Orange ring (VT's detail lines may be 2px). */
-:root[data-color-theme="vt"][data-theme="dark"] .stop[aria-pressed="true"] { box-shadow: 0 0 0 2px #e5751f; }
+:root[data-color-theme="vt"][data-theme="dark"] .stop[aria-current="true"] { box-shadow: 0 0 0 2px #e5751f; }

@@ -583,6 +583,20 @@ Added the missing viewport meta, so phones get a real phone layout instead of a 
 
 ---
 
+### ✅ 3.24 Ledger Accessibility Follow-ups
+**Status:** ✅ Complete
+**Changelog:** `[Unreleased]` (part of 3.21's new interface)
+**Priority:** Low
+**Files Modified:** `static/ledger.js`, `static/ledger.css`, `static/themes.css`, `templates/base.html`, `templates/_belt_ladder.html`, `templates/active_session.html`, `templates/start_session.html`, `templates/settings.html`, `tests/test_routes.py`, `tests/test_theme_contrast.py`
+
+Four small gaps from 3.21's final review, closed before release:
+- **Theme menu:** its group labels are `role="presentation"`, since a menu may hold only groups and items, and its rail button has `aria-haspopup="menu"`.
+- **Preset stops:** the selected stop is marked `aria-current="true"` instead of `aria-pressed`, so screen readers announce the current preset rather than a toggle.
+- **History:** after a row is deleted, focus moves to the neighbouring row's Delete, or to Edit when none is left, instead of falling to the page (WCAG 2.4.3).
+- **Settings:** Add profile renders open, so it works without JavaScript; the page's script folds it behind its button on load.
+
+---
+
 ## Stats & Motivation
 
 ### 4.1 Estimated Time to Distance Goal

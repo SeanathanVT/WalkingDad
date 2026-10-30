@@ -189,6 +189,20 @@ def test_active_belt_ladder_is_a_slider(client, running, monkeypatch):
     assert 'aria-valuenow="2.8"' in ladder and 'aria-valuetext="2.8 mph"' in ladder
 
 
+def test_selected_preset_is_current_not_pressed(client, running, monkeypatch):
+    monkeypatch.setattr(app, "SLOW_WALK_SPEED_KMH", 4.5)
+    monkeypatch.setattr(app, "current_speed_kmh", 4.5)
+    html = client.get("/").get_data(as_text=True)
+    stops = re.findall(r'<button [^>]*class="stop"[^>]*>', html)
+    assert len(stops) == 3 and not any("aria-pressed" in b for b in stops)
+    assert [("Moderate" in b, 'aria-current="true"' in b) for b in stops] == [(False, False), (True, True), (False, False)]
+
+
+def test_theme_menu_button_announces_a_menu(client):
+    html = client.get("/").get_data(as_text=True)
+    assert re.search(r'<button [^>]*id="color-theme-toggle"[^>]*aria-haspopup="menu"', html)
+
+
 def test_active_controls_start_disabled_while_transitioning(client, running, monkeypatch):
     monkeypatch.setattr(app, "_belt_transitioning", True)
     html = client.get("/").get_data(as_text=True)
@@ -1234,10 +1248,12 @@ def test_export_csv_has_no_walker_column_without_profiles(client):
     assert header == "date,start_time,end_time,duration_seconds,distance_km,distance_mi,steps,calories,avg_speed_kmh,avg_speed_mph,id,has_samples"
 
 
-def test_add_profile_reveal_without_bootstrap(client):
+def test_add_profile_reachable_without_js(client):
+    # The form renders open, so it works with JavaScript off; ledger.js folds it behind the button on load.
     html = client.get("/settings").get_data(as_text=True)
-    assert 'aria-controls="add-profile" aria-expanded="false"' in html
-    assert '<div id="add-profile" hidden>' in html
+    assert '<div id="add-profile" data-open="false">' in html
+    assert re.search(r'<button [^>]*id="add-profile-btn"[^>]*aria-controls="add-profile"[^>]*hidden>', html)
+    assert re.search(r'<button [^>]*id="add-profile-cancel"[^>]*hidden>', html)
     assert "data-bs-" not in html
     assert "confirm(" not in html
 
@@ -1262,8 +1278,7 @@ def test_settings_labels_name_their_inputs(client):
 
 def test_add_profile_form_open_after_create_error(client):
     html = client.post("/profiles", data=profile_form(lb="49")).get_data(as_text=True)
-    assert 'aria-controls="add-profile" aria-expanded="true"' in html
-    assert '<div id="add-profile">' in html
+    assert '<div id="add-profile" data-open="true">' in html
 
 
 
