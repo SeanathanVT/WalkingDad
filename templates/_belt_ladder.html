@@ -17,10 +17,10 @@
             ('max_speed', 'Max', max_mph, 'M', 1, '--tx:-100%;--tick:100%')] %}
         {% set pressed = (speed - mph) | abs < 0.05 %}
         {% if parked %}
-        <button type="button" class="stop" aria-label="{{ label }}, {{ '%.1f'|format(mph) }} mph" style="--at:{{ '%.3f'|format(at) }};{{ extra }}" aria-pressed="{{ 'true' if pressed else 'false' }}" disabled>{{ label }}<small>{{ '%.1f'|format(mph) }} mph</small></button>
+        <button type="button" class="stop" aria-label="{{ label }}, {{ '%.1f'|format(mph) }} mph" style="--at:{{ '%.3f'|format(at) }};{{ extra }}" {% if pressed %} aria-current="true"{% endif %} disabled>{{ label }}<small>{{ '%.1f'|format(mph) }} mph</small></button>
         {% else %}
         <form method="post" action="{{ url_for(route) }}" style="display:contents">
-            <button type="submit" class="stop" aria-label="{{ label }}, {{ '%.1f'|format(mph) }} mph" style="--at:{{ '%.3f'|format(at) }};{{ extra }}" data-mph="{{ '%.1f'|format(mph) }}" aria-pressed="{{ 'true' if pressed else 'false' }}"{{ hotkey(keys) }}{{ ' disabled' if off }}>{{ label }}<small>{{ '%.1f'|format(mph) }} mph{% if keyboard_shortcuts_enabled %} <kbd aria-hidden="true">{{ keys }}</kbd>{% endif %}</small></button>
+            <button type="submit" class="stop" aria-label="{{ label }}, {{ '%.1f'|format(mph) }} mph" style="--at:{{ '%.3f'|format(at) }};{{ extra }}" data-mph="{{ '%.1f'|format(mph) }}" {% if pressed %} aria-current="true"{% endif %}{{ hotkey(keys) }}{{ ' disabled' if off }}>{{ label }}<small>{{ '%.1f'|format(mph) }} mph{% if keyboard_shortcuts_enabled %} <kbd aria-hidden="true">{{ keys }}</kbd>{% endif %}</small></button>
         </form>
         {% endif %}
         {% endfor %}
