@@ -39,9 +39,9 @@ def _block(body):
 
 
 def _themes():
-    slate = _block(re.search(r"^:root \{(.*?)^\}", (STATIC / "ledger.css").read_text(), re.S | re.M).group(1))
+    slate = _block(re.search(r"^:root \{(.*?)^\}", (STATIC / "ledger.css").read_text(), re.DOTALL | re.MULTILINE).group(1))
     themes = {"slate": slate}
-    for tid, body in re.findall(r':root\[data-color-theme="([a-z]+)"\] \{(.*?)\}', (STATIC / "themes.css").read_text(), re.S):
+    for tid, body in re.findall(r':root\[data-color-theme="([a-z]+)"\] \{(.*?)\}', (STATIC / "themes.css").read_text(), re.DOTALL):
         tokens = _block(body)
         if "primary" in tokens:
             themes[tid] = {**slate, **tokens}

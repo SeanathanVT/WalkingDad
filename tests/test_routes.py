@@ -94,7 +94,7 @@ def test_root_disconnected(client, monkeypatch):
 def test_connecting_shows_device_panel(client, monkeypatch):
     monkeypatch.setattr(app, "connected", False)
     monkeypatch.setattr(app, "BLE_DEVICE_NAME", "KS-TEST")
-    completed_session(datetime(2026, 10, 20, 14, 5))
+    completed_session(datetime.fromisoformat("2026-10-20T14:05"))
     html = client.get("/").get_data(as_text=True)
     assert "KS-TEST" in html
     assert re.search(r'<a [^>]*href="/settings"[^>]*>Change device</a>', html)

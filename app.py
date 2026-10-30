@@ -427,7 +427,7 @@ def _last_walk_label() -> str | None:
     if not last:
         return None
     r = last[0]
-    t = datetime.strptime(f"{r['date']} {r['start_time']}", "%Y-%m-%d %H:%M:%S")
+    t = datetime.fromisoformat(f"{r['date']}T{r['start_time']}")
     name = {p["id"]: p["name"] for p in _load_profiles()}.get(r["profile"], "Unassigned")
     return f"{t:%A, %b} {t.day}, {t.hour % 12 or 12}:{t:%M %p}, {name}"
 
