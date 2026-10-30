@@ -1,82 +1,74 @@
 {% extends "base.html" %}
+{% block title %}Walking{% endblock %}
+{% block actions %}
+{% if walker_name %}<span class="who" id="walker-name"><span class="av" aria-hidden="true">{{ walker_name[0] }}</span>{{ walker_name }}</span>{% endif %}
+<form method="post" action="{{ url_for('pause_session') }}" style="display:contents">
+    <button type="submit" class="wd-btn wd-btn-primary"{{ hotkey("Space") }}{{ ' disabled' if belt_transitioning }}><i class="bi bi-pause-fill" aria-hidden="true"></i>Pause{% if keyboard_shortcuts_enabled %} <kbd aria-hidden="true">Space</kbd>{% endif %}</button>
+</form>
+<form method="post" action="{{ url_for('end_session') }}" style="display:contents">
+    <button type="submit" class="wd-btn wd-btn-danger-ghost"{{ ' disabled' if belt_transitioning }}>End session</button>
+</form>
+{% endblock %}
 {% block content %}
-<div class="text-center screen">
-    <h1 class="visually-hidden">Active Session</h1>
-    {% if walker_name %}<p class="text-muted mb-2" id="walker-name"><i class="bi bi-person" aria-hidden="true"></i> {{ walker_name }}</p>{% endif %}
-    <div class="console-hero">
-        <span class="console-hero-label">Speed</span>
-        <div class="console-hero-controls">
-            <form method="post" action="{{ url_for('decrease_speed') }}" style="display:contents">
-                <button type="submit" class="stepper-btn" aria-label="Decrease speed"{{ hotkey("ArrowDown S") }}><i class="bi bi-dash-lg"></i></button>
-            </form>
-            <div>
-                <span class="console-hero-value" id="speed">{{ "%.1f"|format(speed) }}</span><span class="console-hero-unit">mph</span>
+{% if belt_transitioning %}<noscript><meta http-equiv="refresh" content="2"></noscript>{% endif %}
+<div class="grid even">
+    <section class="panel s8 speed-block" aria-labelledby="speed-heading">
+        <div class="panel-h">
+            <h2 id="speed-heading">Belt speed</h2>
+            <p id="transitioning-hint" class="hint" role="status"{% if not belt_transitioning %} hidden{% endif %}><span class="spin" aria-hidden="true"></span>Getting the belt moving&hellip;</p>
+        </div>
+        <div class="speed-top">
+            <span class="speed-fig"><span id="speed">{{ "%.1f"|format(speed) }}</span><span class="unit">mph</span></span>
+            <div class="steppers">
+                <form method="post" action="{{ url_for('decrease_speed') }}" style="display:contents">
+                    <button type="submit" class="step" id="btn-slower" aria-label="Decrease speed"{{ hotkey("ArrowDown S") }}{{ ' disabled' if belt_transitioning }}><i class="bi bi-dash-lg" aria-hidden="true"></i></button>
+                </form>
+                <form method="post" action="{{ url_for('increase_speed') }}" style="display:contents">
+                    <button type="submit" class="step" id="btn-faster" aria-label="Increase speed"{{ hotkey("ArrowUp W") }}{{ ' disabled' if belt_transitioning }}><i class="bi bi-plus-lg" aria-hidden="true"></i></button>
+                </form>
             </div>
-            <form method="post" action="{{ url_for('increase_speed') }}" style="display:contents">
-                <button type="submit" class="stepper-btn" aria-label="Increase speed"{{ hotkey("ArrowUp W") }}><i class="bi bi-plus-lg"></i></button>
-            </form>
         </div>
-        <p id="transitioning-hint" class="text-muted mt-3 mb-0" style="display:none;font-size:0.85rem;">
-            <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
-            Getting the belt moving&hellip;
-        </p>
-    </div>
-
-    <div class="console-strip">
-        <div class="console-strip-item">
-            <span class="console-strip-label">Time</span>
-            <span class="console-strip-value" id="time_active">{{ time_active }}</span>
-        </div>
-        <div class="console-strip-item">
-            <span class="console-strip-label">Distance</span>
-            <span class="console-strip-value" id="distance">{{ "%.2f"|format(distance) }} mi</span>
-        </div>
-        <div class="console-strip-item">
-            <span class="console-strip-label">Steps</span>
-            <span class="console-strip-value" id="steps">{{ steps|int }}</span>
-        </div>
-        <div class="console-strip-item">
-            <span class="console-strip-label">Calories</span>
-            <span class="console-strip-value" id="calories">{{ "%.0f"|format(calories) }}</span>
-        </div>
-    </div>
-
-    <div class="dock">
-        <div class="d-flex justify-content-center gap-2 mt-4 action-row">
-            <form method="post" action="{{ url_for('min_speed') }}" style="display:contents">
-                <button type="submit" class="btn btn-preset"{{ hotkey("L") }}>Slow</button>
-            </form>
-            <form method="post" action="{{ url_for('slow_speed') }}" style="display:contents">
-                <button type="submit" class="btn btn-preset"{{ hotkey("K") }}>Moderate</button>
-            </form>
-            <form method="post" action="{{ url_for('max_speed') }}" style="display:contents">
-                <button type="submit" class="btn btn-preset"{{ hotkey("M") }}>Max</button>
-            </form>
-        </div>
-        <div class="d-flex justify-content-center gap-2 mt-3 action-row">
-            <form method="post" action="{{ url_for('pause_session') }}" style="display:contents">
-                <button type="submit" class="btn btn-custom-primary d-flex align-items-center gap-2"{{ hotkey("Space") }}>
-                    <i class="bi bi-pause-fill"></i> Pause
-                </button>
-            </form>
-            <form method="post" action="{{ url_for('end_session') }}" style="display:contents">
-                <button type="submit" class="btn btn-custom-danger">
-                    <i class="bi bi-stop-fill"></i> End Session
-                </button>
-            </form>
-        </div>
-    </div>
+        {% with parked = false %}{% include "_belt_ladder.html" %}{% endwith %}
+    </section>
+    <section class="panel s4" aria-label="This session">
+        <dl class="ledger">
+            <div><dt>Time</dt><dd id="time_active">{{ time_active }}</dd></div>
+            <div><dt>Distance</dt><dd><span id="distance">{{ "%.2f"|format(distance) }}</span><span class="unit">mi</span></dd></div>
+            <div><dt>Steps</dt><dd id="steps">{{ "{:,}".format(steps|int) }}</dd></div>
+            <div><dt>Calories</dt><dd id="calories">{{ "%.0f"|format(calories) }}</dd></div>
+        </dl>
+    </section>
 </div>
 
 <script>
-  // A fresh Start or a Resume both redirect here the instant belt_running
-  // flips true, which can be well before the backend's wake-up sequence
-  // actually finishes (up to several seconds on a slow connection) -- so the
-  // buttons need to stay disabled/dim until belt_transitioning clears, not
-  // just during the on-submit window.
+  // A fresh Start or a Resume both redirect here the instant belt_running flips true, which can be well before
+  // the backend's wake-up sequence finishes (up to several seconds on a slow connection), so the controls stay
+  // disabled until belt_transitioning clears, not just during the on-submit window.
+  var ladder = document.getElementById('belt-ladder');
   var actionButtons = document.querySelectorAll('button[type="submit"]');
   disableButtonsOnSubmit(actionButtons);
   initTransitioning('transitioning-hint', actionButtons, {{ belt_transitioning|tojson }});
+
+  // The ladder drives the existing commands: a click steps one notch toward where it landed, the arrow and Page
+  // keys step, Home and End jump to Slow and Max.
+  function press(id) {
+    var b = document.getElementById(id) || document.querySelector(id);
+    if (b && !b.disabled && ladder.getAttribute('aria-disabled') !== 'true') b.click();
+  }
+  ladder.addEventListener('click', function(e) {
+    var r = ladder.getBoundingClientRect();
+    var at = (e.clientX - r.left) / r.width;
+    var now = parseFloat(getComputedStyle(ladder).getPropertyValue('--speed-frac')) || 0;
+    if (Math.abs(at - now) > 0.02) press(at > now ? 'btn-faster' : 'btn-slower');
+  });
+  ladder.addEventListener('keydown', function(e) {
+    var target = { ArrowRight: 'btn-faster', ArrowUp: 'btn-faster', PageUp: 'btn-faster',
+                   ArrowLeft: 'btn-slower', ArrowDown: 'btn-slower', PageDown: 'btn-slower',
+                   Home: 'form[action$="/min_speed"] button', End: 'form[action$="/max_speed"] button' }[e.key];
+    if (!target) return;
+    e.preventDefault();
+    if (!e.repeat) press(target);
+  });
 
   // Native only: needs a secure context (localhost/HTTPS), so a phone on LAN HTTP skips it.
   if ('wakeLock' in navigator) {
@@ -89,25 +81,36 @@
 
   var speedEl = document.getElementById('speed'), distanceEl = document.getElementById('distance');
   function updateTitle() {
-    var title = speedEl.textContent + ' mph \u00b7 ' + distanceEl.textContent + ' - WalkingDad';
+    var title = speedEl.textContent + ' mph · ' + distanceEl.textContent + ' mi - WalkingDad';
     if (document.title !== title) document.title = title;
   }
   updateTitle();
 
+  var minMph = {{ min_mph|round(1)|tojson }}, maxMph = {{ max_mph|round(1)|tojson }};
+  function showSpeed(mph) {
+    var text = mph.toFixed(1);
+    setStatValue(speedEl, text);
+    ladder.setAttribute('aria-valuenow', text);
+    ladder.setAttribute('aria-valuetext', text + ' mph');
+    ladder.style.setProperty('--speed-frac', Math.min(1, Math.max(0, (mph - minMph) / ((maxMph - minMph) || 1))).toFixed(3));
+    document.querySelectorAll('.stop[data-mph]').forEach(function(s) {
+      s.setAttribute('aria-pressed', Math.abs(parseFloat(s.dataset.mph) - mph) < 0.05 ? 'true' : 'false');
+    });
+  }
+
   startStatsStream(function(data) {
     setTransitioning('transitioning-hint', actionButtons, data.belt_transitioning === true);
-    // Check if the server has auto-paused the session
+    // The server auto-paused the session.
     if (data.is_running === false) {
       window.location.reload();
     } else {
       setStatValue(document.getElementById('time_active'), data.time_active);
-      setStatValue(speedEl, data.speed.toFixed(1));
-      setStatValue(distanceEl, data.distance.toFixed(2) + ' mi');
-      setStatValue(document.getElementById('steps'), String(parseInt(data.steps, 10)));
+      showSpeed(data.speed);
+      setStatValue(distanceEl, data.distance.toFixed(2));
+      setStatValue(document.getElementById('steps'), parseInt(data.steps, 10).toLocaleString('en-US'));
       setStatValue(document.getElementById('calories'), data.calories.toFixed(0));
       updateTitle();
     }
   });
 </script>
-
 {% endblock %}

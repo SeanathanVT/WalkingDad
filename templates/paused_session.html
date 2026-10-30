@@ -1,67 +1,46 @@
 {% extends "base.html" %}
+{% block title %}Paused{% endblock %}
+{% block actions %}
+{% if walker_name %}<span class="who" id="walker-name"><span class="av" aria-hidden="true">{{ walker_name[0] }}</span>{{ walker_name }}</span>{% endif %}
+{% if connected %}
+<form method="post" action="{{ url_for('resume_session') }}" style="display:contents">
+    <button id="btn-resume" type="submit" class="wd-btn wd-btn-primary"{{ hotkey("Space") }}{{ ' disabled' if belt_transitioning }}><i class="bi bi-play-fill" aria-hidden="true"></i>Resume{% if keyboard_shortcuts_enabled %} <kbd aria-hidden="true">Space</kbd>{% endif %}</button>
+</form>
+{% elif not connecting %}
+<form method="post" action="{{ url_for('reconnect') }}" style="display:contents">
+    <button id="btn-reconnect" type="submit" class="wd-btn wd-btn-primary"{{ ' disabled' if belt_transitioning }}><i class="bi bi-bluetooth" aria-hidden="true"></i>Reconnect</button>
+</form>
+{% endif %}
+<form method="post" action="{{ url_for('end_session') }}" style="display:contents">
+    <button id="btn-end" type="submit" class="wd-btn wd-btn-danger-ghost"{{ ' disabled' if belt_transitioning }}>End session</button>
+</form>
+{% endblock %}
 {% block content %}
-<div class="text-center screen">
-    <h1 class="visually-hidden">Session Paused</h1>
-    {% if walker_name %}<p class="text-muted mb-2" id="walker-name"><i class="bi bi-person" aria-hidden="true"></i> {{ walker_name }}</p>{% endif %}
-    <div class="console-hero">
-        <span class="console-hero-label">Paused</span>
-        <div>
-            <span class="console-hero-value is-time" id="time_active">{{ time_active }}</span>
+{% if belt_transitioning %}<noscript><meta http-equiv="refresh" content="2"></noscript>{% endif %}
+{% if connecting %}
+<p class="hint" role="status"><span class="spin" aria-hidden="true"></span>Reconnecting to the WalkingPad&hellip;</p>
+{% elif not connected %}
+<div class="notice" role="alert"><p>WalkingPad not found. It turns itself off after sitting idle; turn it on, then Reconnect.</p></div>
+{% endif %}
+<div class="grid even">
+    <section class="panel s8 speed-block is-parked" aria-labelledby="speed-heading">
+        <div class="panel-h">
+            <h2 id="speed-heading">Belt stopped</h2>
+            <p id="transitioning-hint" class="hint" role="status"{% if not belt_transitioning %} hidden{% endif %}><span class="spin" aria-hidden="true"></span>Pausing the belt&hellip;</p>
         </div>
-        <span class="console-hero-unit d-block mt-1" style="margin-left:0;">elapsed</span>
-        <p id="transitioning-hint" class="text-muted mt-3 mb-0" style="display:none;font-size:0.85rem;">
-            <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
-            Pausing belt&hellip;
-        </p>
-        {% if connecting %}
-            <p class="text-muted mt-3 mb-0" style="font-size:0.85rem;">
-                <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
-                Reconnecting to the WalkingPad&hellip;
-            </p>
-        {% elif not connected %}
-            <p class="text-danger mt-3 mb-0" style="font-size:0.85rem;">
-                WalkingPad not found. It turns itself off after sitting idle; turn it on, then Reconnect.
-            </p>
-        {% endif %}
-    </div>
-
-    <div class="console-strip">
-        <div class="console-strip-item">
-            <span class="console-strip-label">Distance</span>
-            <span class="console-strip-value" id="distance">{{ "%.2f"|format(distance) }} mi</span>
+        <div style="display:grid;gap:6px">
+            <span class="paused-fig" id="time_active">{{ time_active }}</span>
+            <p class="hint">Elapsed. The belt is stopped; Resume picks it up at {{ "%.1f"|format(resume_mph) }} mph.</p>
         </div>
-        <div class="console-strip-item">
-            <span class="console-strip-label">Steps</span>
-            <span class="console-strip-value" id="steps">{{ steps|int }}</span>
-        </div>
-        <div class="console-strip-item">
-            <span class="console-strip-label">Calories</span>
-            <span class="console-strip-value" id="calories">{{ "%.0f"|format(calories) }}</span>
-        </div>
-    </div>
-
-    <div class="dock">
-        <div class="d-flex justify-content-center gap-3 mt-4 action-row">
-            {% if connected %}
-            <form method="post" action="{{ url_for('resume_session') }}" style="display:contents">
-                <button id="btn-resume" type="submit" class="btn btn-custom-primary d-flex align-items-center gap-2"{{ hotkey("Space") }}>
-                    <i class="bi bi-play-fill"></i> Resume
-                </button>
-            </form>
-            {% elif not connecting %}
-            <form method="post" action="{{ url_for('reconnect') }}" style="display:contents">
-                <button id="btn-reconnect" type="submit" class="btn btn-custom-primary d-flex align-items-center gap-2">
-                    <i class="bi bi-arrow-repeat"></i> Reconnect
-                </button>
-            </form>
-            {% endif %}
-            <form method="post" action="{{ url_for('end_session') }}" style="display:contents">
-                <button id="btn-end" type="submit" class="btn btn-custom-danger">
-                    <i class="bi bi-stop-fill"></i> End Session
-                </button>
-            </form>
-        </div>
-    </div>
+        {% with parked = true, speed = resume_mph %}{% include "_belt_ladder.html" %}{% endwith %}
+    </section>
+    <section class="panel s4" aria-label="This session">
+        <dl class="ledger">
+            <div><dt>Distance</dt><dd><span id="distance">{{ "%.2f"|format(distance) }}</span><span class="unit">mi</span></dd></div>
+            <div><dt>Steps</dt><dd id="steps">{{ "{:,}".format(steps|int) }}</dd></div>
+            <div><dt>Calories</dt><dd id="calories">{{ "%.0f"|format(calories) }}</dd></div>
+        </dl>
+    </section>
 </div>
 
 <script>
@@ -80,5 +59,4 @@
     setTransitioning('transitioning-hint', pausedButtons, data.belt_transitioning === true);
   }, {{ (not connected)|tojson }});
 </script>
-
 {% endblock %}

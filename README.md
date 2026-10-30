@@ -15,16 +15,16 @@ The official WalkingPad experience is a bloated mobile app that wants your email
 - **Web UI**: Control your treadmill from any browser on your local network
 - **Real-time stats**: Speed, distance, steps, calories, and active time, updated live
 - **Smart pause & resume**: Auto-detects when you step off; remembers your speed; configurable grace period prevents re-triggering on restart; a session left paused too long (default 30 min) is ended and saved automatically
-- **Speed presets**: Slow (speed floor), Moderate, and Max buttons, plus incremental increase/decrease steppers
+- **Speed presets**: Slow (speed floor), Moderate, and Max stops on a belt-speed ladder, plus incremental increase/decrease steppers
 - **Keyboard shortcuts**: `Space` pause/resume, `↑`/`W` and `↓`/`S` speed, `L`/`K`/`M` presets; press `?` for the list. Can be turned off in Settings
 - **Live tab title**: While walking, the browser tab shows speed and distance
-- **Console-style interface**: Active, Paused, and Start screens read like the WalkingPad's own onboard display, with one large tabular-digit reading up top and secondary stats in a compact readout strip below
+- **Ledger interface**: A side rail (a labelled bottom bar on phones), one title row per screen with its actions, and quiet panels of tabular numbers. Walking shows the belt speed large enough to read from the treadmill; Paused leads with the elapsed time. Confirmations use themed dialogs, and the layout adapts to laptop, tablet, and phone widths
 - **Session history**: Sessions saved to a local SQLite database (`data/walkingdad.db`) with full stats, pauses, and per-second speed/distance/steps samples; last 10 shown on the start screen. Includes CSV export, history clearing, and an **Edit** mode for deleting individual sessions. An existing `session_history.json` from an older version is imported automatically on first launch (the original is kept as `data/backups/session_history.json.bak-<timestamp>`).
 - **Profiles**: Each household member gets a profile (Settings); pick who's walking at Start; history, CSV export, and Clear follow that walker, and Edit can show everyone or reassign a session. Optional height and weight are stored for calorie estimates
 - **Crash recovery**: If the server crashes or restarts mid-session, your stats aren't lost. The start screen offers to restore the interrupted session (paused, ready to resume) or discard it.
-- **Settings page**: Gear icon in the header lets you change settings (device name, speed limits, port, and more) from the browser without editing files
+- **Settings page**: The gear in the side rail lets you change settings (device name, speed limits, port, and more) from the browser without editing files
 - **Dark mode**: Three-state toggle (Light → Dark → System) with localStorage persistence
-- **Color themes**: Independent of the Light/Dark/System toggle, via the palette icon in the header. Each theme tints the whole surface, not just buttons, and follows into the browser's own chrome (tab color, etc).
+- **Color themes**: Independent of the Light/Dark/System toggle, via the palette in the side rail. Each theme tints the whole surface, not just buttons, and follows into the browser's own chrome (tab color, etc).
     - Standard palette: Slate is the default; the rest run in spectral order:
       ![Slate](https://img.shields.io/badge/Slate-404040)
       ![Red](https://img.shields.io/badge/Red-850c0c)
@@ -40,11 +40,11 @@ The official WalkingPad experience is a bloated mobile app that wants your email
     - ![Virginia Tech](https://img.shields.io/badge/Virginia_Tech-861f41) the university's own brand colors and typography (Chicago Maroon, Impact Orange, Rubik, Crimson Text, verified against VT's official guidelines), plus a maroon/orange square-dot-and-rule accent motif
     - ![Bloom](https://img.shields.io/badge/Bloom-118721) spring, green/pink, Quicksand headings, drifting cherry blossom petals
     - ![Tide](https://img.shields.io/badge/Tide-11818c) summer, turquoise/sand, Pacifico headings, crabs scuttling along the bottom
-    - ![Harvest](https://img.shields.io/badge/Harvest-c2410c) mode-aware: cozy autumn (falling leaves) in Light, spooky Halloween (glowing eyes) in Dark
-    - ![Frost](https://img.shields.io/badge/Frost-b91c1c) winter, falling snow
+    - ![Pumpkin](https://img.shields.io/badge/Pumpkin-c2410c) fall, mode-aware: cozy autumn (Rye headings, falling leaves) in Light, spooky Halloween (Creepster headings, glowing eyes) in Dark
+    - ![Holly](https://img.shields.io/badge/Holly-b91c1c) Christmas, berry red/evergreen, Mountains of Christmas headings, falling snow
 - **Apple Health export**: After a session ends, scan a QR code (or, on an iPhone/iPad running WalkingDad, tap a button) to log it as a Workout on your iPhone, no manual re-entry. Runs entirely through a Shortcut on your own device; no Apple Developer account, no cloud service. See [Apple Health Export](#apple-health-export) below.
 - **Cross-platform BLE**: Tested on Windows, macOS, and Linux with retry logic and event loop cleanup
-- **Graceful shutdown**: Stops the belt, switches to standby, and disconnects BLE whether you click Close in the UI, press Ctrl+C, or kill the process. Web UI shows "Server is shutting down" notification so you know what happened. Includes an `atexit` safety net as a last resort.
+- **Graceful shutdown**: Stops the belt, switches to standby, and disconnects BLE whether you click Shut down in the UI (it asks first), press Ctrl+C, or kill the process. The web UI shows "WalkingDad is shutting down" so you know what happened. Includes an `atexit` safety net as a last resort.
 - **No account. No cloud. No phone required.**
 
 ## Screenshots
@@ -90,7 +90,7 @@ The app opens your browser automatically at `http://127.0.0.1:5001`. A console w
 2. Click **Start** to begin a session. Stats update in real time.
 3. Adjust speed with the control buttons, or click **Pause** to stop the belt.
 4. If you step off the pad, the app auto-pauses. Click **Resume** to pick back up.
-5. Toggle themes or adjust settings with the icons in the header. Close the app with **Close**.
+5. Toggle themes or adjust settings with the icons in the side rail. Close the app with **Shut down** at the bottom of the rail.
 
 ## Apple Health Export
 
@@ -122,7 +122,7 @@ The phone reaches WalkingDad at the computer's network address, so this needs Wa
 
 ## Configuration
 
-Every setting except `database_path` can be changed from the **Settings page** (gear icon in the header); all of them can be set by editing `data/config.json` directly. Copy `config.json.example` to `data/config.json` to get started; running without the file uses the built-in defaults shown below. Everything WalkingDad writes (settings, database, crash-recovery state, backups) lives in `data/`; files that older versions kept in the app folder are moved there automatically on first start.
+Every setting except `database_path` can be changed from the **Settings page** (gear in the side rail); all of them can be set by editing `data/config.json` directly. Copy `config.json.example` to `data/config.json` to get started; running without the file uses the built-in defaults shown below. Everything WalkingDad writes (settings, database, crash-recovery state, backups) lives in `data/`; files that older versions kept in the app folder are moved there automatically on first start.
 
 | Key | Default | Description |
 |---|---|---|

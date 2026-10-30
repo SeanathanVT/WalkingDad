@@ -421,6 +421,17 @@ def _load_profiles() -> list:
         return []
 
 
+def _last_walk_label() -> str | None:
+    """'Tuesday, Oct 20, 2:05 PM, Sean' for the newest completed session, or None."""
+    last = _load_session_history(limit=1)
+    if not last:
+        return None
+    r = last[0]
+    t = datetime.fromisoformat(f"{r['date']}T{r['start_time']}")
+    name = {p["id"]: p["name"] for p in _load_profiles()}.get(r["profile"], "Unassigned")
+    return f"{t:%A, %b} {t.day}, {t.hour % 12 or 12}:{t:%M %p}, {name}"
+
+
 def _walker_profile(walker: str | None, profile_names: dict) -> str | None:
     """?walker= value -> storage profile filter; None means every walker."""
     if walker == "unassigned":
@@ -1611,7 +1622,7 @@ def root():
     # A session survives a drop (the pad powers itself off after sitting
     # paused), so it stays on the paused screen where End Session still works.
     if not connected and not session_active:
-        return render_template("connecting.html")
+        return render_template("connecting.html", device_name=BLE_DEVICE_NAME, last_walk=_last_walk_label())
 
     time_active_display = "0:00:00"  # Default for start/paused if not running
     if session_active:  # Only calculate if a session is or was active
@@ -1669,6 +1680,10 @@ def root():
         calories=current_calories,
         time_active=time_active_display,
         walker_name=_session_walker_name(),
+        min_mph=MIN_SPEED_KMH * KM_TO_MI,
+        max_mph=MAX_SPEED_KMH * KM_TO_MI,
+        moderate_mph=SLOW_WALK_SPEED_KMH * KM_TO_MI,
+        resume_mph=resume_speed_kmh * KM_TO_MI,
     )
 
 
