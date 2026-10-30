@@ -15,6 +15,8 @@ The maintainer runs macOS (primary) and Fedora Linux, never Windows. Suggest man
 ## Testing
 When adding or changing a test, run the suite on every Python version CI runs (the matrices in `.github/workflows/ci.yml` and `.gitlab-ci.yml` are the source of truth), not just the local interpreter; e.g. `uv venv --python 3.10 <dir>`. asyncio timing and cancellation differ between versions.
 
+Before handing over any change, run every step CI runs, `ruff check .` included, not just the tests.
+
 ## Design target
 The primary client is a laptop browser at a desk above the treadmill. Design for desktop width and mouse/keyboard first; keep the phone layout working, but it doesn't drive layout or feature decisions.
 
