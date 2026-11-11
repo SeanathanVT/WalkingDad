@@ -142,14 +142,17 @@ Bleak 3.x takes the disconnect callback only as a `BleakClient` constructor argu
 ---
 
 ### 1.8 Commands Ignored After the Physical Remote, and Speed Steps During a Ramp
-- **Status:** Planned
+- **Status:** In progress: everything below except the remote's cause is built, awaiting a treadmill check
+- **Changelog:** `[Unreleased]`
 - **Priority:** High
 - **Problem:** Seen on a C2 (firmware 6.1.2, software 6.3.0) in a status-packet log:
     - After a press on the physical remote, status byte 16 changed from 3 to 2, and a Pause's `stop_belt()` (speed 0) had no effect until Resume's `start_belt()` about 4 s later. Resume's light-wake probe then took the slowing belt for a running one, and the session auto-paused.
     - A `change_speed()` sent ~0.3 s after another was silently not applied.
     - `+`/`-` step from the reported speed, which lags the target while the belt ramps (Max from 2.2 km/h took ~7 s). The status packet's `app_speed` byte carries the app-set target immediately, in km/h × 10 (`ph4-walkingpad`'s `/30` is wrong for the C2); the remote doesn't update it.
 - **Solution:** Reproduce each on the treadmill, then: find what byte 16 means and what makes app commands take effect again after the remote; have the light-wake probe require a speed that isn't falling; space or coalesce back-to-back speed commands; step from `app_speed` while the belt ramps toward it.
-- **Implementation:** Its own `bugfix/` branch, checked on the treadmill, not just against the fake controller.
+- **Implementation:** `bugfix/speed-commands-ramp`, to be checked on the treadmill, not just against the fake controller.
+    - **Built:** the light-wake probe requires a fresh speed that isn't below the previous packet's. Speed commands are at least `_SPEED_COMMAND_SPACING_SECONDS` (1.0 s, unmeasured) apart, and a newer step cancels one still waiting. `+`/`-` step from `app_speed` (read as km/h × 10) while the reported speed moves toward it. Byte 16 (`controller_button`) changes are logged at INFO.
+    - **Open:** what byte 16 means and how app commands work again after a remote press. Next step: reproduce with the new log line.
 
 ---
 

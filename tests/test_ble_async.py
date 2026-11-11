@@ -261,6 +261,14 @@ def test_try_light_wake_unconfirmed(pad, speed_before, hook):
     assert pad.calls.count(("ask_stats",)) == app._LIGHT_WAKE_PROBE_ATTEMPTS
 
 
+def test_try_light_wake_rejects_a_slowing_belt(pad):
+    # A late stop_belt() taking effect: fresh nonzero packets, but falling.
+    speeds = iter([2.0, 1.5, 1.0, 0.5, 0.0, 0.0])
+    app.current_speed_kmh = 2.5
+    pad.hook = lambda name: name == "ask_stats" and app.process_status_packet(0, 0, int(next(speeds) * 10))
+    assert run(app._try_light_wake) is False
+
+
 def test_try_light_wake_swallows_start_belt_error(pad):
     pad.fail = {"start_belt"}
     pad.hook = reply(3.0)
@@ -293,6 +301,37 @@ def test_locked_change_speed(pad, disconnects):
     run(lambda: app._locked_change_speed(30))
     assert pad.calls == [("change_speed", 30)]
     assert disconnects == []
+
+
+def test_speed_commands_spaced(pad, sleeps, monkeypatch):
+    monkeypatch.setattr(app.time, "monotonic", lambda: 100.0)
+    run(lambda: app._locked_change_speed(30))
+    run(lambda: app._locked_change_speed(35))
+    assert pad.calls == [("change_speed", 30), ("change_speed", 35)]
+    assert sleeps == [0.0, app._SPEED_COMMAND_SPACING_SECONDS]
+
+
+def test_speed_step_waiting_out_spacing_is_coalesced(app_state, pad, monkeypatch):
+    monkeypatch.setattr(app.time, "monotonic", lambda: 100.0)
+    app._last_speed_command_monotonic = 100.0
+    waits = []
+
+    async def spacing_wait(delay):
+        waits.append(delay)
+        if len(waits) == 1:  # the first step is still waiting when the second arrives
+            await asyncio.Event().wait()
+
+    monkeypatch.setattr(app.asyncio, "sleep", spacing_wait)
+
+    async def body():
+        first = asyncio.create_task(app._locked_change_speed(30))
+        while not waits:
+            await _real_sleep(0)
+        await app._locked_change_speed(35)
+        assert first.cancelled()
+
+    run(body)
+    assert pad.calls == [("change_speed", 35)]
 
 
 def test_locked_change_speed_failure_disconnects(pad, disconnects):
@@ -1017,7 +1056,7 @@ def test_stats_monitor_processes_poll_reply(pad, disconnects, monkeypatch):
 
     pad.ask_stats = ask_stats
     run(app._stats_monitor)
-    assert packets == [(5, 7, 25)]
+    assert packets == [(5, 7, 25, 0, None)]
 
 
 @pytest.mark.parametrize(("exc", "logged"), [

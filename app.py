@@ -218,6 +218,9 @@ _BLE_SEQUENCE_LOCK_TIMEOUT_SECONDS = 40
 _LIGHT_WAKE_PROBE_ATTEMPTS = 6
 _LIGHT_WAKE_PROBE_INTERVAL_SECONDS = 1.0
 _LIGHT_WAKE_PROBE_TIMEOUT_SECONDS = 1.5
+# A C2 silently dropped a change_speed() sent ~0.3s after another (ROADMAP 1.8).
+_SPEED_COMMAND_SPACING_SECONDS = 1.0
+_last_speed_command_monotonic = 0.0
 _pending_restore: dict | None = None  # Loaded at startup; cleared once restored or discarded
 
 session_active = belt_running = False
@@ -239,6 +242,9 @@ def _is_shutting_down() -> bool:
 resume_speed_kmh = 2.0  # default if none yet
 
 current_speed_kmh = current_distance_km = 0.0
+_prev_speed_kmh = 0.0  # reported speed one packet earlier; tells a ramp's direction
+_target_speed_kmh = 0.0  # status app_speed: the app-set target, not updated by the remote
+_last_controller_button = None
 current_steps = 0
 current_calories = 0.0
 current_session_active_seconds = 0
@@ -858,9 +864,9 @@ async def _connect_to_pad() -> bool:
 
     def _handle_status_update(_sender, status):
         try:
-            dist, steps, speed = _extract_status_fields(status)
-            process_status_packet(dist, steps, speed)
-            logging.debug(f"Push d={dist} s={steps} v={speed}")
+            fields = _extract_status_fields(status)
+            process_status_packet(*fields)
+            logging.debug(f"Push d={fields[0]} s={fields[1]} v={fields[2]}")
         except Exception as exc:
             logging.warning(f"_handle_status_update error: {exc}")
 
@@ -878,13 +884,12 @@ async def _connect_to_pad() -> bool:
 
 
 def _extract_status_fields(status) -> tuple:
-    """Extract (distance, steps, speed) from a status dict or object."""
-    if isinstance(status, dict):
-        return status.get("dist", 0), status.get("steps", 0), status.get("speed", 0)
-    return getattr(status, "dist", 0), getattr(status, "steps", 0), getattr(status, "speed", 0)
+    """Extract (distance, steps, speed, app_speed, controller_button) from a status dict or object."""
+    get = status.get if isinstance(status, dict) else lambda name, default: getattr(status, name, default)
+    return get("dist", 0), get("steps", 0), get("speed", 0), get("app_speed", 0), get("controller_button", None)
 
 
-def process_status_packet(dev_dist: float, dev_steps: int, dev_speed: float):
+def process_status_packet(dev_dist: float, dev_steps: int, dev_speed: float, app_speed: int = 0, button=None):
     """Update cumulative stats from raw values AND handle auto-pause.
 
     Called from both the active poll (_stats_monitor -> ask_stats) and the
@@ -895,6 +900,13 @@ def process_status_packet(dev_dist: float, dev_steps: int, dev_speed: float):
     global current_speed_kmh, current_distance_km, current_steps, current_calories
     global _last_dev_dist, _last_dev_steps, _last_status_update_monotonic
     global current_session_active_seconds, _last_moving_packet_monotonic
+    global _prev_speed_kmh, _target_speed_kmh, _last_controller_button
+
+    # Byte 16 changed (3 to 2) on a physical remote press, after which app commands were ignored (ROADMAP 1.8).
+    if button != _last_controller_button:
+        logging.info(f"Status controller_button {_last_controller_button} -> {button}")
+        _last_controller_button = button
+    _target_speed_kmh = app_speed / 10.0  # km/h x 10 on a C2, not ph4-walkingpad's /30
 
     new_reported_speed_kmh = dev_speed / 10.0
     just_auto_paused = False
@@ -953,7 +965,7 @@ def process_status_packet(dev_dist: float, dev_steps: int, dev_speed: float):
     current_steps += dev_steps - _last_dev_steps
     _last_dev_steps = dev_steps
 
-    current_speed_kmh = new_reported_speed_kmh
+    _prev_speed_kmh, current_speed_kmh = current_speed_kmh, new_reported_speed_kmh
     current_calories = kcal_estimate(current_distance_km * KM_TO_MI)
     _last_moving_packet_monotonic = now if walking and new_reported_speed_kmh > 0 else None
     # Forced on auto-pause: the paused-rate throttle would otherwise drop the stop moment.
@@ -1165,8 +1177,7 @@ async def _stats_monitor():
             try:
                 status = await _run_locked(lambda: asyncio.wait_for(controller.ask_stats(), timeout=_BLE_READ_TIMEOUT_SECONDS))
                 if status:
-                    dist, steps, speed = _extract_status_fields(status)
-                    process_status_packet(dist, steps, speed)
+                    process_status_packet(*_extract_status_fields(status))
                     logging.debug(f"Poll {status}")
                 else:
                     logging.debug("ask_stats returned no reply (expected on this device/library)")
@@ -1248,6 +1259,8 @@ async def _try_light_wake() -> bool:
     taken before start_belt() is even sent, not just current_speed_kmh > 0
     alone: without that, a stale nonzero current_speed_kmh left over from
     before Pause's stop_belt() reply landed could false-positive the probe.
+    A falling speed doesn't count either: a stop_belt() that only took effect
+    late (seen after a physical remote press) leaves the belt slowing to a halt.
     """
     baseline = time.monotonic()
     try:
@@ -1270,7 +1283,7 @@ async def _try_light_wake() -> bool:
 
         await asyncio.sleep(_LIGHT_WAKE_PROBE_INTERVAL_SECONDS)
 
-        if _last_status_update_monotonic > baseline and current_speed_kmh > 0:
+        if _last_status_update_monotonic > baseline and current_speed_kmh > 0 and current_speed_kmh >= _prev_speed_kmh:
             logging.info(
                 f"Light wake confirmed belt moving on probe {attempt}/{_LIGHT_WAKE_PROBE_ATTEMPTS} "
                 f"({time.monotonic() - baseline:.1f}s) -- skipped STANDBY/MANUAL mode toggle."
@@ -1299,10 +1312,18 @@ async def _wake_and_start_belt(target_speed_kmh: float | None = None, try_light_
 
         if target_speed_kmh is not None:
             logging.info(f"Setting speed to {target_speed_kmh:.1f} km/h.")
-            await asyncio.wait_for(controller.change_speed(round(target_speed_kmh * 10)), timeout=_BLE_WRITE_TIMEOUT_SECONDS)
+            await _send_speed(round(target_speed_kmh * 10))
             await asyncio.sleep(0.5)
 
     await _run_locked(_body, timeout=_BLE_SEQUENCE_LOCK_TIMEOUT_SECONDS)
+
+
+async def _send_speed(dev_speed: int):
+    """change_speed(), at least _SPEED_COMMAND_SPACING_SECONDS after the last one. Caller holds _ble_command_lock."""
+    global _last_speed_command_monotonic
+    await asyncio.sleep(max(0.0, _last_speed_command_monotonic + _SPEED_COMMAND_SPACING_SECONDS - time.monotonic()))
+    await asyncio.wait_for(controller.change_speed(dev_speed), timeout=_BLE_WRITE_TIMEOUT_SECONDS)
+    _last_speed_command_monotonic = time.monotonic()
 
 
 async def _locked_change_speed(dev_speed: int):
@@ -1326,10 +1347,8 @@ async def _locked_change_speed(dev_speed: int):
     prev, _speed_change_task = _speed_change_task, asyncio.current_task()
     try:
         await _cancel_task(prev)
-        await _run_locked(
-            lambda: asyncio.wait_for(controller.change_speed(dev_speed), timeout=_BLE_WRITE_TIMEOUT_SECONDS),
-            timeout=_BLE_SEQUENCE_LOCK_TIMEOUT_SECONDS,
-        )
+        # A newer step cancels this one while it waits out the spacing, so rapid presses coalesce.
+        await _run_locked(lambda: _send_speed(dev_speed), timeout=_BLE_SEQUENCE_LOCK_TIMEOUT_SECONDS)
     except Exception as exc:
         logging.error(f"change_speed failed: {exc}")
         _handle_disconnect(None)
@@ -2394,7 +2413,13 @@ def resume_session():
 @app.route("/decrease_speed", methods=["POST"])
 def decrease_speed():
     """Decrease the belt speed by one step."""
-    return _set_preset_speed(max(MIN_SPEED_KMH, current_speed_kmh - SPEED_STEP))
+    return _set_preset_speed(max(MIN_SPEED_KMH, _step_base_kmh() - SPEED_STEP))
+
+
+def _step_base_kmh() -> float:
+    """The app-set target while the belt ramps toward it (the reported speed lags), else the reported speed."""
+    t, cur, prev = _target_speed_kmh, current_speed_kmh, _prev_speed_kmh
+    return t if t > 0 and (prev < cur < t or t < cur < prev) else cur
 
 
 def _set_preset_speed(speed_kmh: float):
@@ -2432,7 +2457,7 @@ def slow_speed():
 @app.route("/increase_speed", methods=["POST"])
 def increase_speed():
     """Increase the belt speed by one step."""
-    return _set_preset_speed(min(MAX_SPEED_KMH, current_speed_kmh + SPEED_STEP))
+    return _set_preset_speed(min(MAX_SPEED_KMH, _step_base_kmh() + SPEED_STEP))
 
 
 @app.route("/max_speed", methods=["POST"])
