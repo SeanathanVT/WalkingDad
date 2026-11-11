@@ -7,6 +7,8 @@ All notable changes to WalkingDad will be documented in this file.
 ### Fixed
 
 - **A Bluetooth drop is noticed immediately** (ROADMAP 1.7). WalkingDad never registered for Bleak's disconnect notice, so a dropped connection went unnoticed until no status arrived for about 15 seconds (45 while idle or paused). It now pauses the session and starts reconnecting as soon as the connection drops.
+- **Speed buttons behave while the belt is speeding up or slowing down** (ROADMAP 1.8). `+`/`-` step from the speed the belt is heading to, not from where it has got to so far, and pressing a speed button again within a second no longer gets ignored by the treadmill.
+- **Resume no longer auto-pauses a belt that is still slowing to a stop** (ROADMAP 1.8). Resume could mistake a belt that was slowing to a stop for one already moving, and then pause the session once it stopped.
 
 ---
 

@@ -34,15 +34,16 @@ def test_kcal_estimate(monkeypatch):
 
 
 def test_extract_status_fields_dict_and_object():
-    assert app._extract_status_fields({"dist": 5, "steps": 7, "speed": 30}) == (5, 7, 30)
-    assert app._extract_status_fields({}) == (0, 0, 0)
+    assert app._extract_status_fields({"dist": 5, "steps": 7, "speed": 30, "app_speed": 40}) == (5, 7, 30, 40, None)
+    assert app._extract_status_fields({}) == (0, 0, 0, 0, None)
 
     class Status:
         dist = 9
         speed = 25
+        controller_button = 3
 
-    assert app._extract_status_fields(Status()) == (9, 0, 25)
-    assert app._extract_status_fields(object()) == (0, 0, 0)
+    assert app._extract_status_fields(Status()) == (9, 0, 25, 0, 3)
+    assert app._extract_status_fields(object()) == (0, 0, 0, 0, None)
 
 
 def test_clamp_waitress_threads():
