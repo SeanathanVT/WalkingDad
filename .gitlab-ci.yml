@@ -1,25 +1,38 @@
 workflow:
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-    - if: $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS
-      when: never
-    - if: $CI_COMMIT_BRANCH
+    - if: $CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "development"
 
 test:
-  image: python:3.12
+  image: python:$PYTHON_VERSION
+  parallel:
+    matrix:
+      - PYTHON_VERSION: ["3.10", "3.13"]
   variables:
     PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
   cache:
     key:
       files: [requirements.txt, requirements-dev.txt]
+      prefix: py$PYTHON_VERSION
     paths: [.cache/pip]
   script:
     - pip install -r requirements.txt -r requirements-dev.txt
-    - ruff check .
-    - python -m pytest --cov=. --cov-report=term-missing --cov-report=xml
+    # The Code Quality report puts findings in the MR widget; on failure, rerun for a readable log.
+    - ruff check . --output-format=gitlab --output-file=gl-code-quality-report.json || ruff check .
+    - python -m pytest -ra --cov=. --cov-report=term-missing --cov-report=xml
   coverage: '/^TOTAL.+?(\d+(?:\.\d+)?%)$/'
   artifacts:
+    when: always
     reports:
+      codequality: gl-code-quality-report.json
       coverage_report:
         coverage_format: cobertura
         path: coverage.xml
+
+# Squash merges make the MR title the commit subject on development.
+mr-title:
+  image: python:3.13-slim
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  script:
+    - python3 ci/check_pr_title.py "$CI_MERGE_REQUEST_TITLE"

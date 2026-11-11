@@ -4,7 +4,7 @@
 Keep all docs (ROADMAP.md, CHANGELOG.md `[Unreleased]`, README.md, docs/) in sync with the code and with any plans discussed, in the same change. Released CHANGELOG sections are immutable.
 
 ## Git
-- Never commit. The maintainer signs commits, and agent commits come out unsigned. Hand over the commit message and list the files to add. Messages follow [Conventional Commits](https://www.conventionalcommits.org/): `type(scope): summary`, e.g. `fix(ui): show transition hint only during belt sequences (ROADMAP 3.18)`, ending with a `Co-Authored-By:` trailer naming the agent.
+- Never commit. The maintainer signs commits, and agent commits come out unsigned. Hand over the commit message and list the files to add. Messages follow [Conventional Commits](https://www.conventionalcommits.org/): `type(scope): summary`, e.g. `fix(ui): show transition hint only during belt sequences (ROADMAP 3.18)`, ending with a `Co-Authored-By:` trailer naming the agent. PR titles follow it too (squash merges make the title the commit subject); `ci/check_pr_title.py` checks them on both GitHub and GitLab.
 - Don't stage unless asked in that turn, and then `git add` specific paths only (never `docs/` plan files). The maintainer reviews `git diff` first.
 - Run `git status`/`git log` before any claim about commit state; the maintainer commits between turns, so earlier snapshots go stale.
 - Feature branches merge into `development`, not `main`. Open PRs with `--base development` and scope diffs/logs against `origin/development`.

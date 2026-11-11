@@ -1,0 +1,19 @@
+name: PR title
+
+# Squash merges make the PR title the commit subject on development.
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  conventional-commits:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check title follows Conventional Commits
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: python3 ci/check_pr_title.py "$TITLE"
