@@ -16,7 +16,7 @@ import urllib.parse
 from collections import deque
 from datetime import datetime, timedelta
 
-from bleak import BleakScanner
+from bleak import BleakClient, BleakScanner
 from flask import (
     Flask,
     Response,
@@ -28,7 +28,8 @@ from flask import (
     url_for,
 )
 from markupsafe import Markup
-from ph4_walkingpad.pad import Controller, WalkingPad
+from ph4_walkingpad.pad import Controller as _PadController
+from ph4_walkingpad.pad import Scanner, WalkingPad
 
 import config
 import storage
@@ -79,7 +80,7 @@ connected = connecting = connection_failed = False
 # _ble_command_lock out from under each other's in-flight coroutines.
 _start_ble_thread_lock = threading.Lock()
 ble_loop: asyncio.AbstractEventLoop | None = None
-controller: Controller | None = None
+controller: _PadController | None = None
 _device_ble_address: str | None = None
 _resume_grace_deadline = 0
 speed_history = deque(maxlen=15)
@@ -775,6 +776,20 @@ async def _scan_for_device(timeout: int = 10):
         return None
 
 
+class Controller(_PadController):
+    """Bleak 3.x takes the disconnect callback only as a BleakClient constructor
+    argument, and the library's connect() passes none, so drops would only be
+    seen by the staleness watchdogs."""
+
+    async def connect(self, address=None):
+        address = address or self.address
+        if not address:
+            raise ValueError("No address given to connect to")
+        kwargs = Scanner.get_bleak_kwargs()
+        self.client = BleakClient(address, disconnected_callback=_handle_disconnect, **kwargs)
+        return await self.client.connect(timeout=10.0, **kwargs)
+
+
 async def _safe_disconnect_client(client, context: str) -> None:
     """Best-effort BleakClient disconnect, shared by _connect_to_pad() (a
     stale client left over from a previous failed attempt) and
@@ -834,24 +849,6 @@ async def _connect_to_pad() -> bool:
     controller = Controller()
     try:
         await asyncio.wait_for(controller.run(dev.address), timeout=_BLE_CONNECT_TIMEOUT_SECONDS)
-
-        # Try to set disconnect callback (API varies by Bleak version)
-        if hasattr(controller, "client") and controller.client:
-            if hasattr(controller.client, "set_disconn_callback"):
-                # Newer Bleak API
-                try:
-                    controller.client.set_disconn_callback(_handle_disconnect)
-                except Exception as exc:
-                    logging.warning(f"Could not set disconnect callback: {exc}")
-            elif hasattr(controller.client, "set_disconnected_callback"):
-                # Older Bleak API
-                try:
-                    controller.client.set_disconnected_callback(_handle_disconnect)
-                except Exception as exc:
-                    logging.warning(f"Could not set disconnect callback: {exc}")
-            else:
-                logging.debug("Disconnect callback not available in this Bleak version")
-
         await asyncio.wait_for(controller.switch_mode(WalkingPad.MODE_MANUAL), timeout=_BLE_WRITE_TIMEOUT_SECONDS)
     except BaseException:
         # A half-open connection left behind keeps the pad connected to this computer, so it stops advertising
@@ -1028,6 +1025,7 @@ async def _graceful_shutdown():
         # Step 4: Disconnect BLE client gracefully
         if controller and getattr(controller, "client", None):
             logging.info("Disconnecting BLE client...")
+            connected = False  # so the client's disconnect callback doesn't treat this as a drop
             await _safe_disconnect_client(controller.client, "shutdown")
     except Exception as exc:
         logging.error(f"Graceful shutdown error (continuing exit): {exc}")
