@@ -131,12 +131,13 @@ A session left paused (manual, auto, Bluetooth drop, or restored after a crash) 
 
 ---
 
-### 1.7 Bluetooth Disconnect Callback Never Registered
-- **Status:** Planned
+### ✅ 1.7 Bluetooth Disconnect Callback Never Registered
+- **Status:** ✅ Complete
+- **Changelog:** `[Unreleased]`
 - **Priority:** High
-- **Problem:** `_connect_to_pad()` registers `_handle_disconnect` via `set_disconn_callback()` or `set_disconnected_callback()`, but `BleakClient` in Bleak 3.x has neither; it takes the callback only as a constructor argument, and `ph4-walkingpad`'s `Controller.connect()` builds the client without one. So a drop is only noticed by the staleness watchdogs (~15 s active, ~45 s idle/paused) instead of immediately. The tests' fake controller has `set_disconn_callback`, which hides this.
-- **Solution:** Pass `disconnected_callback=_handle_disconnect` when the `BleakClient` is built, by overriding `Controller.connect()`, and drop the dead old-API branches.
-- **Implementation:** Its own `bugfix/` branch, with a test against the real `BleakClient` signature rather than the fake.
+- **Files Modified:** `app.py`, `tests/test_ble_async.py`
+
+Bleak 3.x takes the disconnect callback only as a `BleakClient` constructor argument, and `ph4-walkingpad`'s `Controller.connect()` passes none, so a drop was only noticed by the staleness watchdogs (~15 s active, ~45 s idle/paused). `app.Controller` subclasses the library's and overrides `connect()` to pass `disconnected_callback=_handle_disconnect`; the dead `set_disconn_callback`/`set_disconnected_callback` branches are gone. The test binds the arguments against the real `BleakClient` signature. Graceful shutdown clears `connected` before its own disconnect so the callback doesn't treat it as a drop.
 
 ---
 

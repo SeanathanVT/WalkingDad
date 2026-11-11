@@ -1,5 +1,6 @@
 import asyncio
 import concurrent.futures
+import inspect
 import logging
 import time
 from datetime import datetime
@@ -21,15 +22,11 @@ class FakeClient:
         self.is_connected = connected
         self.fail = fail
         self.disconnects = 0
-        self.callback = None
 
     async def disconnect(self):
         self.disconnects += 1
         if self.fail:
             raise RuntimeError("disconnect failed")
-
-    def set_disconn_callback(self, cb):
-        self.callback = cb
 
 
 class FakeController:
@@ -473,7 +470,6 @@ def test_connect_to_pad(sleeps, monkeypatch):
     assert app.controller is new
     assert app._device_ble_address == _NAMED.address
     assert new.calls == [("run", _NAMED.address), MANUAL]
-    assert new.client.callback is app._handle_disconnect
     assert app._idle_watchdog_task is not None
     new.on_cur_status_received(None, {"dist": 0, "steps": 0, "speed": 25})
     assert app.current_speed_kmh == 2.5
@@ -613,6 +609,20 @@ def test_graceful_shutdown_idle(pad, caplog):
     assert storage.list_sessions() == []
     assert storage.list_active_sessions() == []
     assert "Graceful shutdown error" not in caplog.text
+
+
+def test_graceful_shutdown_disconnect_callback_is_not_a_drop(pad, monkeypatch, caplog):
+    app.connected = True
+    real_disconnect = pad.client.disconnect
+
+    async def disconnect():
+        await real_disconnect()
+        app._handle_disconnect(pad.client)
+
+    monkeypatch.setattr(pad.client, "disconnect", disconnect)
+    run(app._graceful_shutdown)
+    assert pad.client.disconnects == 1
+    assert "disconnected unexpectedly" not in caplog.text
 
 
 def test_graceful_shutdown_without_controller_still_saves(sleeps, caplog):
@@ -875,31 +885,20 @@ def _boom(*args):
     raise RuntimeError("boom")
 
 
-@pytest.mark.parametrize(("api", "fails"), [
-    ("set_disconn_callback", False),
-    ("set_disconnected_callback", False),
-    ("set_disconn_callback", True),
-    ("set_disconnected_callback", True),
-    (None, False),
-])
-def test_connect_to_pad_disconnect_callback_api(sleeps, monkeypatch, api, fails):
-    new = _new_controller(monkeypatch)
-    registered = []
-    new.client = SimpleNamespace(is_connected=True)
-    if api:
-        setattr(new.client, api, _boom if fails else registered.append)
-    assert run(app._connect_to_pad) is True
-    assert registered == ([app._handle_disconnect] if api and not fails else [])
-    assert new.calls == [("run", _NAMED.address), MANUAL]
+def test_controller_passes_disconnect_callback_to_real_bleak_client(monkeypatch):
+    built = []
 
+    class SpyClient:
+        def __init__(self, *args, **kwargs):
+            inspect.signature(app.BleakClient).bind(*args, **kwargs)  # TypeError if Bleak rejects an argument
+            built.append(kwargs)
 
-def test_connect_to_pad_without_client_skips_callback(sleeps, monkeypatch, caplog):
-    new = _new_controller(monkeypatch)
-    new.client = None
-    with caplog.at_level(logging.DEBUG):
-        assert run(app._connect_to_pad) is True
-    assert new.calls == [("run", _NAMED.address), MANUAL]
-    assert "Disconnect callback not available" not in caplog.text
+        async def connect(self, **kwargs):
+            return True
+
+    monkeypatch.setattr(app, "BleakClient", SpyClient)
+    assert run(lambda: app.Controller().connect(_NAMED.address)) is True
+    assert built[0]["disconnected_callback"] is app._handle_disconnect
 
 
 @pytest.mark.parametrize("fails", [False, True])

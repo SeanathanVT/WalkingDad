@@ -4,6 +4,10 @@ All notable changes to WalkingDad will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A Bluetooth drop is noticed immediately** (ROADMAP 1.7). WalkingDad never registered for Bleak's disconnect notice, so a dropped connection went unnoticed until no status arrived for about 15 seconds (45 while idle or paused). It now pauses the session and starts reconnecting as soon as the connection drops.
+
 ---
 
 ## [2.0.0] (2026-10-30)
