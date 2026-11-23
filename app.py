@@ -2016,18 +2016,23 @@ def _render_settings(profile_error=None, profile_form=None, status=200, invalid=
     ), status
 
 
+def _parse_settings_form(form) -> tuple[dict, list]:
+    """Cast each _SETTINGS_SCHEMA field; returns (updates, form_keys that failed)."""
+    updates, invalid = {}, []
+    for form_key, const_name, cast, _live in _SETTINGS_SCHEMA:
+        current = getattr(config, const_name)
+        try:
+            updates[form_key] = cast(form.get(form_key, str(current)), current)
+        except (ValueError, TypeError):
+            invalid.append(form_key)
+    return updates, invalid
+
+
 @app.route("/settings", methods=["GET", "POST"])
 def settings_page():
     global APPLE_HEALTH_EXPORT_ENABLED
     if request.method == "POST":
-        updates, invalid = {}, []
-        for form_key, const_name, cast, _live in _SETTINGS_SCHEMA:
-            current = getattr(config, const_name)
-            raw = request.form.get(form_key, str(current))
-            try:
-                updates[form_key] = cast(raw, current)
-            except (ValueError, TypeError):
-                invalid.append(form_key)
+        updates, invalid = _parse_settings_form(request.form)
 
         # Unlike every field above, a checkbox is absent from form data
         # entirely when unchecked rather than submitting a falsy value, so
