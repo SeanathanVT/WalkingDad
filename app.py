@@ -242,9 +242,9 @@ def _is_shutting_down() -> bool:
 resume_speed_kmh = 2.0  # default if none yet
 
 current_speed_kmh = current_distance_km = 0.0
-_prev_speed_kmh = 0.0  # reported speed one packet earlier; tells a ramp's direction
-_target_speed_kmh = 0.0  # status app_speed: the app-set target, not updated by the remote
+_commanded_speed_kmh: float | None = None  # last speed the app asked for; None once the remote takes over
 _last_controller_button = None
+_REMOTE_CONTROLLER_BUTTON = 4  # status byte 16 after a physical remote press on a C2 (3 after an app command)
 current_steps = 0
 current_calories = 0.0
 current_session_active_seconds = 0
@@ -815,6 +815,8 @@ async def _safe_disconnect_client(client, context: str) -> None:
 
 async def _connect_to_pad() -> bool:
     global controller, _device_ble_address, _idle_watchdog_task, _last_status_update_monotonic
+    global _commanded_speed_kmh, _last_controller_button
+    _commanded_speed_kmh = _last_controller_button = None  # the pad may have restarted since the last link
     dev = None
     max_retries = 3
     retry_count = 0
@@ -884,12 +886,23 @@ async def _connect_to_pad() -> bool:
 
 
 def _extract_status_fields(status) -> tuple:
-    """Extract (distance, steps, speed, app_speed, controller_button) from a status dict or object."""
+    """Extract (distance, steps, speed, controller_button) from a status dict or object."""
     get = status.get if isinstance(status, dict) else lambda name, default: getattr(status, name, default)
-    return get("dist", 0), get("steps", 0), get("speed", 0), get("app_speed", 0), get("controller_button", None)
+    return get("dist", 0), get("steps", 0), get("speed", 0), get("controller_button", None)
 
 
-def process_status_packet(dev_dist: float, dev_steps: int, dev_speed: float, app_speed: int = 0, button=None):
+def _note_controller_button(button):
+    """Track status byte 16; a remote press means the app's last speed no longer applies."""
+    global _commanded_speed_kmh, _last_controller_button
+    # Logged to investigate app commands ignored after a physical remote press (ROADMAP 1.8).
+    if button != _last_controller_button and _last_controller_button is not None:
+        logging.info(f"Status controller_button {_last_controller_button} -> {button}")
+    _last_controller_button = button
+    if button == _REMOTE_CONTROLLER_BUTTON:
+        _commanded_speed_kmh = None
+
+
+def process_status_packet(dev_dist: float, dev_steps: int, dev_speed: float, button=None):
     """Update cumulative stats from raw values AND handle auto-pause.
 
     Called from both the active poll (_stats_monitor -> ask_stats) and the
@@ -900,13 +913,7 @@ def process_status_packet(dev_dist: float, dev_steps: int, dev_speed: float, app
     global current_speed_kmh, current_distance_km, current_steps, current_calories
     global _last_dev_dist, _last_dev_steps, _last_status_update_monotonic
     global current_session_active_seconds, _last_moving_packet_monotonic
-    global _prev_speed_kmh, _target_speed_kmh, _last_controller_button
-
-    # Byte 16 changed (3 to 2) on a physical remote press, after which app commands were ignored (ROADMAP 1.8).
-    if button != _last_controller_button:
-        logging.info(f"Status controller_button {_last_controller_button} -> {button}")
-        _last_controller_button = button
-    _target_speed_kmh = app_speed / 10.0  # km/h x 10 on a C2, not ph4-walkingpad's /30
+    _note_controller_button(button)
 
     new_reported_speed_kmh = dev_speed / 10.0
     just_auto_paused = False
@@ -965,7 +972,7 @@ def process_status_packet(dev_dist: float, dev_steps: int, dev_speed: float, app
     current_steps += dev_steps - _last_dev_steps
     _last_dev_steps = dev_steps
 
-    _prev_speed_kmh, current_speed_kmh = current_speed_kmh, new_reported_speed_kmh
+    current_speed_kmh = new_reported_speed_kmh
     current_calories = kcal_estimate(current_distance_km * KM_TO_MI)
     _last_moving_packet_monotonic = now if walking and new_reported_speed_kmh > 0 else None
     # Forced on auto-pause: the paused-rate throttle would otherwise drop the stop moment.
@@ -1259,10 +1266,12 @@ async def _try_light_wake() -> bool:
     taken before start_belt() is even sent, not just current_speed_kmh > 0
     alone: without that, a stale nonzero current_speed_kmh left over from
     before Pause's stop_belt() reply landed could false-positive the probe.
-    A falling speed doesn't count either: a stop_belt() that only took effect
-    late (seen after a physical remote press) leaves the belt slowing to a halt.
+    The speed must also rise above the lowest reading seen so far: a
+    stop_belt() that only took effect late (seen after a physical remote
+    press) leaves the belt slowing to a halt, never rising.
     """
     baseline = time.monotonic()
+    lowest = current_speed_kmh
     try:
         await asyncio.wait_for(controller.start_belt(), timeout=_LIGHT_WAKE_PROBE_TIMEOUT_SECONDS)
     except Exception as exc:
@@ -1283,12 +1292,15 @@ async def _try_light_wake() -> bool:
 
         await asyncio.sleep(_LIGHT_WAKE_PROBE_INTERVAL_SECONDS)
 
-        if _last_status_update_monotonic > baseline and current_speed_kmh > 0 and current_speed_kmh >= _prev_speed_kmh:
+        fresh = _last_status_update_monotonic > baseline
+        if fresh and current_speed_kmh > lowest:
             logging.info(
                 f"Light wake confirmed belt moving on probe {attempt}/{_LIGHT_WAKE_PROBE_ATTEMPTS} "
                 f"({time.monotonic() - baseline:.1f}s) -- skipped STANDBY/MANUAL mode toggle."
             )
             return True
+        if fresh:
+            lowest = min(lowest, current_speed_kmh)
 
     logging.warning(
         f"Light wake unconfirmed after {_LIGHT_WAKE_PROBE_ATTEMPTS} probes "
@@ -1307,8 +1319,11 @@ async def _wake_and_start_belt(target_speed_kmh: float | None = None, try_light_
     WalkingPad's own display.
     """
     async def _body():
+        global _commanded_speed_kmh
         if not (try_light_wake and await _try_light_wake()):
             await _full_wake_sequence()
+        # After the wake, so a status packet still showing the remote can't clear it. None (Start): the pad picks.
+        _commanded_speed_kmh = target_speed_kmh
 
         if target_speed_kmh is not None:
             logging.info(f"Setting speed to {target_speed_kmh:.1f} km/h.")
@@ -2004,6 +2019,8 @@ def _render_settings(profile_error=None, profile_form=None, status=200, invalid=
             claim = {"id": claimed["id"], "name": claimed["name"], "count": count}
     fields = {form_key: getattr(config, const_name) for form_key, const_name, _, _ in _SETTINGS_SCHEMA}
     fields["apple_health_export_enabled"] = APPLE_HEALTH_EXPORT_ENABLED
+    # Not keyboard_shortcuts_enabled: base.html reads that to turn shortcuts on, which an unsaved form mustn't do.
+    fields["shortcuts_switch_on"] = config.KEYBOARD_SHORTCUTS_ENABLED
     fields.update(values or {})
     return render_template(
         "settings.html",
@@ -2044,6 +2061,7 @@ def settings_page():
         updates["keyboard_shortcuts_enabled"] = "keyboard_shortcuts_enabled" in request.form
         if invalid:
             submitted = {**updates, **{k: request.form.get(k, "") for k in invalid}}
+            submitted["shortcuts_switch_on"] = submitted.pop("keyboard_shortcuts_enabled")
             return _render_settings(status=400, invalid=invalid, values=submitted)
 
         _write_config(updates)
@@ -2427,9 +2445,8 @@ def decrease_speed():
 
 
 def _step_base_kmh() -> float:
-    """The app-set target while the belt ramps toward it (the reported speed lags), else the reported speed."""
-    t, cur, prev = _target_speed_kmh, current_speed_kmh, _prev_speed_kmh
-    return t if t > 0 and (prev < cur < t or t < cur < prev) else cur
+    """The speed the app last asked for (the reported speed lags while the belt ramps), else the reported speed."""
+    return current_speed_kmh if _commanded_speed_kmh is None else _commanded_speed_kmh
 
 
 def _set_preset_speed(speed_kmh: float):
@@ -2440,11 +2457,13 @@ def _set_preset_speed(speed_kmh: float):
     # Under the lock the belt routes hold, so this can't interleave with a
     # Pause/End route's own check-and-queue; those sequences then cancel any
     # step still pending before sending stop_belt.
+    global _commanded_speed_kmh
     with _session_state_lock:
         if not belt_running or _belt_transitioning:
             return redirect(url_for("root"))
 
         dev_speed = round(speed_kmh * 10)  # not int(): float sums like (3.8 + 0.6) * 10 land at 43.99...
+        _commanded_speed_kmh = dev_speed / 10
         try:
             asyncio.run_coroutine_threadsafe(_locked_change_speed(dev_speed), ble_loop)
         except Exception as exc:

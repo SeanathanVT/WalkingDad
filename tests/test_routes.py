@@ -436,21 +436,32 @@ def test_speed(client, app_state, running, speeds, monkeypatch, path, current, e
 
 
 
-@pytest.mark.parametrize(("path", "prev", "current", "target", "expected"), [
-    ("/increase_speed", 2.2, 3.0, 6.0, 60),  # ramping up to Max: step from the target
-    ("/decrease_speed", 2.2, 3.0, 6.0, 55),
-    ("/decrease_speed", 5.0, 4.0, 2.0, 15),  # ramping down
-    ("/increase_speed", 3.0, 3.0, 3.0, 35),  # steady
-    ("/increase_speed", 3.0, 3.5, 3.0, 40),  # remote ramp (target is stale): step from the belt
-    ("/increase_speed", 2.2, 3.0, 0.0, 35),  # no target reported
+@pytest.mark.parametrize(("path", "current", "commanded", "expected"), [
+    ("/increase_speed", 3.0, 6.0, 60),  # ramping up to Max: step from what was asked for
+    ("/decrease_speed", 3.0, 6.0, 55),
+    ("/decrease_speed", 4.0, 2.0, 15),  # ramping down
+    ("/increase_speed", 3.0, None, 35),  # nothing asked for (Start, or the remote was used last)
 ])
-def test_speed_step_from_target_while_ramping(client, app_state, running, speeds, monkeypatch,
-                                              path, prev, current, target, expected):
-    monkeypatch.setattr(app, "_prev_speed_kmh", prev)
+def test_speed_step_from_commanded_speed(client, app_state, running, speeds, monkeypatch,
+                                         path, current, commanded, expected):
     monkeypatch.setattr(app, "current_speed_kmh", current)
-    monkeypatch.setattr(app, "_target_speed_kmh", target)
+    monkeypatch.setattr(app, "_commanded_speed_kmh", commanded)
     client.post(path)
     assert app_state[0].cr_frame.f_locals["dev_speed"] == expected
+
+
+def test_rapid_speed_steps_accumulate(client, app_state, running, speeds, monkeypatch):
+    monkeypatch.setattr(app, "current_speed_kmh", 3.0)
+    client.post("/increase_speed")
+    client.post("/increase_speed")  # before any status packet reflects the first
+    assert [c.cr_frame.f_locals["dev_speed"] for c in app_state] == [35, 40]
+
+
+def test_remote_press_hands_stepping_back_to_the_reported_speed(client, app_state, running, speeds, monkeypatch):
+    monkeypatch.setattr(app, "_commanded_speed_kmh", 3.0)
+    app.process_status_packet(0, 0, 45, button=app._REMOTE_CONTROLLER_BUTTON)
+    client.post("/increase_speed")
+    assert app_state[0].cr_frame.f_locals["dev_speed"] == 50
 
 
 def test_speed_change_queued_under_session_lock(client, app_state, running, monkeypatch):
@@ -742,6 +753,13 @@ def test_settings_post_invalid_saves_nothing(client, monkeypatch):
     assert re.search(r'id="max_speed_kmh"[^>]*value="%s"' % (old_max - 0.5), html)
     assert not re.search(r'id="max_speed_kmh"[^>]*aria-invalid', html)
     assert re.search(r'id="apple_health_export_enabled"[^>]*checked', html)
+
+
+def test_settings_post_invalid_keeps_the_unsaved_shortcuts_switch_off_the_page(client, monkeypatch):
+    monkeypatch.setattr(config, "KEYBOARD_SHORTCUTS_ENABLED", False)
+    html = client.post("/settings", data={"port": "abc", "keyboard_shortcuts_enabled": "on"}).get_data(as_text=True)
+    assert 'id="keyboard_shortcuts_enabled" checked>' in html  # the form keeps what was ticked
+    assert 'id="shortcuts-dialog"' not in html  # but shortcuts stay off until saved
 
 
 @pytest.mark.parametrize(("days_ago", "dismissed"), [(0, False), (2, True)])
