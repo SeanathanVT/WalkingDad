@@ -17,7 +17,8 @@ _RESET = {
     "session_active": False, "belt_running": False, "_session_start_time": None, "_session_id": None,
     "_session_start_monotonic": 0.0, "_pending_restore": None, "_paused_since": None,
     "_resume_grace_deadline": 0, "_last_moving_packet_monotonic": None, "resume_speed_kmh": 2.0,
-    "current_speed_kmh": 0.0, "current_distance_km": 0.0, "current_steps": 0, "current_calories": 0.0,
+    "current_speed_kmh": 0.0, "_prev_speed_kmh": 0.0, "_target_speed_kmh": 0.0,
+    "_last_controller_button": None, "_last_speed_command_monotonic": 0.0, "current_distance_km": 0.0, "current_steps": 0, "current_calories": 0.0,
     "current_session_active_seconds": 0, "_last_dev_dist": 0, "_last_dev_steps": 0,
     "_shutting_down": False, "_server_stopping": False, "_last_health_status_change": None,
 }

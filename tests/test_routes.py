@@ -436,6 +436,23 @@ def test_speed(client, app_state, running, speeds, monkeypatch, path, current, e
 
 
 
+@pytest.mark.parametrize(("path", "prev", "current", "target", "expected"), [
+    ("/increase_speed", 2.2, 3.0, 6.0, 60),  # ramping up to Max: step from the target
+    ("/decrease_speed", 2.2, 3.0, 6.0, 55),
+    ("/decrease_speed", 5.0, 4.0, 2.0, 15),  # ramping down
+    ("/increase_speed", 3.0, 3.0, 3.0, 35),  # steady
+    ("/increase_speed", 3.0, 3.5, 3.0, 40),  # remote ramp (target is stale): step from the belt
+    ("/increase_speed", 2.2, 3.0, 0.0, 35),  # no target reported
+])
+def test_speed_step_from_target_while_ramping(client, app_state, running, speeds, monkeypatch,
+                                              path, prev, current, target, expected):
+    monkeypatch.setattr(app, "_prev_speed_kmh", prev)
+    monkeypatch.setattr(app, "current_speed_kmh", current)
+    monkeypatch.setattr(app, "_target_speed_kmh", target)
+    client.post(path)
+    assert app_state[0].cr_frame.f_locals["dev_speed"] == expected
+
+
 def test_speed_change_queued_under_session_lock(client, app_state, running, monkeypatch):
     held = []
 

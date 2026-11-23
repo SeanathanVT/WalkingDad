@@ -100,3 +100,13 @@ def test_status_update_not_stamped_when_packet_raises(walking, monkeypatch):
     with pytest.raises(TypeError):
         walking(4, dist=None)
     assert app._last_status_update_monotonic == 0.0
+
+
+def test_tracks_target_previous_speed_and_logs_remote_button(walking, monkeypatch, caplog):
+    monkeypatch.setattr(app, "_last_controller_button", 3)
+    caplog.set_level("INFO")
+    app.process_status_packet(0, 0, 22, app_speed=60, button=3)
+    app.process_status_packet(0, 0, 30, app_speed=60, button=2)
+    assert (app._prev_speed_kmh, app.current_speed_kmh, app._target_speed_kmh) == (2.2, 3.0, 6.0)
+    assert caplog.text.count("controller_button") == 1
+    assert "controller_button 3 -> 2" in caplog.text
