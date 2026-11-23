@@ -706,7 +706,6 @@ def test_settings_post(client, monkeypatch):
     new_max = config.MAX_SPEED_KMH - 0.5
     resp = client.post("/settings", data={
         "max_speed_kmh": str(new_max),
-        "kcal_per_mile": "not-a-number",
         "port": str(config.PORT + 1),
     })
     assert resp.status_code == 302 and resp.headers["Location"].endswith("/?saved=1")
@@ -715,7 +714,6 @@ def test_settings_post(client, monkeypatch):
     assert written["max_speed_kmh"] == new_max
     assert written["apple_health_export_enabled"] is False
     assert config.MAX_SPEED_KMH == app.MAX_SPEED_KMH == new_max
-    assert written["kcal_per_mile"] == config.KCAL_PER_MILE == app.KCAL_PER_MILE
     assert config.PORT == written["port"]
     assert config.APPLE_HEALTH_EXPORT_ENABLED is False
     assert app.APPLE_HEALTH_EXPORT_ENABLED is False
@@ -723,6 +721,27 @@ def test_settings_post(client, monkeypatch):
     assert config.KEYBOARD_SHORTCUTS_ENABLED is False
     client.post("/settings", data={"keyboard_shortcuts_enabled": "on"})
     assert config.KEYBOARD_SHORTCUTS_ENABLED is True
+
+
+def test_settings_post_invalid_saves_nothing(client, monkeypatch):
+    monkeypatch.setattr(app, "APPLE_HEALTH_EXPORT_ENABLED", False)
+    old_max, old_kcal = config.MAX_SPEED_KMH, config.KCAL_PER_MILE
+    resp = client.post("/settings", data={
+        "max_speed_kmh": str(old_max - 0.5),
+        "kcal_per_mile": "",
+        "port": "abc",
+        "apple_health_export_enabled": "on",
+    })
+    html = resp.get_data(as_text=True)
+    assert resp.status_code == 400
+    assert not os.path.exists(app._CONFIG_FILE)
+    assert config.MAX_SPEED_KMH == app.MAX_SPEED_KMH == old_max and config.KCAL_PER_MILE == old_kcal
+    assert app.APPLE_HEALTH_EXPORT_ENABLED is False
+    assert "Nothing was saved. Enter a number for kcal_per_mile, port." in html
+    assert re.search(r'id="port"[^>]*value="abc"[^>]*aria-invalid="true"', html)
+    assert re.search(r'id="max_speed_kmh"[^>]*value="%s"' % (old_max - 0.5), html)
+    assert not re.search(r'id="max_speed_kmh"[^>]*aria-invalid', html)
+    assert re.search(r'id="apple_health_export_enabled"[^>]*checked', html)
 
 
 @pytest.mark.parametrize(("days_ago", "dismissed"), [(0, False), (2, True)])
