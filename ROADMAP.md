@@ -515,12 +515,14 @@ While walking, the tab reads `3.2 mph · 1.40 mi - WalkingDad`: live content fir
 
 ---
 
-### 3.16 Settings Validation Feedback
-- **Status:** Planned
+### ✅ 3.16 Settings Validation Feedback
+- **Status:** ✅ Complete
+- **Changelog:** `[Unreleased]`
 - **Priority:** Medium
+- **Files Modified:** `app.py`, `templates/settings.html`, `static/ledger.css`, `tests/test_routes.py`
 - **Problem:** `settings_page()` (`app.py`) silently discards an invalid field value (e.g. typing "abc" into Max Speed), logs a server-side warning, and keeps the old value, but the redirect always shows the same "Settings saved" toast regardless. A user gets a false-positive success message with no indication that specific value didn't take.
-- **Solution:** Track which fields (if any) failed validation during a POST and surface that in the response, distinct from the generic success toast.
-- **Implementation:** `settings_page()` collects the list of rejected `form_key`s during the existing cast/except loop and passes it through the redirect (e.g. a query param or flashed message); `base.html`'s toast logic shows a warning variant naming the rejected field(s) instead of (or alongside) "Settings saved".
+- **Solution:** If any field fails validation, save nothing and show the form again with what was typed, a notice naming the fields, and those fields marked invalid, as the profile form does.
+- **Implementation:** `_parse_settings_form()` collects the rejected `form_key`s and `settings_page()` re-renders through `_render_settings()` with status 400. The template marks those inputs `aria-invalid` and points them at the focused `role="alert"` notice.
 
 ---
 

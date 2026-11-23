@@ -1990,7 +1990,7 @@ _SETTINGS_SCHEMA = [
 ]
 
 
-def _render_settings(profile_error=None, profile_form=None, status=200):
+def _render_settings(profile_error=None, profile_form=None, status=200, invalid=(), values=None):
     profiles = _load_profiles()
     claim = None
     claimed = next((p for p in profiles if p["id"] == request.args.get("claim")), None)
@@ -2002,30 +2002,37 @@ def _render_settings(profile_error=None, profile_form=None, status=200):
             count = 0
         if count:
             claim = {"id": claimed["id"], "name": claimed["name"], "count": count}
+    fields = {form_key: getattr(config, const_name) for form_key, const_name, _, _ in _SETTINGS_SCHEMA}
+    fields["apple_health_export_enabled"] = APPLE_HEALTH_EXPORT_ENABLED
+    fields.update(values or {})
     return render_template(
         "settings.html",
-        apple_health_export_enabled=APPLE_HEALTH_EXPORT_ENABLED,
         profiles=[_profile_view(p) for p in profiles],
         claim=claim,
         profile_error=profile_error,
         profile_form=profile_form or {},
-        **{form_key: getattr(config, const_name) for form_key, const_name, _, _ in _SETTINGS_SCHEMA},
+        invalid=invalid,
+        **fields,
     ), status
+
+
+def _parse_settings_form(form) -> tuple[dict, list]:
+    """Cast each _SETTINGS_SCHEMA field; returns (updates, form_keys that failed)."""
+    updates, invalid = {}, []
+    for form_key, const_name, cast, _live in _SETTINGS_SCHEMA:
+        current = getattr(config, const_name)
+        try:
+            updates[form_key] = cast(form.get(form_key, str(current)), current)
+        except (ValueError, TypeError):
+            invalid.append(form_key)
+    return updates, invalid
 
 
 @app.route("/settings", methods=["GET", "POST"])
 def settings_page():
     global APPLE_HEALTH_EXPORT_ENABLED
     if request.method == "POST":
-        updates = {}
-        for form_key, const_name, cast, _live in _SETTINGS_SCHEMA:
-            current = getattr(config, const_name)
-            raw = request.form.get(form_key, str(current))
-            try:
-                updates[form_key] = cast(raw, current)
-            except (ValueError, TypeError):
-                logging.warning(f"Invalid value for {form_key} ({raw!r}); keeping current value.")
-                updates[form_key] = current
+        updates, invalid = _parse_settings_form(request.form)
 
         # Unlike every field above, a checkbox is absent from form data
         # entirely when unchecked rather than submitting a falsy value, so
@@ -2035,6 +2042,9 @@ def settings_page():
         was_enabled = APPLE_HEALTH_EXPORT_ENABLED
         updates["apple_health_export_enabled"] = "apple_health_export_enabled" in request.form
         updates["keyboard_shortcuts_enabled"] = "keyboard_shortcuts_enabled" in request.form
+        if invalid:
+            submitted = {**updates, **{k: request.form.get(k, "") for k in invalid}}
+            return _render_settings(status=400, invalid=invalid, values=submitted)
 
         _write_config(updates)
         for form_key, const_name, _cast, live in _SETTINGS_SCHEMA:
