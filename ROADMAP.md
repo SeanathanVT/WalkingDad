@@ -141,18 +141,19 @@ Bleak 3.x takes the disconnect callback only as a `BleakClient` constructor argu
 
 ---
 
-### 1.8 Commands Ignored After the Physical Remote, and Speed Steps During a Ramp
-- **Status:** In progress: everything except the remote's cause is built and checked on the C2
+### ✅ 1.8 Commands Ignored After the Physical Remote, and Speed Steps During a Ramp
+- **Status:** ✅ Complete
 - **Changelog:** `[Unreleased]`
 - **Priority:** High
+- **Files Modified:** `app.py`, `tests/conftest.py`, `tests/test_app_helpers.py`, `tests/test_ble_async.py`, `tests/test_routes.py`, `tests/test_status_packet.py`
 - **Problem:** Seen on a C2 (firmware 6.1.2, software 6.3.0) in a status-packet log:
     - After a press on the physical remote, status byte 16 changed from 3 to 2, and a Pause's `stop_belt()` (speed 0) had no effect until Resume's `start_belt()` about 4 s later. Resume's light-wake probe then took the slowing belt for a running one, and the session auto-paused.
     - A `change_speed()` sent ~0.3 s after another was silently not applied.
     - `+`/`-` step from the reported speed, which lags the target while the belt ramps (Max from 2.2 km/h took ~7 s). The status packet's `app_speed` byte carries the app-set target immediately, in km/h × 10 (`ph4-walkingpad`'s `/30` is wrong for the C2); the remote doesn't update it.
 - **Solution:** Reproduce each on the treadmill, then: find what byte 16 means and what makes app commands take effect again after the remote; have the light-wake probe require a rising speed; space or coalesce back-to-back speed commands; step from the speed the app last asked for while the belt ramps toward it.
-- **Implementation:** `bugfix/speed-commands-ramp`, checked on the C2.
+- **Implementation:** Checked on the C2.
     - **Built:** the light-wake probe requires a fresh speed above the lowest reading since Resume, so a belt slowing to a stop never confirms. Speed commands are at least `_SPEED_COMMAND_SPACING_SECONDS` (1.0 s, unmeasured) apart, and a newer step cancels one still waiting. `+`/`-` step from the speed the app last asked for, so quick presses add up; after a remote speed press (byte 16 = 2 for `+`, 4 for `-`) they step from the reported speed instead. `app_speed` is km/h × 10 on the C2 (byte 14 `0x36` with speed 5.4) but isn't used. Byte 16 (`controller_button`) changes are logged at INFO.
-    - **Open:** what byte 16 means and how app commands work again after a remote press. On the C2, byte 16 went 3 to 4 on a remote speed-down press while walking, and to 3 on both the app's `start_belt()` and a remote stop, so it doesn't simply mark which side sent the last command. A Pause right after that remote press still took effect (`app_speed` 0 within 0.5 s), so the ignored-commands case hasn't been reproduced.
+    - **Not reproduced:** byte 16 tracks the last remote button (values below), but the app's `start_belt()` also sets it to 3, so it doesn't mark which side sent the last command. The original Pause ignored after a remote press never came back: a Pause right after a remote press took effect (`app_speed` 0 within 0.5 s). If it shows up again, open a new item with the status-packet log.
     - **Byte 16 values on the C2's remote:** 2 after `+`, 4 after `-`, 3 after the center button stops the belt; restarting with the center button leaves it at 3.
 
 ---
