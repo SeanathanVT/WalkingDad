@@ -108,7 +108,7 @@ def test_logs_byte_16_changes_and_a_remote_press_clears_the_commanded_speed(walk
     caplog.set_level("INFO")
     app.process_status_packet(0, 0, 30, button=3)
     assert app._commanded_speed_kmh == 3.0
-    app.process_status_packet(0, 0, 28, button=app._REMOTE_CONTROLLER_BUTTON)
+    app.process_status_packet(0, 0, 28, button=4)
     assert app._commanded_speed_kmh is None
     assert caplog.text.count("controller_button") == 1
     assert "controller_button 3 -> 4" in caplog.text

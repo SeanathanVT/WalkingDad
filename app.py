@@ -247,7 +247,7 @@ resume_speed_kmh = 2.0  # default if none yet
 current_speed_kmh = current_distance_km = 0.0
 _commanded_speed_kmh: float | None = None  # last speed the app asked for; None once the remote takes over
 _last_controller_button = None
-_REMOTE_CONTROLLER_BUTTON = 4  # status byte 16 after a speed press on a C2's physical remote
+_REMOTE_SPEED_BUTTONS = (2, 4)  # status byte 16 after + or - on a C2's physical remote
 current_steps = 0
 current_calories = 0.0
 current_session_active_seconds = 0
@@ -902,7 +902,7 @@ def _note_controller_button(button):
     if button != _last_controller_button and _last_controller_button is not None:
         logging.info(f"Status controller_button {_last_controller_button} -> {button}")
     _last_controller_button = button
-    if button == _REMOTE_CONTROLLER_BUTTON:
+    if button in _REMOTE_SPEED_BUTTONS:
         _commanded_speed_kmh = None
 
 
