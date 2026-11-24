@@ -24,6 +24,8 @@ jobs:
           cache-dependency-path: requirements*.txt
       - name: Install dependencies
         run: pip install -r requirements.txt -r requirements-dev.txt
+      - name: Install Chromium for the browser smoke test
+        run: python -m playwright install --with-deps chromium-headless-shell
       # GitHub format turns each finding into an annotation on its line in the PR, not just a log entry.
       - name: Lint (ruff)
         run: ruff check . --output-format=github

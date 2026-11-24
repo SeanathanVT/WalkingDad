@@ -17,6 +17,7 @@ test:
     paths: [.cache/pip]
   script:
     - pip install -r requirements.txt -r requirements-dev.txt
+    - python -m playwright install --with-deps chromium-headless-shell
     # The Code Quality report puts findings in the MR widget; on failure, rerun for a readable log.
     - ruff check . --output-format=gitlab --output-file=gl-code-quality-report.json || ruff check .
     - python -m pytest -ra --cov=. --cov-report=term-missing --cov-report=xml

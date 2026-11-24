@@ -12,6 +12,10 @@ All notable changes to WalkingDad will be documented in this file.
 - **Resuming with the treadmill's remote resumes the session** (ROADMAP 1.10). The session used to stay paused while the belt ran. WalkingDad now notices the belt moving again within about 2 seconds and resumes, and `+`/`-` step from the speed the remote picked.
 - **Resume no longer auto-pauses a belt that is still slowing to a stop** (ROADMAP 1.8). Resume could mistake a belt that was slowing to a stop for one already moving, and then pause the session once it stopped.
 
+### Internal
+
+- **A browser smoke test runs the pages' JavaScript** (ROADMAP 2.12). Headless Chromium clicks through Start, Pause, Resume, and End against a faked treadmill, and checks that the paused page follows a resume from the treadmill's remote. Running it locally needs `python -m playwright install chromium-headless-shell`; without it the test is skipped.
+
 ---
 
 ## [2.0.0] (2026-10-30)
