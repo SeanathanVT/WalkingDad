@@ -1,6 +1,8 @@
 [tool.pytest.ini_options]
 pythonpath = [".", "ci"]
 testpaths = ["tests"]
+# A leaked file or socket only warns by default; fail on it instead.
+filterwarnings = ["error"]
 
 [tool.ruff.lint]
 # Deliberate style here: root logger, catch-all excepts around BLE I/O, naive local

@@ -342,6 +342,7 @@ def _v2_db(path):
 def test_init_db_upgrades_v2_with_backup(tmp_path):
     path, backups = str(tmp_path / "w.db"), tmp_path / "backups"
     _v2_db(path)
+    backups.mkdir()  # as at startup, where relocate_legacy_files() has already created data/backups
     sid = storage.create_session("2026-01-01T08:00:00", "KS-BLC2", "1.0")
     storage.init_db(path, str(backups))
     assert _meta_version(path) == "3"
@@ -475,7 +476,6 @@ def test_unassigned_counts_and_claims_only_completed_sessions(db):
     assert storage.get_session(interrupted)["profile"] == storage.UNASSIGNED
 
 
-
 def test_set_session_profile_only_completed(db):
     pid = storage.create_profile("Sean")
     done = storage.create_session("2026-01-01T08:00:00", None, None)
@@ -497,6 +497,23 @@ def test_init_db_backup_failure_is_a_clean_error(tmp_path):
     assert _meta_version(path) == "2"
 
 
+def test_init_db_failed_backup_leaves_no_partial_copy(tmp_path, monkeypatch):
+    path, backups = str(tmp_path / "w.db"), tmp_path / "backups"
+    _v2_db(path)
+
+    class FailsAfterCopy(sqlite3.Connection):
+        def execute(self, *args):
+            raise sqlite3.OperationalError("disk full")
+
+    real_connect = sqlite3.connect
+    monkeypatch.setattr(storage.sqlite3, "connect",
+                        lambda p, **k: real_connect(p, factory=FailsAfterCopy) if ".v2-" in p else real_connect(p, **k))
+    with pytest.raises(storage.DataVersionError, match="disk full"):
+        storage.init_db(path, str(backups))
+    assert list(backups.iterdir()) == []
+    assert _meta_version(path) == "2"
+
+
 @pytest.mark.parametrize("value", ["1", "0", "-3"])
 def test_init_db_rejects_version_below_oldest_shipped(tmp_path, value):
     path = str(tmp_path / "w.db")
@@ -514,7 +531,6 @@ def test_upgraded_schema_matches_fresh(tmp_path):
     storage.init_db(upgraded, str(tmp_path / "b"))
     schema = "SELECT type, name, sql FROM sqlite_master ORDER BY type, name"
     assert _q(upgraded, schema) == _q(fresh, schema)
-
 
 
 def test_init_db_backup_includes_uncheckpointed_wal(tmp_path):

@@ -75,3 +75,14 @@ def test_zero_moving_time_does_not_divide_by_zero():
 
     assert rec["avg_speed_mph"] == 0
     assert rec["end_time"] is None
+
+
+def test_null_totals_read_as_zero():
+    # complete_session() stores NULL for anything a partial summary leaves out.
+    row = {
+        "id": "x", "start_time": "2026-07-15T12:00:00-04:00", "end_time": "2026-07-15T12:05:00-04:00",
+        "moving_s": None, "distance_m": None, "steps": None, "calories_kcal": None,
+        "health_logged": 0, "has_samples": 0, "profile": "default",
+    }
+    rec = legacy_record(row)
+    assert (rec["duration_seconds"], rec["distance_km"], rec["steps"], rec["calories"], rec["avg_speed_kmh"]) == (0, 0, 0, 0, 0)

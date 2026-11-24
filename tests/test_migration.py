@@ -164,9 +164,9 @@ def test_rename_failure_still_marks_migrated(db, monkeypatch, caplog):
     def refuse(src, dst):
         raise OSError("read-only")
 
-    monkeypatch.setattr(storage.os, "replace", refuse)
-    storage.migrate_json(json_path)
-    monkeypatch.undo()
+    with monkeypatch.context() as m:
+        m.setattr(storage.os, "replace", refuse)
+        storage.migrate_json(json_path)
 
     assert "could not rename it: read-only" in caplog.text
     assert (db / "session_history.json").exists()

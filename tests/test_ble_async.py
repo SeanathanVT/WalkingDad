@@ -148,12 +148,13 @@ def disconnects(monkeypatch):
 
 
 # ── small helpers ────────────────────────────────────────────────────────
-@pytest.mark.parametrize(("client", "expected"), [
-    (FakeClient(), 1),
-    (FakeClient(connected=False), 0),
-    (FakeClient(fail=True), 1),
+@pytest.mark.parametrize(("kwargs", "expected"), [
+    ({}, 1),
+    ({"connected": False}, 0),
+    ({"fail": True}, 1),
 ])
-def test_safe_disconnect_client(app_state, client, expected):
+def test_safe_disconnect_client(app_state, kwargs, expected):
+    client = FakeClient(**kwargs)
     run(lambda: app._safe_disconnect_client(client, "test"))
     assert client.disconnects == expected
 
@@ -548,7 +549,7 @@ def test_connect_to_pad_allows_a_slow_connect(sleeps, monkeypatch):
     new = _new_controller(monkeypatch)
     _slow_run(new, 0.2)
     monkeypatch.setattr(app, "_BLE_WRITE_TIMEOUT_SECONDS", 0.05)
-    monkeypatch.setattr(app, "_BLE_CONNECT_TIMEOUT_SECONDS", 0.5, raising=False)
+    monkeypatch.setattr(app, "_BLE_CONNECT_TIMEOUT_SECONDS", 0.5)
     assert run(app._connect_to_pad) is True
     assert new.calls == [("run", _NAMED.address), MANUAL]
 
@@ -556,7 +557,7 @@ def test_connect_to_pad_allows_a_slow_connect(sleeps, monkeypatch):
 def test_connect_to_pad_still_times_out(sleeps, monkeypatch):
     new = _new_controller(monkeypatch)
     _slow_run(new, 1.0)
-    monkeypatch.setattr(app, "_BLE_CONNECT_TIMEOUT_SECONDS", 0.1, raising=False)
+    monkeypatch.setattr(app, "_BLE_CONNECT_TIMEOUT_SECONDS", 0.1)
     with pytest.raises(asyncio.TimeoutError):
         run(app._connect_to_pad)
     # A half-open connection left behind keeps the pad connected to this computer, so it stops advertising and
@@ -891,8 +892,6 @@ def test_end_stops_belt_when_it_cancels_an_unfinished_pause(app_state, pad, disc
     run(body)
     assert pad.calls == [("stop_belt",)]
     assert app._belt_transitioning is False
-
-
 
 
 def test_superseded_sequence_leaves_newer_transition(app_state, pad, disconnects, monkeypatch):

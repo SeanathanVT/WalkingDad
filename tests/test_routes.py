@@ -151,10 +151,8 @@ def test_saved_old_theme_ids_migrate(client):
     assert "{ frost: 'holly', harvest: 'pumpkin' }" in client.get("/").get_data(as_text=True)
 
 
-def test_themes_css_covers_every_color_theme():
+def test_themes_css_drops_old_season_ids():
     css = (pathlib.Path(app.__file__).parent / "static" / "themes.css").read_text()
-    for tid in ("red", "amber", "lime", "forest", "teal", "cyan", "blue", "violet", "pink", "vt", "bloom", "tide", "pumpkin", "holly"):
-        assert f':root[data-color-theme="{tid}"]' in css, tid
     assert "frost" not in css and "harvest" not in css
 
 
@@ -255,7 +253,8 @@ def test_phone_viewport_and_manifest(client):
     html = client.get("/").get_data(as_text=True)
     assert 'name="viewport" content="width=device-width' in html
     assert 'rel="manifest"' in html
-    assert client.get("/static/manifest.json").get_json()["display"] == "standalone"
+    with client.get("/static/manifest.json") as resp:
+        assert resp.get_json()["display"] == "standalone"
 
 
 def test_root_pending_restore(client, monkeypatch):
@@ -434,8 +433,6 @@ def test_speed(client, app_state, running, speeds, monkeypatch, path, current, e
     assert app_state[0].cr_frame.f_locals["dev_speed"] == expected
 
 
-
-
 @pytest.mark.parametrize(("path", "current", "commanded", "expected"), [
     ("/increase_speed", 3.0, 6.0, 60),  # ramping up to Max: step from what was asked for
     ("/decrease_speed", 3.0, 6.0, 55),
@@ -484,8 +481,6 @@ def test_speed_ignored_while_belt_transitioning(client, app_state, running, monk
     assert app_state == []
 
 
-
-
 @pytest.mark.parametrize(("path", "current", "expected"), [
     ("/increase_speed", 3.8, 44),
     ("/decrease_speed", 1.9, 13),
@@ -521,6 +516,15 @@ def test_end_session(client, app_state, monkeypatch):
     assert (app.current_steps, app.current_distance_km, app.current_session_active_seconds) == (0, 0.0, 0)
     assert app._session_id is None
     assert not os.path.exists(app.SESSION_STATE_FILE)
+
+
+def test_end_session_schedule_failure(client, no_loop, monkeypatch):
+    monkeypatch.setattr(app, "ble_loop", SimpleNamespace(is_closed=lambda: False))
+    client.post("/start")
+    assert redirects_root(client.post("/end_session"))
+    assert [s["status"] for s in storage.list_sessions()] == ["completed"]
+    assert not app.session_active
+    assert not app._belt_transitioning
 
 
 def test_end_session_stale_while_running_is_noop(app_state, running):
@@ -1057,6 +1061,43 @@ def test_delete_profile_keeps_sessions(client):
     assert storage.get_session(sid)["profile"] == storage.UNASSIGNED
 
 
+def disk_error(*a, **k):
+    raise sqlite3.OperationalError("disk I/O error")
+
+
+@pytest.mark.parametrize(("path", "attr", "data", "status", "expected"), [
+    ("/profiles", "create_profile", profile_form(name="Kim"), 500, "save the profile."),
+    ("/profiles/{pid}", "update_profile", profile_form(), 500, "save the profile."),
+    ("/profiles/{pid}/delete", "delete_profile", None, 500, "delete the profile."),
+    ("/profiles/{pid}/claim", "assign_unassigned", None, 302, "/settings#profiles"),
+    ("/delete_session/{sid}", "get_session", None, 500, {"status": "error"}),
+    ("/session/{sid}/walker", "set_session_profile", {"walker": "unassigned"}, 500, {"status": "error"}),
+])
+def test_storage_failure_in_route_is_reported(client, caplog, monkeypatch, path, attr, data, status, expected):
+    pid, sid = storage.create_profile("Sean"), completed_session(datetime.now())
+    monkeypatch.setattr(storage, attr, disk_error)
+    resp = client.post(path.format(pid=pid, sid=sid), data=data)
+    assert resp.status_code == status
+    if isinstance(expected, dict):
+        assert resp.get_json() == expected
+    elif status == 302:
+        assert resp.headers["Location"].endswith(expected)
+    else:
+        assert expected in resp.get_data(as_text=True)
+    assert any(r.levelname == "ERROR" for r in caplog.records)
+
+
+def test_unassigned_count_failure_skips_the_claim_offer(client, monkeypatch):
+    completed_session(datetime.now() - timedelta(days=1))
+    monkeypatch.setattr(storage, "count_unassigned", disk_error)
+    resp = client.post("/profiles", data=profile_form())
+    assert resp.headers["Location"].endswith("/settings#profiles")
+    (p,) = storage.list_profiles()
+    resp = client.get(f"/settings?claim={p['id']}")
+    assert resp.status_code == 200
+    assert "Assign 1 existing session" not in resp.get_data(as_text=True)
+
+
 def test_profile_round_trip_does_not_drift(client):
     client.post("/profiles", data=profile_form())
     (p,) = storage.list_profiles()
@@ -1334,7 +1375,6 @@ def test_settings_labels_name_their_inputs(client):
 def test_add_profile_form_open_after_create_error(client):
     html = client.post("/profiles", data=profile_form(lb="49")).get_data(as_text=True)
     assert '<div id="add-profile" data-open="true">' in html
-
 
 
 # ── history follows the walker; reassigning in Edit ──

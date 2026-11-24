@@ -119,3 +119,30 @@ def test_paused_page_follows_remote_resume(page):
     app.ble_loop.call_soon_threadsafe(app.process_status_packet, 0, 0, 0)
     app.ble_loop.call_soon_threadsafe(app.process_status_packet, 0, 0, 30)
     expect_screen(page, "walking")
+
+
+def test_walking_page_follows_auto_pause(page, monkeypatch):
+    page.get_by_role("button", name="Start walking").click()
+    expect(page.get_by_role("button", name="Pause")).to_be_enabled()  # start sequence done
+    # Stepping off: the pad reports the belt stopped once the grace window has passed.
+    monkeypatch.setattr(app, "_resume_grace_deadline", 0)
+    app.controller.hook = reply(0.0)
+    expect_screen(page, "paused")
+
+
+def test_page_follows_a_dropped_connection(page, monkeypatch):
+    async def no_reconnect():
+        pass
+
+    monkeypatch.setattr(app, "_auto_reconnect", no_reconnect)
+    expect_screen(page, "start")
+    app.ble_loop.call_soon_threadsafe(app._handle_disconnect, None)
+    expect(page.get_by_role("heading", name="Looking for your WalkingPad")).to_be_visible()
+
+
+def test_paused_page_follows_a_server_side_end(page):
+    page.get_by_role("button", name="Start walking").click()
+    page.get_by_role("button", name="Pause").click()
+    expect(page.get_by_role("button", name="Resume")).to_be_enabled()
+    app._end_session(stale=True)  # what the stale-pause timer calls
+    expect_screen(page, "start")
