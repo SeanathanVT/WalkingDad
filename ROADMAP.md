@@ -152,7 +152,7 @@ Bleak 3.x takes the disconnect callback only as a `BleakClient` constructor argu
 - **Solution:** Reproduce each on the treadmill, then: find what byte 16 means and what makes app commands take effect again after the remote; have the light-wake probe require a rising speed; space or coalesce back-to-back speed commands; step from the speed the app last asked for while the belt ramps toward it.
 - **Implementation:** `bugfix/speed-commands-ramp`, checked on the C2.
     - **Built:** the light-wake probe requires a fresh speed above the lowest reading since Resume, so a belt slowing to a stop never confirms. Speed commands are at least `_SPEED_COMMAND_SPACING_SECONDS` (1.0 s, unmeasured) apart, and a newer step cancels one still waiting. `+`/`-` step from the speed the app last asked for, so quick presses add up; after a remote speed press (byte 16 = 2 for `+`, 4 for `-`) they step from the reported speed instead. `app_speed` is km/h × 10 on the C2 (byte 14 `0x36` with speed 5.4) but isn't used. Byte 16 (`controller_button`) changes are logged at INFO.
-    - **Open:** what byte 16 means and how app commands work again after a remote press. On the C2, byte 16 went 3 to 4 on a remote speed-down press while walking, and to 3 on both the app's `start_belt()` and a remote stop, so it doesn't simply mark which side sent the last command. A Pause right after that remote press still took effect (`app_speed` 0 within 0.5 s), so the ignored-commands case hasn't been reproduced; the original log's value 2 may come from a different remote button.
+    - **Open:** what byte 16 means and how app commands work again after a remote press. On the C2, byte 16 went 3 to 4 on a remote speed-down press while walking, and to 3 on both the app's `start_belt()` and a remote stop, so it doesn't simply mark which side sent the last command. A Pause right after that remote press still took effect (`app_speed` 0 within 0.5 s), so the ignored-commands case hasn't been reproduced.
     - **Byte 16 values on the C2's remote:** 2 after `+`, 4 after `-`, 3 after the center button stops the belt; restarting with the center button leaves it at 3.
 
 ---
@@ -172,7 +172,7 @@ Bleak 3.x takes the disconnect callback only as a `BleakClient` constructor argu
 ---
 
 ### 1.10 Resume from the Remote Isn't Detected
-- **Status:** In progress: built, not yet checked on the treadmill
+- **Status:** In progress: remote Pause then remote Resume checked on the C2; app Pause then remote Resume, and the paused page switching on its own, still to check
 - **Changelog:** `[Unreleased]`
 - **Priority:** High
 - **Problem:** Pausing with the physical remote works (auto-pause sees speed 0), but resuming with it doesn't: the session stays paused in the app while the belt runs. Seen on a C2, after both a remote and an app Pause:
@@ -181,7 +181,7 @@ Bleak 3.x takes the disconnect callback only as a `BleakClient` constructor argu
     - Distance and steps from the pad keep accumulating while the app is paused, but active time doesn't, so the session's pace comes out wrong.
     - Byte 16 went 4 to 3 on a remote stop, so 3 doesn't mean "the app sent the last command" as 1.8 assumed; only 2 and 4 (after a remote speed press) are relied on.
 - **Solution:** While a session is paused and no belt sequence is running, treat a fresh status showing the belt moving as a Resume: mark the belt running, close the pause, restart the stats monitor, and forget the app's last commanded speed so `+`/`-` step from the reported one. Poll faster while paused (about every 2 s) so the page catches up quickly.
-- **Implementation:** `process_status_packet()` counts a moving reading as a Resume only after the paused belt has reported 0, so a belt still slowing after an app Pause doesn't resume the session. The idle watchdog pings every 2 s during a paused session (10 s with no session) and starts the stats monitor once the belt runs again. Still to check on the treadmill: remote Pause then remote Resume, and app Pause then remote Resume.
+- **Implementation:** `_watch_for_remote_resume()` counts a moving reading as a Resume only after the paused belt has reported 0, so a belt still slowing after an app Pause doesn't resume the session. The idle watchdog pings every 2 s during a paused session (10 s with no session) and starts the stats monitor once the belt runs again; the paused page reloads into the walking view when the stream reports the belt running.
 ---
 
 ## Security & Code Quality

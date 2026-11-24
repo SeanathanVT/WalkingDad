@@ -129,9 +129,9 @@ _PAUSED_WATCHDOG_PING_INTERVAL_SECONDS = 2
 # -- one missed/delayed reply barely matters. The idle watchdog's 10s interval
 # would give the SAME 15s threshold only one chance, so a single slow reply
 # would force-disconnect an otherwise healthy paused session. Detection speed
-# matters far less while idle/paused (nobody's watching live stats), so this
+# matters far less while idle (nobody's watching live stats), so this
 # gets its own, much more forgiving threshold instead of sharing the active
-# one -- roughly 4-5 missed pings before disconnecting.
+# one -- roughly 4-5 missed idle pings (more while paused) before disconnecting.
 _IDLE_STALE_STATUS_TIMEOUT_SECONDS = 45
 # Auto-reconnect after an unexpected disconnect (see _handle_disconnect()/
 # _auto_reconnect()): capped exponential backoff between attempts, bounded
@@ -921,6 +921,18 @@ def _resume_from_remote():
         _save_session_state()
 
 
+def _watch_for_remote_resume(speed_kmh: float):
+    """Armed only by a zero reading, so the belt slowing after an app Pause can't count as a Resume."""
+    global _belt_seen_stopped
+    if belt_running or not session_active:
+        _belt_seen_stopped = False
+    elif not _belt_transitioning:
+        if speed_kmh == 0:
+            _belt_seen_stopped = True
+        elif _belt_seen_stopped:
+            _resume_from_remote()
+
+
 def process_status_packet(dev_dist: float, dev_steps: int, dev_speed: float, button=None):
     """Update cumulative stats from raw values AND handle auto-pause.
 
@@ -931,7 +943,7 @@ def process_status_packet(dev_dist: float, dev_steps: int, dev_speed: float, but
     global belt_running, resume_speed_kmh
     global current_speed_kmh, current_distance_km, current_steps, current_calories
     global _last_dev_dist, _last_dev_steps, _last_status_update_monotonic
-    global current_session_active_seconds, _last_moving_packet_monotonic, _belt_seen_stopped
+    global current_session_active_seconds, _last_moving_packet_monotonic
     _note_controller_button(button)
 
     new_reported_speed_kmh = dev_speed / 10.0
@@ -980,14 +992,7 @@ def process_status_packet(dev_dist: float, dev_steps: int, dev_speed: float, but
         belt_running = False
         just_auto_paused = True
 
-    # Armed only by a zero reading, so the belt slowing after an app Pause can't count as a Resume.
-    if belt_running or not session_active:
-        _belt_seen_stopped = False
-    elif not _belt_transitioning:
-        if new_reported_speed_kmh == 0:
-            _belt_seen_stopped = True
-        elif _belt_seen_stopped:
-            _resume_from_remote()
+    _watch_for_remote_resume(new_reported_speed_kmh)
 
     # Cumulative stats accumulation
     if dev_dist < _last_dev_dist:
