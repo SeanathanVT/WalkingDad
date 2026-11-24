@@ -261,12 +261,17 @@ def test_try_light_wake_unconfirmed(pad, speed_before, hook):
     assert pad.calls.count(("ask_stats",)) == app._LIGHT_WAKE_PROBE_ATTEMPTS
 
 
-def test_try_light_wake_rejects_a_slowing_belt(pad):
-    # A late stop_belt() taking effect: fresh nonzero packets, but falling.
-    speeds = iter([2.0, 1.5, 1.0, 0.5, 0.0, 0.0])
-    app.current_speed_kmh = 2.5
-    pad.hook = lambda name: name == "ask_stats" and app.process_status_packet(0, 0, int(next(speeds) * 10))
-    assert run(app._try_light_wake) is False
+@pytest.mark.parametrize(("before", "readings", "confirmed"), [
+    (2.5, [2.0, 1.5, 1.0, 0.5, 0.0, 0.0], False),  # a late stop_belt() taking effect
+    (2.5, [2.0, 1.5, 1.5, 1.5, 1.0, 0.5], False),  # a plateau while slowing isn't a rise
+    (3.3, [0.0, 2.5], True),  # restarting after a stale pre-Pause reading
+    (4.0, [4.0] * 6, False),  # never stopped: no rise, so the full wake runs
+])
+def test_try_light_wake_needs_a_rise(pad, before, readings, confirmed):
+    speeds = iter(readings)
+    app.current_speed_kmh = before
+    pad.hook = lambda name: name == "ask_stats" and app.process_status_packet(0, 0, round(next(speeds) * 10))
+    assert run(app._try_light_wake) is confirmed
 
 
 def test_try_light_wake_swallows_start_belt_error(pad):
@@ -281,8 +286,15 @@ def test_wake_and_start_belt_full(pad):
 
 
 def test_wake_and_start_belt_no_speed(pad):
+    app._commanded_speed_kmh = 3.0
     run(app._wake_and_start_belt)
     assert pad.calls == FULL_WAKE
+    assert app._commanded_speed_kmh is None  # the pad picks its own starting speed
+
+
+def test_wake_and_start_belt_records_commanded_speed(pad):
+    run(lambda: app._wake_and_start_belt(3.5))
+    assert app._commanded_speed_kmh == 3.5
 
 
 def test_wake_and_start_belt_light_wake(pad):
@@ -512,6 +524,16 @@ def test_connect_to_pad(sleeps, monkeypatch):
     assert app._idle_watchdog_task is not None
     new.on_cur_status_received(None, {"dist": 0, "steps": 0, "speed": 25})
     assert app.current_speed_kmh == 2.5
+
+
+def test_connect_to_pad_forgets_the_previous_links_speed_state(sleeps, monkeypatch, caplog):
+    _new_controller(monkeypatch)
+    app._commanded_speed_kmh, app._last_controller_button = 4.0, 4
+    caplog.set_level("INFO")
+    assert run(app._connect_to_pad) is True
+    assert app._commanded_speed_kmh is None and app._last_controller_button is None
+    app.controller.on_cur_status_received(None, {"speed": 0, "controller_button": 3})
+    assert "controller_button" not in caplog.text  # first packet of a link isn't a change
 
 
 def _slow_run(controller, seconds):
@@ -1056,7 +1078,7 @@ def test_stats_monitor_processes_poll_reply(pad, disconnects, monkeypatch):
 
     pad.ask_stats = ask_stats
     run(app._stats_monitor)
-    assert packets == [(5, 7, 25, 0, None)]
+    assert packets == [(5, 7, 25, None)]
 
 
 @pytest.mark.parametrize(("exc", "logged"), [

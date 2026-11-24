@@ -102,11 +102,13 @@ def test_status_update_not_stamped_when_packet_raises(walking, monkeypatch):
     assert app._last_status_update_monotonic == 0.0
 
 
-def test_tracks_target_previous_speed_and_logs_remote_button(walking, monkeypatch, caplog):
+def test_logs_byte_16_changes_and_a_remote_press_clears_the_commanded_speed(walking, monkeypatch, caplog):
     monkeypatch.setattr(app, "_last_controller_button", 3)
+    monkeypatch.setattr(app, "_commanded_speed_kmh", 3.0)
     caplog.set_level("INFO")
-    app.process_status_packet(0, 0, 22, app_speed=60, button=3)
-    app.process_status_packet(0, 0, 30, app_speed=60, button=2)
-    assert (app._prev_speed_kmh, app.current_speed_kmh, app._target_speed_kmh) == (2.2, 3.0, 6.0)
+    app.process_status_packet(0, 0, 30, button=3)
+    assert app._commanded_speed_kmh == 3.0
+    app.process_status_packet(0, 0, 28, button=app._REMOTE_CONTROLLER_BUTTON)
+    assert app._commanded_speed_kmh is None
     assert caplog.text.count("controller_button") == 1
-    assert "controller_button 3 -> 2" in caplog.text
+    assert "controller_button 3 -> 4" in caplog.text
