@@ -248,7 +248,7 @@ A `pytest` suite covering every module without a treadmill. How to run it: the R
 
 **Implementation:** `tests/conftest.py` sets `WALKINGDAD_NO_STARTUP=1` before importing `app.py`, so the import skips opening `walkingdad.db`, the JSON migration, the orphan sweep, the BLE thread, the SSE broadcaster, and installing the signal/`atexit` handlers. Its `app_state` fixture resets every module global, points the state file, `config.json`, and the database at `tmp_path`, and records BLE coroutines instead of scheduling them, so tests can run a captured sequence against a fake controller.
 
-**Not covered:** the inline template JavaScript (left to 2.12's browser smoke test); code that only runs at import (`app.py`'s startup block, `config.py`'s no-`config.json` path); the background-thread entry points (SSE broadcaster start, `/shutdown`'s delayed exit); `_ble_thread`'s handlers for errors escaping asyncio's own `run_forever()` and task cleanup; and `run.py`'s Windows branch and `__main__` guard.
+**Not covered:** template JavaScript beyond 2.12's smoke test; code that only runs at import (`app.py`'s startup block, `config.py`'s no-`config.json` path); the background-thread entry points (SSE broadcaster start, `/shutdown`'s delayed exit); `_ble_thread`'s handlers for errors escaping asyncio's own `run_forever()` and task cleanup; and `run.py`'s Windows branch and `__main__` guard.
 
 ---
 
@@ -274,7 +274,7 @@ Pull/merge requests and pushes to `main`/`development` run the lint and test sui
 |---|---|
 | **GitHub Actions** | `.github/workflows/ci.yml` on `ubuntu-latest`, Python 3.10 (the supported floor) and 3.13. Pushes run only on `main`/`development`, so a PR branch isn't tested twice |
 | **GitLab CI** | `.gitlab-ci.yml` on the `python:3.12` image. Runs a merge-request pipeline when an MR is open, otherwise a branch pipeline, and shows the coverage percentage and a Cobertura report in the MR |
-| **Steps** | `pip install -r requirements.txt -r requirements-dev.txt`, `ruff check .`, `python -m pytest --cov=.`. CI reports coverage but never fails on it |
+| **Steps** | `pip install -r requirements.txt -r requirements-dev.txt`, `python -m playwright install --with-deps chromium-headless-shell`, `ruff check .`, `python -m pytest --cov=.`. CI reports coverage but never fails on it |
 | **Lint** | `ruff` pinned in `requirements-dev.txt`, since its default rule set changes between releases. `pyproject.toml` ignores only rules that flag deliberate project style (root logger, catch-all excepts around BLE I/O, naive local datetimes, a `ValueError` raised to share an `except` clause) |
 | **Linux only** | BLE is fully mocked, so no Bluetooth hardware or OS-specific stack is needed. `tests/test_run.py` assumes POSIX (macOS/Linux) |
 
@@ -340,12 +340,14 @@ Read-only mode for an older checkout pointed at newer data was considered and de
 
 ---
 
-### 2.12 Integration Smoke Test
-- **Status:** Planned
+### ✅ 2.12 Integration Smoke Test
+- **Status:** ✅ Complete
+- **Changelog:** `[Unreleased]`
 - **Priority:** Medium
+- **Files Modified:** `tests/test_browser_smoke.py`, `requirements-dev.txt`, `.github/workflows/ci.yml`, `.gitlab-ci.yml`, `README.md`
 - **Problem:** 2.5's tests drive each route through Flask's test client, but nothing loads the rendered pages in a real browser and clicks through Start → Pause → Resume → End, so a template JavaScript or front-end wiring regression could still slip through.
 - **Solution:** One browser-driven smoke test that boots the app against a mocked BLE device/controller and clicks through the full session lifecycle, asserting each screen renders and each transition lands where expected.
-- **Implementation:** Playwright (or Selenium) driving a test instance of the Flask app with `controller`/`BleakScanner` mocked out; run as part of the CI configs from 2.7.
+- **Implementation:** `tests/test_browser_smoke.py` drives headless Chromium through Playwright against the app served by Waitress on a free port, with the real SSE broadcaster and belt sequences running on an asyncio loop against `FakeController`. One test clicks Start, Pause, Resume, Pause, End. The other pauses, then feeds the status packets the pad sends when its remote resumes the belt, and expects the paused page to reload into the walking view on its own (1.10). Without Chromium the tests are skipped locally but fail in CI (`CI` set). Both CI configs install Chromium with `playwright install --with-deps`; the two tests take about 18 s.
 
 ---
 

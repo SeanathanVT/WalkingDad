@@ -4,3 +4,5 @@ pytest-cov
 coverage[toml]
 # Pinned: ruff's default rule set changes between releases.
 ruff==0.16.10
+# Browser smoke test; also needs `python -m playwright install chromium-headless-shell`.
+playwright
