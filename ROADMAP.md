@@ -248,7 +248,7 @@ A `pytest` suite covering every module without a treadmill. How to run it: the R
 
 **Implementation:** `tests/conftest.py` sets `WALKINGDAD_NO_STARTUP=1` before importing `app.py`, so the import skips opening `walkingdad.db`, the JSON migration, the orphan sweep, the BLE thread, the SSE broadcaster, and installing the signal/`atexit` handlers. Its `app_state` fixture resets every module global, points the state file, `config.json`, and the database at `tmp_path`, and records BLE coroutines instead of scheduling them, so tests can run a captured sequence against a fake controller.
 
-**Not covered:** template JavaScript beyond 2.12's smoke test; code that only runs at import (`app.py`'s startup block, `config.py`'s no-`config.json` path); the background-thread entry points (SSE broadcaster start, `/shutdown`'s delayed exit); `_ble_thread`'s handlers for errors escaping asyncio's own `run_forever()` and task cleanup; and `run.py`'s Windows branch and `__main__` guard.
+**Not covered:** template JavaScript beyond 2.12's smoke test; code that only runs at import (`app.py`'s startup block); the background-thread entry points (SSE broadcaster start, `/shutdown`'s delayed exit); `_ble_thread`'s handlers for errors escaping asyncio's own `run_forever()` and task cleanup; and `run.py`'s Windows branch and `__main__` guard.
 
 ---
 
@@ -347,7 +347,7 @@ Read-only mode for an older checkout pointed at newer data was considered and de
 - **Files Modified:** `tests/test_browser_smoke.py`, `requirements-dev.txt`, `.github/workflows/ci.yml`, `.gitlab-ci.yml`, `README.md`
 - **Problem:** 2.5's tests drive each route through Flask's test client, but nothing loads the rendered pages in a real browser and clicks through Start → Pause → Resume → End, so a template JavaScript or front-end wiring regression could still slip through.
 - **Solution:** One browser-driven smoke test that boots the app against a mocked BLE device/controller and clicks through the full session lifecycle, asserting each screen renders and each transition lands where expected.
-- **Implementation:** `tests/test_browser_smoke.py` drives headless Chromium through Playwright against the app served by Waitress on a free port, with the real SSE broadcaster and belt sequences running on an asyncio loop against `FakeController`. One test clicks Start, Pause, Resume, Pause, End. The other pauses, then feeds the status packets the pad sends when its remote resumes the belt, and expects the paused page to reload into the walking view on its own (1.10). Without Chromium the tests are skipped locally but fail in CI (`CI` set). Both CI configs install Chromium with `playwright install --with-deps`; the two tests take about 18 s.
+- **Implementation:** `tests/test_browser_smoke.py` drives headless Chromium through Playwright against the app served by Waitress on a free port, with the real SSE broadcaster and belt sequences running on an asyncio loop against `FakeController`. One test clicks Start, Pause, Resume, Pause, End. The others change state on the server side, with no click, and expect the open page to follow on its own: the remote resuming the belt (1.10), the belt stopping while walking (auto-pause), the connection dropping, and a paused session ending (the stale-pause timer). Without Chromium the tests are skipped locally but fail in CI (`CI` set). Both CI configs install Chromium with `playwright install --with-deps`; the five tests take about 28 s.
 
 ---
 

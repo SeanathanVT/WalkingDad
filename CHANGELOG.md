@@ -14,7 +14,7 @@ All notable changes to WalkingDad will be documented in this file.
 
 ### Internal
 
-- **A browser smoke test runs the pages' JavaScript** (ROADMAP 2.12). Headless Chromium clicks through Start, Pause, Resume, and End against a faked treadmill, and checks that the paused page follows a resume from the treadmill's remote. Running it locally needs `python -m playwright install chromium-headless-shell`; without it the test is skipped.
+- **A browser smoke test runs the pages' JavaScript** (ROADMAP 2.12). Headless Chromium clicks through Start, Pause, Resume, and End against a faked treadmill, and checks that each page follows changes made away from it: a resume from the treadmill's remote, an auto-pause, a dropped connection, and a session ended by the stale-pause timer. Running it locally needs `python -m playwright install chromium-headless-shell`; without it the test is skipped.
 
 ---
 

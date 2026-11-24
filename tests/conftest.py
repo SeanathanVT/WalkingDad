@@ -26,6 +26,12 @@ _RESET = {
 _SETTINGS_CONSTS = [c for _, c, _, _ in app._SETTINGS_SCHEMA] + ["APPLE_HEALTH_EXPORT_ENABLED", "KEYBOARD_SHORTCUTS_ENABLED"]
 
 
+@pytest.fixture(autouse=True)
+def _restore_db_path(monkeypatch):
+    """storage.init_db() repoints the module-wide database; without this it outlives the test."""
+    monkeypatch.setattr(storage, "_db_path", storage._db_path)
+
+
 @pytest.fixture
 def app_state(monkeypatch, tmp_path):
     """Idle, connected app with every global reset, files and DB under tmp_path, and BLE scheduling recorded."""

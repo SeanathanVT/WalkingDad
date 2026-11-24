@@ -77,6 +77,28 @@ def test_duplicate_addresses_probed_once(monkeypatch):
     assert run._listen_addrs() == [(v6, fake[0][4]), (socket.AF_INET, fake[2][4])]
 
 
+@pytest.mark.parametrize(("host", "resolved"), [("*", None), ("[::1]", "::1"), ("::1", "::1"), ("localhost", "localhost")])
+def test_host_passed_to_getaddrinfo_as_waitress_does(monkeypatch, host, resolved):
+    # glibc resolves "*" by itself, so only checking the result wouldn't catch a lost "*" -> None mapping.
+    asked = []
+
+    def getaddrinfo(h, *args):
+        asked.append(h)
+        return []
+
+    monkeypatch.setattr(socket, "getaddrinfo", getaddrinfo)
+    _config(monkeypatch, host, 5001)
+    run._listen_addrs()
+    assert asked == [resolved]
+
+
+@pytest.mark.parametrize("port", [1, 65535])
+def test_accepts_port_range_ends(monkeypatch, port):
+    monkeypatch.setattr(socket, "getaddrinfo", lambda *a, **k: [])
+    _config(monkeypatch, "127.0.0.1", port)
+    run.check_port()
+
+
 def test_unresolvable_host(monkeypatch):
     def fail(*a, **k):
         raise socket.gaierror(socket.EAI_NONAME, "Name or service not known")

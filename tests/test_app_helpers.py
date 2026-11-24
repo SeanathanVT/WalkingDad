@@ -668,6 +668,8 @@ def _oserror(*a):
     (app._dismiss_health_export, storage, "list_sessions", None),
     (app._clear_session_state, app.os, "remove", None),
     (app._begin_db_session, storage, "create_session", None),
+    (app._session_walker_name, storage, "get_session", None),
+    (lambda: app._set_health_status("sid", storage.HEALTH_LOGGED), storage, "get_session", False),
 ])
 def test_storage_failures_are_logged_not_raised(app_state, monkeypatch, caplog, call, target, attr, expected):
     _start_session(monkeypatch)

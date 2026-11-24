@@ -9,6 +9,7 @@ import re
 import pytest
 
 STATIC = pathlib.Path(__file__).resolve().parent.parent / "static"
+PICKER = set(re.findall(r"id: '([a-z]+)', label", (STATIC.parent / "templates" / "base.html").read_text()))
 TOKENS = ("ground", "surface", "raised", "border", "control", "text", "muted", "primary", "primary-hover", "on-primary", "hue")
 
 
@@ -81,8 +82,8 @@ PRIMARY_ON_SURFACE_EXEMPT = {"vt"}
 
 
 def test_every_picker_theme_has_a_palette():
-    assert set(THEMES) == {"slate", "red", "amber", "lime", "forest", "teal", "cyan", "blue", "violet", "pink",
-                           "vt", "bloom", "tide", "pumpkin", "holly"}
+    assert {"slate", "vt"} <= PICKER  # the regex still finds the picker in base.html
+    assert set(THEMES) == PICKER
     for tid, tokens in THEMES.items():
         assert set(TOKENS) <= set(tokens), (tid, set(TOKENS) - set(tokens))
 

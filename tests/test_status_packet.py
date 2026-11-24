@@ -152,3 +152,16 @@ def test_no_remote_resume_during_a_belt_sequence(walking, monkeypatch):
     walking(0)
     walking(1.6)
     assert not app.belt_running
+
+
+@pytest.mark.parametrize(("running", "transitioning"), [(True, False), (False, True)])
+def test_remote_resume_rechecks_under_the_lock(walking, monkeypatch, running, transitioning):
+    # A route can change the state between the watcher's check and the lock.
+    resumed = []
+    monkeypatch.setattr(app, "_record_resume", lambda: resumed.append(1))
+    monkeypatch.setattr(app, "belt_running", running)
+    monkeypatch.setattr(app, "_belt_transitioning", transitioning)
+    monkeypatch.setattr(app, "_commanded_speed_kmh", 3.0)
+    app._resume_from_remote()
+    assert resumed == []
+    assert app._commanded_speed_kmh == 3.0

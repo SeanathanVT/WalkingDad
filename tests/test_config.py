@@ -20,8 +20,9 @@ def dirs(monkeypatch, tmp_path):
 
 def test_relocate_legacy_files(dirs):
     app_dir, data_dir = dirs
-    for name in ("config.json", "session_state.json", "walkingdad.db", "walkingdad.db-wal",
-                 "session_history.json.bak-20261005-111247", "session_history.json.migrated", "app.py"):
+    for name in ("config.json", "session_state.json", "session_history.json", "walkingdad.db", "walkingdad.db-wal",
+                 "walkingdad.db-shm", "session_history.json.bak-20261005-111247", "session_history.json.migrated",
+                 "app.py"):
         (app_dir / name).write_text(name)
 
     config.relocate_legacy_files()
@@ -29,7 +30,8 @@ def test_relocate_legacy_files(dirs):
 
     assert sorted(p.name for p in app_dir.iterdir()) == ["app.py", "data"]
     assert sorted(p.name for p in data_dir.iterdir()) == [
-        "backups", "config.json", "session_state.json", "walkingdad.db", "walkingdad.db-wal"]
+        "backups", "config.json", "session_history.json", "session_state.json", "walkingdad.db", "walkingdad.db-shm",
+        "walkingdad.db-wal"]
     assert sorted(p.name for p in (data_dir / "backups").iterdir()) == [
         "session_history.json.bak-20261005-111247", "session_history.json.migrated"]
     assert (data_dir / "walkingdad.db").read_text() == "walkingdad.db"
@@ -40,11 +42,13 @@ def test_relocate_never_overwrites(dirs):
     data_dir.mkdir()
     (app_dir / "config.json").write_text("old")
     (data_dir / "config.json").write_text("new")
+    (app_dir / "session_state.json").write_text("state")
 
     config.relocate_legacy_files()
 
     assert (app_dir / "config.json").read_text() == "old"
     assert (data_dir / "config.json").read_text() == "new"
+    assert (data_dir / "session_state.json").read_text() == "state"  # a blocked file doesn't stop the rest
 
 
 def test_relocate_keeps_database_with_its_wal(dirs):
@@ -159,3 +163,9 @@ def test_prepare_data_rejects_session_state_version_below_1(dirs, monkeypatch):
 @pytest.mark.parametrize("value", [0, -1, "2", None])
 def test_migrate_skips_unusable_versions(value):
     assert config.migrate({"schema_version": value}, {}, 1) == {"schema_version": value}
+
+
+def test_migrate_applies_only_steps_after_the_stored_version():
+    steps = {2: lambda d: {**d, "two": True}, 3: lambda d: {**d, "three": True}}
+    assert config.migrate({"schema_version": 2}, steps, 3) == {"schema_version": 2, "three": True}
+    assert config.migrate({}, steps, 3) == {"two": True, "three": True}
