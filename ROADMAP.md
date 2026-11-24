@@ -273,7 +273,7 @@ Pull/merge requests and pushes to `main`/`development` run the lint and test sui
 | Feature | Description |
 |---|---|
 | **GitHub Actions** | `.github/workflows/ci.yml` on `ubuntu-latest`, Python 3.10 (the supported floor) and 3.13. Pushes run only on `main`/`development`, so a PR branch isn't tested twice |
-| **GitLab CI** | `.gitlab-ci.yml` on the `python:3.12` image. Runs a merge-request pipeline when an MR is open, otherwise a branch pipeline, and shows the coverage percentage and a Cobertura report in the MR |
+| **GitLab CI** | `.gitlab-ci.yml` on the `python:3.10` and `python:3.13` images. Runs a merge-request pipeline when an MR is open, otherwise a branch pipeline, and shows the coverage percentage and a Cobertura report in the MR |
 | **Steps** | `pip install -r requirements.txt -r requirements-dev.txt`, `python -m playwright install --with-deps chromium-headless-shell`, `ruff check .`, `python -m pytest --cov=.`. CI reports coverage but never fails on it |
 | **Lint** | `ruff` pinned in `requirements-dev.txt`, since its default rule set changes between releases. `pyproject.toml` ignores only rules that flag deliberate project style (root logger, catch-all excepts around BLE I/O, naive local datetimes, a `ValueError` raised to share an `except` clause) |
 | **Linux only** | BLE is fully mocked, so no Bluetooth hardware or OS-specific stack is needed. `tests/test_run.py` assumes POSIX (macOS/Linux) |
