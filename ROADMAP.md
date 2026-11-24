@@ -153,6 +153,7 @@ Bleak 3.x takes the disconnect callback only as a `BleakClient` constructor argu
 - **Implementation:** `bugfix/speed-commands-ramp`, checked on the C2.
     - **Built:** the light-wake probe requires a fresh speed above the lowest reading since Resume, so a belt slowing to a stop never confirms. Speed commands are at least `_SPEED_COMMAND_SPACING_SECONDS` (1.0 s, unmeasured) apart, and a newer step cancels one still waiting. `+`/`-` step from the speed the app last asked for, so quick presses add up; after a remote speed press (byte 16 = 4) they step from the reported speed instead. `app_speed` is km/h × 10 on the C2 (byte 14 `0x36` with speed 5.4) but isn't used. Byte 16 (`controller_button`) changes are logged at INFO.
     - **Open:** what byte 16 means and how app commands work again after a remote press. On the C2, byte 16 went 3 to 4 on a remote speed-down press while walking, and to 3 on both the app's `start_belt()` and a remote stop, so it doesn't simply mark which side sent the last command. A Pause right after that remote press still took effect (`app_speed` 0 within 0.5 s), so the ignored-commands case hasn't been reproduced; the original log's value 2 may come from a different remote button.
+    - **Byte 16 values on the C2's remote:** 2 after `+`, 4 after `-`, 3 after the center button stops the belt; restarting with the center button leaves it at 3. Only 4 clears the app's commanded speed, so `+`/`-` after a remote `+` still step from the app's last speed.
 
 ---
 
