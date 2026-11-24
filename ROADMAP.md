@@ -168,7 +168,6 @@ Bleak 3.x takes the disconnect callback only as a `BleakClient` constructor argu
     - **Procedure:** for Bluetooth-only treadmills (`SingleBleDevice` → `BlueMcuFirmwareManager` → `SingleBlueOta`), the update runs over `fe02`, the normal command characteristic, not the Beken `f000ffc1`/`f000ffc2` OAD service (unused by KS Fit). Framed like normal commands (`0xF7` … `0xFD`): `hand_shake` (2 s reply timeout), then `ing` frames of 15 image bytes each with a reply per frame (1.2 s timeout), then `end`, then reset. Exact frame bytes not yet decoded.
 - **Implementation:** Not built. If revisited, build the check only: an update over a 15-byte-per-frame custom protocol on the command characteristic, with no image verification on the app side, risks bricking the controller (recoverable at best over a serial connection). First confirm the parameters and the `model`/`product_detail_id` values for a C2 with one live `user.firmware` request. Decompiled output (jadx, blutter) is kept locally, untracked, in `tmp/ksfit-6.6.0/`.
 
-
 ---
 
 ### 1.10 Resume from the Remote Isn't Detected
@@ -182,6 +181,7 @@ Bleak 3.x takes the disconnect callback only as a `BleakClient` constructor argu
     - Byte 16 went 4 to 3 on a remote stop, so 3 doesn't mean "the app sent the last command" as 1.8 assumed; only 2 and 4 (after a remote speed press) are relied on.
 - **Solution:** While a session is paused and no belt sequence is running, treat a fresh status showing the belt moving as a Resume: mark the belt running, close the pause, restart the stats monitor, and forget the app's last commanded speed so `+`/`-` step from the reported one. Poll faster while paused (about every 2 s) so the page catches up quickly.
 - **Implementation:** `_watch_for_remote_resume()` counts a moving reading as a Resume only after the paused belt has reported 0, so a belt still slowing after an app Pause doesn't resume the session. The idle watchdog pings every 2 s during a paused session (10 s with no session) and starts the stats monitor once the belt runs again; the paused page reloads into the walking view when the stream reports the belt running.
+
 ---
 
 ## Security & Code Quality

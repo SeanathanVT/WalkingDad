@@ -87,7 +87,7 @@ speed_history = deque(maxlen=15)
 # Monotonic time of the last status packet that showed the belt moving during a
 # walking segment; active time accrues from it. None = no open moving interval.
 _last_moving_packet_monotonic: float | None = None
-_belt_seen_stopped = False  # a paused session's belt has reported 0 since the pause (see _resume_from_remote())
+_belt_seen_stopped = False  # a paused session's belt has reported 0 since the pause (see _watch_for_remote_resume())
 # A longer gap between packets is counted only up to this, so a stall or a
 # report that arrives late after the belt stopped can't add much phantom time.
 _MAX_MOVING_GAP_SECONDS = 5
@@ -1154,6 +1154,17 @@ async def _run_locked(make_coro, timeout: float = _BLE_COMMAND_LOCK_TIMEOUT_SECO
             lock.release()
 
 
+def _watchdog_ping_interval() -> float:
+    return _PAUSED_WATCHDOG_PING_INTERVAL_SECONDS if session_active else _IDLE_WATCHDOG_PING_INTERVAL_SECONDS
+
+
+def _ensure_stats_monitor():
+    """Belt sequences start their own monitor; a remote Resume (_resume_from_remote()) leaves it to the idle watchdog."""
+    global _stats_monitor_task
+    if not _belt_transitioning and (_stats_monitor_task is None or _stats_monitor_task.done()):
+        _stats_monitor_task = asyncio.create_task(_stats_monitor())
+
+
 async def _idle_connection_watchdog():
     """Keep _last_status_update_monotonic fresh whenever _stats_monitor() isn't
     running (paused session or idle/no session), so a dead BLE link is caught
@@ -1163,16 +1174,13 @@ async def _idle_connection_watchdog():
     Runs for the lifetime of a single connection (started once per successful
     connect in _connect_to_pad(), cancelled on disconnect/shutdown).
     """
-    global _stats_monitor_task
     while True:
-        await asyncio.sleep(_PAUSED_WATCHDOG_PING_INTERVAL_SECONDS if session_active else _IDLE_WATCHDOG_PING_INTERVAL_SECONDS)
+        await asyncio.sleep(_watchdog_ping_interval())
         if not connected:
             break  # disconnected via another path; nothing left for this task to do
 
         if belt_running:
-            # Belt sequences start their own monitor; a remote Resume (_resume_from_remote()) leaves it to us.
-            if not _belt_transitioning and (_stats_monitor_task is None or _stats_monitor_task.done()):
-                _stats_monitor_task = asyncio.create_task(_stats_monitor())
+            _ensure_stats_monitor()
             continue  # _stats_monitor() owns liveness now; keep waiting for it to finish
 
         # Cheap, no-wire-traffic check first: bleak caches the transport's own

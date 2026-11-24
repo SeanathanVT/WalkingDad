@@ -1044,6 +1044,7 @@ def test_idle_watchdog_defers_to_stats_monitor_while_belt_running(pad, disconnec
 ])
 def test_idle_watchdog_starts_stats_monitor_after_remote_resume(pad, monkeypatch, monitor_done, transitioning, started):
     on_sleep(monkeypatch, disconnect_on_sleep(2))
+
     async def monitor():
         pass
 

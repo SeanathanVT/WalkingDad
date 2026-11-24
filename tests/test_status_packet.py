@@ -126,6 +126,16 @@ def test_remote_resume_after_auto_pause(walking, monkeypatch):
     assert app.current_session_active_seconds == pytest.approx(2)  # the paused gap isn't counted
 
 
+def test_remote_resume_persists(walking, monkeypatch):
+    calls = []
+    monkeypatch.setattr(app, "_record_resume", lambda: calls.append("resumed"))
+    monkeypatch.setattr(app, "_save_session_state", lambda: calls.append("saved"))
+    monkeypatch.setattr(app, "belt_running", False)
+    walking(0)
+    walking(1.6)
+    assert calls == ["resumed", "saved"]
+
+
 def test_belt_slowing_after_a_pause_is_not_a_resume(walking, monkeypatch):
     monkeypatch.setattr(app, "belt_running", False)
     walking(2.0)
