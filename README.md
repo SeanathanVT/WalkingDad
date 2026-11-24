@@ -89,7 +89,7 @@ The app opens your browser automatically at `http://127.0.0.1:5001`. A console w
 1. Power on your WalkingPad. The app connects automatically on startup (up to 3 attempts with exponential backoff).
 2. Click **Start** to begin a session. Stats update in real time.
 3. Adjust speed with the control buttons, or click **Pause** to stop the belt.
-4. If you step off the pad, the app auto-pauses. Click **Resume** to pick back up.
+4. If you step off the pad, the app auto-pauses. Click **Resume** to pick back up. Pausing or resuming with the treadmill's remote is picked up too.
 5. Toggle themes or adjust settings with the icons in the side rail. Close the app with **Shut down** at the bottom of the rail.
 
 ## Apple Health Export

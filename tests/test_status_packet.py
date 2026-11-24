@@ -112,3 +112,33 @@ def test_logs_byte_16_changes_and_a_remote_press_clears_the_commanded_speed(walk
     assert app._commanded_speed_kmh is None
     assert caplog.text.count("controller_button") == 1
     assert "controller_button 3 -> 4" in caplog.text
+
+
+def test_remote_resume_after_auto_pause(walking, monkeypatch):
+    monkeypatch.setattr(app, "_commanded_speed_kmh", 3.0)
+    walking(3)
+    walking(0)
+    assert not app.belt_running
+    walking(1.6, after=10)
+    assert app.belt_running
+    assert app._commanded_speed_kmh is None  # +/- step from the speed the remote picked
+    walking(1.6)
+    assert app.current_session_active_seconds == pytest.approx(2)  # the paused gap isn't counted
+
+
+def test_belt_slowing_after_a_pause_is_not_a_resume(walking, monkeypatch):
+    monkeypatch.setattr(app, "belt_running", False)
+    walking(2.0)
+    walking(1.0)
+    assert not app.belt_running
+    walking(0)
+    walking(1.6)
+    assert app.belt_running
+
+
+def test_no_remote_resume_during_a_belt_sequence(walking, monkeypatch):
+    monkeypatch.setattr(app, "belt_running", False)
+    monkeypatch.setattr(app, "_belt_transitioning", True)
+    walking(0)
+    walking(1.6)
+    assert not app.belt_running

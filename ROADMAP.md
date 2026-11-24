@@ -171,7 +171,8 @@ Bleak 3.x takes the disconnect callback only as a `BleakClient` constructor argu
 ---
 
 ### 1.10 Resume from the Remote Isn't Detected
-- **Status:** Planned
+- **Status:** In progress: built, not yet checked on the treadmill
+- **Changelog:** `[Unreleased]`
 - **Priority:** High
 - **Problem:** Pausing with the physical remote works (auto-pause sees speed 0), but resuming with it doesn't: the session stays paused in the app while the belt runs. Seen on a C2, after both a remote and an app Pause:
     - Status arrives only every 10 s while paused (the idle watchdog's `ask_stats()`; the stats monitor stops on Pause), so the restart showed up up to 10 s late.
@@ -179,7 +180,7 @@ Bleak 3.x takes the disconnect callback only as a `BleakClient` constructor argu
     - Distance and steps from the pad keep accumulating while the app is paused, but active time doesn't, so the session's pace comes out wrong.
     - Byte 16 went 4 to 3 on a remote stop, so 3 doesn't mean "the app sent the last command" as 1.8 assumed; only 4 (after a remote speed press) is relied on.
 - **Solution:** While a session is paused and no belt sequence is running, treat a fresh status showing the belt moving as a Resume: mark the belt running, close the pause, restart the stats monitor, and forget the app's last commanded speed so `+`/`-` step from the reported one. Poll faster while paused (about every 2 s) so the page catches up quickly.
-- **Implementation:** Its own `bugfix/` branch, checked on the treadmill: remote Pause then remote Resume, and app Pause then remote Resume.
+- **Implementation:** `process_status_packet()` counts a moving reading as a Resume only after the paused belt has reported 0, so a belt still slowing after an app Pause doesn't resume the session. The idle watchdog pings every 2 s during a paused session (10 s with no session) and starts the stats monitor once the belt runs again. Still to check on the treadmill: remote Pause then remote Resume, and app Pause then remote Resume.
 ---
 
 ## Security & Code Quality
