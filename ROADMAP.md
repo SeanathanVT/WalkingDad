@@ -167,6 +167,19 @@ Bleak 3.x takes the disconnect callback only as a `BleakClient` constructor argu
     - **Procedure:** for Bluetooth-only treadmills (`SingleBleDevice` → `BlueMcuFirmwareManager` → `SingleBlueOta`), the update runs over `fe02`, the normal command characteristic, not the Beken `f000ffc1`/`f000ffc2` OAD service (unused by KS Fit). Framed like normal commands (`0xF7` … `0xFD`): `hand_shake` (2 s reply timeout), then `ing` frames of 15 image bytes each with a reply per frame (1.2 s timeout), then `end`, then reset. Exact frame bytes not yet decoded.
 - **Implementation:** Not built. If revisited, build the check only: an update over a 15-byte-per-frame custom protocol on the command characteristic, with no image verification on the app side, risks bricking the controller (recoverable at best over a serial connection). First confirm the parameters and the `model`/`product_detail_id` values for a C2 with one live `user.firmware` request. Decompiled output (jadx, blutter) is kept locally, untracked, in `tmp/ksfit-6.6.0/`.
 
+
+---
+
+### 1.10 Resume from the Remote Isn't Detected
+- **Status:** Planned
+- **Priority:** High
+- **Problem:** Pausing with the physical remote works (auto-pause sees speed 0), but resuming with it doesn't: the session stays paused in the app while the belt runs. Seen on a C2, after both a remote and an app Pause:
+    - Status arrives only every 10 s while paused (the idle watchdog's `ask_stats()`; the stats monitor stops on Pause), so the restart showed up up to 10 s late.
+    - The remote restarts the belt at 1.6 km/h, not the speed before the pause.
+    - Distance and steps from the pad keep accumulating while the app is paused, but active time doesn't, so the session's pace comes out wrong.
+    - Byte 16 went 4 to 3 on a remote stop, so 3 doesn't mean "the app sent the last command" as 1.8 assumed; only 4 (after a remote speed press) is relied on.
+- **Solution:** While a session is paused and no belt sequence is running, treat a fresh status showing the belt moving as a Resume: mark the belt running, close the pause, restart the stats monitor, and forget the app's last commanded speed so `+`/`-` step from the reported one. Poll faster while paused (about every 2 s) so the page catches up quickly.
+- **Implementation:** Its own `bugfix/` branch, checked on the treadmill: remote Pause then remote Resume, and app Pause then remote Resume.
 ---
 
 ## Security & Code Quality
