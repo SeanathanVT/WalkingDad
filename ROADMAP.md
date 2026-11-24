@@ -141,18 +141,20 @@ Bleak 3.x takes the disconnect callback only as a `BleakClient` constructor argu
 
 ---
 
-### 1.8 Commands Ignored After the Physical Remote, and Speed Steps During a Ramp
-- **Status:** In progress: everything except the remote's cause is built and checked on the C2
+### ✅ 1.8 Commands Ignored After the Physical Remote, and Speed Steps During a Ramp
+- **Status:** ✅ Complete
 - **Changelog:** `[Unreleased]`
 - **Priority:** High
+- **Files Modified:** `app.py`, `tests/conftest.py`, `tests/test_app_helpers.py`, `tests/test_ble_async.py`, `tests/test_routes.py`, `tests/test_status_packet.py`
 - **Problem:** Seen on a C2 (firmware 6.1.2, software 6.3.0) in a status-packet log:
     - After a press on the physical remote, status byte 16 changed from 3 to 2, and a Pause's `stop_belt()` (speed 0) had no effect until Resume's `start_belt()` about 4 s later. Resume's light-wake probe then took the slowing belt for a running one, and the session auto-paused.
     - A `change_speed()` sent ~0.3 s after another was silently not applied.
     - `+`/`-` step from the reported speed, which lags the target while the belt ramps (Max from 2.2 km/h took ~7 s). The status packet's `app_speed` byte carries the app-set target immediately, in km/h × 10 (`ph4-walkingpad`'s `/30` is wrong for the C2); the remote doesn't update it.
 - **Solution:** Reproduce each on the treadmill, then: find what byte 16 means and what makes app commands take effect again after the remote; have the light-wake probe require a rising speed; space or coalesce back-to-back speed commands; step from the speed the app last asked for while the belt ramps toward it.
-- **Implementation:** `bugfix/speed-commands-ramp`, checked on the C2.
-    - **Built:** the light-wake probe requires a fresh speed above the lowest reading since Resume, so a belt slowing to a stop never confirms. Speed commands are at least `_SPEED_COMMAND_SPACING_SECONDS` (1.0 s, unmeasured) apart, and a newer step cancels one still waiting. `+`/`-` step from the speed the app last asked for, so quick presses add up; after a remote speed press (byte 16 = 4) they step from the reported speed instead. `app_speed` is km/h × 10 on the C2 (byte 14 `0x36` with speed 5.4) but isn't used. Byte 16 (`controller_button`) changes are logged at INFO.
-    - **Open:** what byte 16 means and how app commands work again after a remote press. On the C2, byte 16 went 3 to 4 on a remote speed-down press while walking, and to 3 on both the app's `start_belt()` and a remote stop, so it doesn't simply mark which side sent the last command. A Pause right after that remote press still took effect (`app_speed` 0 within 0.5 s), so the ignored-commands case hasn't been reproduced; the original log's value 2 may come from a different remote button.
+- **Implementation:** Checked on the C2.
+    - **Built:** the light-wake probe requires a fresh speed above the lowest reading since Resume, so a belt slowing to a stop never confirms. Speed commands are at least `_SPEED_COMMAND_SPACING_SECONDS` (1.0 s, unmeasured) apart, and a newer step cancels one still waiting. `+`/`-` step from the speed the app last asked for, so quick presses add up; after a remote speed press (byte 16 = 2 for `+`, 4 for `-`) they step from the reported speed instead. `app_speed` is km/h × 10 on the C2 (byte 14 `0x36` with speed 5.4) but isn't used. Byte 16 (`controller_button`) changes are logged at INFO.
+    - **Not reproduced:** byte 16 tracks the last remote button (values below), but the app's `start_belt()` also sets it to 3, so it doesn't mark which side sent the last command. The original Pause ignored after a remote press never came back: a Pause right after a remote press took effect (`app_speed` 0 within 0.5 s). If it shows up again, open a new item with the status-packet log.
+    - **Byte 16 values on the C2's remote:** 2 after `+`, 4 after `-`, 3 after the center button stops the belt; restarting with the center button leaves it at 3.
 
 ---
 
@@ -166,6 +168,21 @@ Bleak 3.x takes the disconnect callback only as a `BleakClient` constructor argu
     - **Image:** downloaded from the response `url` and sent as raw bytes; the app neither decrypts it nor checks a hash. Whether the pad verifies a signature is unknown.
     - **Procedure:** for Bluetooth-only treadmills (`SingleBleDevice` → `BlueMcuFirmwareManager` → `SingleBlueOta`), the update runs over `fe02`, the normal command characteristic, not the Beken `f000ffc1`/`f000ffc2` OAD service (unused by KS Fit). Framed like normal commands (`0xF7` … `0xFD`): `hand_shake` (2 s reply timeout), then `ing` frames of 15 image bytes each with a reply per frame (1.2 s timeout), then `end`, then reset. Exact frame bytes not yet decoded.
 - **Implementation:** Not built. If revisited, build the check only: an update over a 15-byte-per-frame custom protocol on the command characteristic, with no image verification on the app side, risks bricking the controller (recoverable at best over a serial connection). First confirm the parameters and the `model`/`product_detail_id` values for a C2 with one live `user.firmware` request. Decompiled output (jadx, blutter) is kept locally, untracked, in `tmp/ksfit-6.6.0/`.
+
+---
+
+### ✅ 1.10 Resume from the Remote Isn't Detected
+- **Status:** ✅ Complete
+- **Changelog:** `[Unreleased]`
+- **Priority:** High
+- **Files Modified:** `app.py`, `templates/paused_session.html`, `README.md`, `tests/conftest.py`, `tests/test_ble_async.py`, `tests/test_status_packet.py`
+- **Problem:** Pausing with the physical remote works (auto-pause sees speed 0), but resuming with it doesn't: the session stays paused in the app while the belt runs. Seen on a C2, after both a remote and an app Pause:
+    - Status arrives only every 10 s while paused (the idle watchdog's `ask_stats()`; the stats monitor stops on Pause), so the restart showed up up to 10 s late.
+    - The remote restarts the belt at 1.6 km/h, not the speed before the pause.
+    - Distance and steps from the pad keep accumulating while the app is paused, but active time doesn't, so the session's pace comes out wrong.
+    - Byte 16 went 4 to 3 on a remote stop, so 3 doesn't mean "the app sent the last command" as 1.8 assumed; only 2 and 4 (after a remote speed press) are relied on.
+- **Solution:** While a session is paused and no belt sequence is running, treat a fresh status showing the belt moving as a Resume: mark the belt running, close the pause, restart the stats monitor, and forget the app's last commanded speed so `+`/`-` step from the reported one. Poll faster while paused (about every 2 s) so the page catches up quickly.
+- **Implementation:** `_watch_for_remote_resume()` counts a moving reading as a Resume only after the paused belt has reported 0, so a belt still slowing after an app Pause doesn't resume the session. The idle watchdog pings every 2 s during a paused session (10 s with no session) and starts the stats monitor once the belt runs again; the paused page reloads into the walking view when the stream reports the belt running. Checked on the C2: remote Pause then remote Resume, and app Pause then remote Resume.
 
 ---
 
@@ -285,7 +302,7 @@ Session data lives in a local SQLite database (`walkingdad.db`, configurable via
 | **Storage Module** | `storage.py` (stdlib `sqlite3`, no ORM) is the only place SQL lives. Short-lived connection per call, WAL mode, a module lock for writes |
 | **Schema** | `sessions` (UUID `id`, `status` active/completed, `profile`, SI totals, moving vs. elapsed time, `health_logged`, `has_samples`), `pauses` (start/end, reason `manual`/`auto`/`shutdown`), `samples` (per-second `t_ms`, speed, cumulative distance/steps, belt state, reserved `hr_bpm`), `meta` (`schema_version`, migration marker) |
 | **Live Lifecycle** | Row created at Start; pauses recorded at manual pause, step-off auto-pause, and Bluetooth drop; completed at End, stale-pause auto-end (1.5), or graceful shutdown |
-| **Samples** | ~1/s while walking, at most 1 per 5 s while paused (in practice every idle-watchdog ping, ~10 s), plus one at the moment of each manual or auto pause, buffered in memory and flushed on the existing 5 s `_save_session_state()` cadence, so a crash loses at most ~5 s. Storage failures are logged, never allowed to stop the belt or block BLE handling |
+| **Samples** | ~1/s while walking, at most 1 per 5 s while paused (in practice every third idle-watchdog ping, ~6 s), plus one at the moment of each manual or auto pause, buffered in memory and flushed on the existing 5 s `_save_session_state()` cadence, so a crash loses at most ~5 s. Storage failures are logged, never allowed to stop the belt or block BLE handling |
 | **Crash Recovery Link** | `session_state.json` carries the `session_id`: Restore continues the same row (downtime recorded as a `shutdown` pause), Discard deletes it. Unreferenced `active` rows are swept at startup: completed from their last sample, or deleted if they have none |
 | **JSON Migration** | One-time, automatic, single transaction: backup to `session_history.json.bak-<timestamp>`, then rename to `.migrated` (both in `data/backups/`). Unparseable records are logged and skipped; an unreadable file is left untouched for a later retry |
 | **Unchanged Surface** | `units.legacy_record()` rebuilds the pre-SQLite record shape, so the history table, Apple Health export, and CSV columns are identical (CSV gains trailing `id`, `has_samples`) |

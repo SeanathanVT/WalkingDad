@@ -16,7 +16,7 @@ _RESET = {
     "_speed_change_task": None, "_auto_reconnect_task": None, "_belt_transitioning": False,
     "session_active": False, "belt_running": False, "_session_start_time": None, "_session_id": None,
     "_session_start_monotonic": 0.0, "_pending_restore": None, "_paused_since": None,
-    "_resume_grace_deadline": 0, "_last_moving_packet_monotonic": None, "resume_speed_kmh": 2.0,
+    "_resume_grace_deadline": 0, "_last_moving_packet_monotonic": None, "_belt_seen_stopped": False, "resume_speed_kmh": 2.0,
     "current_speed_kmh": 0.0, "_commanded_speed_kmh": None,
     "_last_controller_button": None, "_last_speed_command_monotonic": 0.0, "current_distance_km": 0.0, "current_steps": 0, "current_calories": 0.0,
     "current_session_active_seconds": 0, "_last_dev_dist": 0, "_last_dev_steps": 0,
@@ -72,6 +72,8 @@ def walking(monkeypatch):
     monkeypatch.setattr(app, "current_distance_km", 0.0)
     monkeypatch.setattr(app, "current_steps", 0)
     monkeypatch.setattr(app, "_last_moving_packet_monotonic", None)
+    monkeypatch.setattr(app, "_belt_seen_stopped", False)
+    monkeypatch.setattr(app, "_commanded_speed_kmh", None)
     monkeypatch.setattr(app, "_last_dev_dist", 0)
     monkeypatch.setattr(app, "_last_dev_steps", 0)
     monkeypatch.setattr(app, "resume_speed_kmh", 3.0)

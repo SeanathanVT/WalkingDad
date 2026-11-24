@@ -1030,10 +1030,49 @@ def test_handle_disconnect_cancels_tasks_on_their_own_loop(app_state):
 def test_idle_watchdog_defers_to_stats_monitor_while_belt_running(pad, disconnects, monkeypatch):
     on_sleep(monkeypatch, disconnect_on_sleep(3))
     app.belt_running = True
+    app._stats_monitor_task = SimpleNamespace(done=lambda: False)
     pad.client.is_connected = False  # would trigger a disconnect if checked
     run(app._idle_connection_watchdog)
     assert pad.calls == []
     assert disconnects == []
+
+
+@pytest.mark.parametrize(("monitor_done", "transitioning", "started"), [
+    (True, False, True),  # a remote Resume left no monitor running
+    (False, False, False),
+    (True, True, False),  # the belt sequence starts its own
+])
+def test_idle_watchdog_starts_stats_monitor_after_remote_resume(pad, monkeypatch, monitor_done, transitioning, started):
+    on_sleep(monkeypatch, disconnect_on_sleep(2))
+
+    async def monitor():
+        pass
+
+    monkeypatch.setattr(app, "_stats_monitor", monitor)
+    previous = SimpleNamespace(done=lambda: monitor_done)
+    app._stats_monitor_task = previous
+    app.belt_running = True
+    app._belt_transitioning = transitioning
+    run(app._idle_connection_watchdog)
+    assert (app._stats_monitor_task is not previous) is started
+    assert pad.calls == []
+
+
+@pytest.mark.parametrize(("session_active", "interval"), [
+    (True, app._PAUSED_WATCHDOG_PING_INTERVAL_SECONDS),
+    (False, app._IDLE_WATCHDOG_PING_INTERVAL_SECONDS),
+])
+def test_idle_watchdog_polls_faster_while_paused(pad, monkeypatch, session_active, interval):
+    delays = []
+
+    async def fake(delay, result=None):
+        delays.append(delay)
+        app.connected = False
+
+    monkeypatch.setattr(app.asyncio, "sleep", fake)
+    app.session_active = session_active
+    run(app._idle_connection_watchdog)
+    assert delays == [interval]
 
 
 def test_idle_watchdog_pings_when_is_connected_raises(pad, disconnects, monkeypatch):

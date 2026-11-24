@@ -87,6 +87,7 @@ speed_history = deque(maxlen=15)
 # Monotonic time of the last status packet that showed the belt moving during a
 # walking segment; active time accrues from it. None = no open moving interval.
 _last_moving_packet_monotonic: float | None = None
+_belt_seen_stopped = False  # a paused session's belt has reported 0 since the pause (see _watch_for_remote_resume())
 # A longer gap between packets is counted only up to this, so a stall or a
 # report that arrives late after the belt stopped can't add much phantom time.
 _MAX_MOVING_GAP_SECONDS = 5
@@ -118,17 +119,19 @@ _last_status_update_monotonic = 0.0
 # notification in response to an explicit ask_stats() request -- it does not
 # push anything on its own -- so nothing else keeps _last_status_update_monotonic
 # fresh during those periods. _idle_connection_watchdog() pings periodically
-# whenever connected but no active stats monitor is running, purely to catch a
+# whenever connected but no active stats monitor is running, to catch a
 # dead link before the user notices only when they try to Resume.
 _IDLE_WATCHDOG_PING_INTERVAL_SECONDS = 10
+# Faster while a session is paused, so a Resume from the physical remote shows up within seconds.
+_PAUSED_WATCHDOG_PING_INTERVAL_SECONDS = 2
 # _stats_monitor() pairs the 15s threshold above with a 1s poll interval, so a
 # genuinely dead connection still gets ~15 chances to respond before it trips
 # -- one missed/delayed reply barely matters. The idle watchdog's 10s interval
 # would give the SAME 15s threshold only one chance, so a single slow reply
 # would force-disconnect an otherwise healthy paused session. Detection speed
-# matters far less while idle/paused (nobody's watching live stats), so this
+# matters far less while idle (nobody's watching live stats), so this
 # gets its own, much more forgiving threshold instead of sharing the active
-# one -- roughly 4-5 missed pings before disconnecting.
+# one -- roughly 4-5 missed idle pings (more while paused) before disconnecting.
 _IDLE_STALE_STATUS_TIMEOUT_SECONDS = 45
 # Auto-reconnect after an unexpected disconnect (see _handle_disconnect()/
 # _auto_reconnect()): capped exponential backoff between attempts, bounded
@@ -244,7 +247,7 @@ resume_speed_kmh = 2.0  # default if none yet
 current_speed_kmh = current_distance_km = 0.0
 _commanded_speed_kmh: float | None = None  # last speed the app asked for; None once the remote takes over
 _last_controller_button = None
-_REMOTE_CONTROLLER_BUTTON = 4  # status byte 16 after a speed press on a C2's physical remote
+_REMOTE_SPEED_BUTTONS = (2, 4)  # status byte 16 after + or - on a C2's physical remote
 current_steps = 0
 current_calories = 0.0
 current_session_active_seconds = 0
@@ -815,8 +818,9 @@ async def _safe_disconnect_client(client, context: str) -> None:
 
 async def _connect_to_pad() -> bool:
     global controller, _device_ble_address, _idle_watchdog_task, _last_status_update_monotonic
-    global _commanded_speed_kmh, _last_controller_button
+    global _commanded_speed_kmh, _last_controller_button, _belt_seen_stopped
     _commanded_speed_kmh = _last_controller_button = None  # the pad may have restarted since the last link
+    _belt_seen_stopped = False
     dev = None
     max_retries = 3
     retry_count = 0
@@ -898,8 +902,35 @@ def _note_controller_button(button):
     if button != _last_controller_button and _last_controller_button is not None:
         logging.info(f"Status controller_button {_last_controller_button} -> {button}")
     _last_controller_button = button
-    if button == _REMOTE_CONTROLLER_BUTTON:
+    if button in _REMOTE_SPEED_BUTTONS:
         _commanded_speed_kmh = None
+
+
+def _resume_from_remote():
+    """The belt restarted while paused (the physical remote's Resume): follow it as if Resume were clicked.
+    The idle watchdog then starts the stats monitor."""
+    global belt_running, _belt_seen_stopped, _commanded_speed_kmh
+    with _session_state_lock:
+        if belt_running or not session_active or _belt_transitioning:
+            return
+        logging.info("Belt restarted while paused. Resuming session.")
+        belt_running = True
+        _belt_seen_stopped = False
+        _commanded_speed_kmh = None  # the remote picked the speed
+        _record_resume()
+        _save_session_state()
+
+
+def _watch_for_remote_resume(speed_kmh: float):
+    """Armed only by a zero reading, so the belt slowing after an app Pause can't count as a Resume."""
+    global _belt_seen_stopped
+    if belt_running or not session_active:
+        _belt_seen_stopped = False
+    elif not _belt_transitioning:
+        if speed_kmh == 0:
+            _belt_seen_stopped = True
+        elif _belt_seen_stopped:
+            _resume_from_remote()
 
 
 def process_status_packet(dev_dist: float, dev_steps: int, dev_speed: float, button=None):
@@ -961,6 +992,8 @@ def process_status_packet(dev_dist: float, dev_steps: int, dev_speed: float, but
         belt_running = False
         just_auto_paused = True
 
+    _watch_for_remote_resume(new_reported_speed_kmh)
+
     # Cumulative stats accumulation
     if dev_dist < _last_dev_dist:
         _last_dev_dist = 0
@@ -974,7 +1007,7 @@ def process_status_packet(dev_dist: float, dev_steps: int, dev_speed: float, but
 
     current_speed_kmh = new_reported_speed_kmh
     current_calories = kcal_estimate(current_distance_km * KM_TO_MI)
-    _last_moving_packet_monotonic = now if walking and new_reported_speed_kmh > 0 else None
+    _last_moving_packet_monotonic = now if session_active and belt_running and new_reported_speed_kmh > 0 else None
     # Forced on auto-pause: the paused-rate throttle would otherwise drop the stop moment.
     _record_sample(force=just_auto_paused)
 
@@ -1121,6 +1154,17 @@ async def _run_locked(make_coro, timeout: float = _BLE_COMMAND_LOCK_TIMEOUT_SECO
             lock.release()
 
 
+def _watchdog_ping_interval() -> float:
+    return _PAUSED_WATCHDOG_PING_INTERVAL_SECONDS if session_active else _IDLE_WATCHDOG_PING_INTERVAL_SECONDS
+
+
+def _ensure_stats_monitor():
+    """Belt sequences start their own monitor; a remote Resume (_resume_from_remote()) leaves it to the idle watchdog."""
+    global _stats_monitor_task
+    if not _belt_transitioning and (_stats_monitor_task is None or _stats_monitor_task.done()):
+        _stats_monitor_task = asyncio.create_task(_stats_monitor())
+
+
 async def _idle_connection_watchdog():
     """Keep _last_status_update_monotonic fresh whenever _stats_monitor() isn't
     running (paused session or idle/no session), so a dead BLE link is caught
@@ -1131,11 +1175,12 @@ async def _idle_connection_watchdog():
     connect in _connect_to_pad(), cancelled on disconnect/shutdown).
     """
     while True:
-        await asyncio.sleep(_IDLE_WATCHDOG_PING_INTERVAL_SECONDS)
+        await asyncio.sleep(_watchdog_ping_interval())
         if not connected:
             break  # disconnected via another path; nothing left for this task to do
 
         if belt_running:
+            _ensure_stats_monitor()
             continue  # _stats_monitor() owns liveness now; keep waiting for it to finish
 
         # Cheap, no-wire-traffic check first: bleak caches the transport's own

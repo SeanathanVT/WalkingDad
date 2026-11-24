@@ -457,9 +457,10 @@ def test_rapid_speed_steps_accumulate(client, app_state, running, speeds, monkey
     assert [c.cr_frame.f_locals["dev_speed"] for c in app_state] == [35, 40]
 
 
-def test_remote_press_hands_stepping_back_to_the_reported_speed(client, app_state, running, speeds, monkeypatch):
+@pytest.mark.parametrize("button", [2, 4])  # the remote's + and -
+def test_remote_press_hands_stepping_back_to_the_reported_speed(client, app_state, running, speeds, monkeypatch, button):
     monkeypatch.setattr(app, "_commanded_speed_kmh", 3.0)
-    app.process_status_packet(0, 0, 45, button=app._REMOTE_CONTROLLER_BUTTON)
+    app.process_status_packet(0, 0, 45, button=button)
     client.post("/increase_speed")
     assert app_state[0].cr_frame.f_locals["dev_speed"] == 50
 

@@ -52,7 +52,8 @@
 
   startStatsStream(function(data) {
     // connection_failed flipping means auto-reconnect gave up: swap the spinner for Reconnect.
-    if (data.session_active === false || data.connection_failed !== {{ connection_failed|tojson }}) {
+    // is_running: the treadmill's remote resumed the belt.
+    if (data.session_active === false || data.is_running === true || data.connection_failed !== {{ connection_failed|tojson }}) {
       window.location.reload();
       return;
     }
